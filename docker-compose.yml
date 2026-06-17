@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: gigcrowd-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: gigcrowd
+    networks:
+      - gigcrowd-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gigcrowd-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/app/uploads
+    env_file:
+      - ./backend/.env
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - DATABASE_NAME=gigcrowd
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DEBUG=True
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:8000"]
+    depends_on:
+      - mongodb
+    networks:
+      - gigcrowd-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gigcrowd-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    depends_on:
+      - backend
+    networks:
+      - gigcrowd-network
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: gigcrowd-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - gigcrowd-network
+    profiles:
+      - with-queue
+
+volumes:
+  mongodb_data:
+  backend_uploads:
+  rabbitmq_data:
+
+networks:
+  gigcrowd-network:
+    driver: bridge
