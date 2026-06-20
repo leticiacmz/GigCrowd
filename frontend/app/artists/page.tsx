@@ -3,25 +3,19 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { eventAPI } from '../lib/api';
-import { format } from 'date-fns';
+import { artistAPI } from '../lib/api';
 
-interface Event {
+interface Artist {
   _id: string;
-  title: string;
-  artist_name: string;
-  venue_name: string;
-  date: string;
-  location: string;
+  name: string;
+  genre?: string;
   image_url?: string;
-  status: string;
-  going_count: number;
-  maybe_count: number;
+  followers_count?: number;
 }
 
-export default function EventsPage() {
+export default function ArtistsPage() {
   const router = useRouter();
-  const [events, setEvents] = useState<Event[]>([]);
+  const [artists, setArtists] = useState<Artist[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -33,16 +27,16 @@ export default function EventsPage() {
       return;
     }
 
-    loadEvents();
+    loadArtists();
   }, [router]);
 
-  const loadEvents = async () => {
+  const loadArtists = async () => {
     try {
       setLoading(true);
-      const data = await eventAPI.getEvents();
-      setEvents(data);
+      const data = await artistAPI.getArtists();
+      setArtists(data);
     } catch (error) {
-      console.error('Failed to load events:', error);
+      console.error('Failed to load artists:', error);
     } finally {
       setLoading(false);
     }
@@ -51,16 +45,16 @@ export default function EventsPage() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
-      loadEvents();
+      loadArtists();
       return;
     }
 
     try {
       setSearching(true);
-      const data = await eventAPI.getEvents({ query: searchQuery });
-      setEvents(data);
+      const data = await artistAPI.searchArtists(searchQuery);
+      setArtists(data);
     } catch (error) {
-      console.error('Failed to search events:', error);
+      console.error('Failed to search artists:', error);
     } finally {
       setSearching(false);
     }
@@ -78,6 +72,9 @@ export default function EventsPage() {
             <Link href="/feed" className="text-gray-400 hover:text-white transition-colors">
               Feed
             </Link>
+            <Link href="/events" className="text-gray-400 hover:text-white transition-colors">
+              Events
+            </Link>
             <Link href="/profile" className="text-gray-400 hover:text-white transition-colors">
               Profile
             </Link>
@@ -87,7 +84,7 @@ export default function EventsPage() {
 
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-6">Discover Events</h1>
+        <h1 className="text-3xl font-bold mb-6">Discover Artists</h1>
 
         {/* Search Bar */}
         <form onSubmit={handleSearch} className="mb-8">
@@ -96,7 +93,7 @@ export default function EventsPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search for artists, venues, or events..."
+              placeholder="Search for artists..."
               className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
             <button
@@ -109,45 +106,42 @@ export default function EventsPage() {
           </div>
         </form>
 
-        {/* Events Grid */}
+        {/* Artists Grid */}
         {loading ? (
           <div className="text-center py-12">
-            <div className="text-gray-400">Loading events...</div>
+            <div className="text-gray-400">Loading artists...</div>
           </div>
-        ) : events.length === 0 ? (
+        ) : artists.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-400 mb-4">No events found.</p>
+            <p className="text-gray-400 mb-4">No artists found.</p>
             <p className="text-gray-500">Try searching for your favorite artists!</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {events.map((event) => (
-              <Link
-                key={event._id}
-                href={`/events/${event._id}`}
+            {artists.map((artist) => (
+              <div
+                key={artist._id}
                 className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-gray-700 transition-colors"
               >
-                {event.image_url && (
+                {artist.image_url && (
                   <img
-                    src={event.image_url}
-                    alt={event.title}
+                    src={artist.image_url}
+                    alt={artist.name}
                     className="w-full h-48 object-cover"
                   />
                 )}
                 <div className="p-4">
-                  <h3 className="font-semibold text-white mb-2">{event.title}</h3>
-                  <p className="text-sm text-gray-400 mb-1">{event.artist_name}</p>
-                  <p className="text-sm text-gray-400 mb-1">{event.venue_name}</p>
-                  <p className="text-sm text-gray-400 mb-2">
-                    {format(new Date(event.date), 'MMM d, yyyy')}
-                  </p>
-                  <p className="text-sm text-gray-500">{event.location}</p>
-                  <div className="flex gap-4 mt-3 text-xs text-gray-500">
-                    <span>{event.going_count} going</span>
-                    <span>{event.maybe_count} maybe</span>
-                  </div>
+                  <h3 className="font-semibold text-white mb-2">{artist.name}</h3>
+                  {artist.genre && (
+                    <p className="text-sm text-gray-400 mb-2">{artist.genre}</p>
+                  )}
+                  {artist.followers_count && (
+                    <p className="text-sm text-gray-500">
+                      {artist.followers_count.toLocaleString()} followers
+                    </p>
+                  )}
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}
