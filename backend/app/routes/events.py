@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from app.models.event import EventCreate, EventResponse, EventUpdate, EventStatus
+from app.models.event import EventCreate, EventResponse, EventUpdate, EventStatusLiteral
 from app.services.event_service import EventService
 from app.models.show_log import ShowLogCreate, AttendanceStatus
 from app.services.show_log_service import ShowLogService
@@ -8,6 +8,9 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from app.config import settings
 from app.ingestion.sources.setlistfm_source import SetlistFmSource
+from app.ingestion.sources.ticketmaster_source import TicketMasterSource
+from app.ingestion.sources.bandsintown_source import BandsintownSource
+from app.ingestion.sources.spotify_source import SpotifySource
 from app.ingestion.normalizers.event_normalizer import EventNormalizer
 from app.ingestion.deduplicator.event_deduplicator import EventDeduplicator
 
@@ -27,7 +30,7 @@ async def get_events(
     limit: int = 50,
     artist_id: str = None,
     location: str = None,
-    status: EventStatus = None
+    status: EventStatusLiteral = None
 ):
     """Get events with optional filters"""
     events = await EventService.get_events(skip, limit, artist_id, location, status)
@@ -174,17 +177,46 @@ async def search_external_events(
                 "cached_at": cached_result["created_at"]
             }
     
-    # Fetch from external API
+    # Fetch from external API with fallback strategy
     try:
-        setlistfm = SetlistFmSource(api_key=settings.SETLIST_FM_API_KEY)
-        raw_events = await setlistfm.search_events(query)
+        # Strategy:
+        # - Past events: Setlist.fm (historical data)
+        # - Upcoming events (TicketMaster sales): TicketMaster API
+        # - Upcoming events (general): Bandsintown scraper
+        
+        raw_events = []
+        source = "unknown"
+        
+        # Try Setlist.fm first (good for both past and upcoming)
+        if settings.SETLIST_FM_API_KEY:
+            setlistfm = SetlistFmSource(api_key=settings.SETLIST_FM_API_KEY)
+            raw_events = await setlistfm.search_events(query)
+            source = "setlistfm"
+        
+        # If Setlist.fm returns no results, try TicketMaster (upcoming events with sales)
+        if not raw_events and settings.TICKETMASTER_CONSUMER_KEY:
+            ticketmaster = TicketMasterSource(
+                api_key=settings.TICKETMASTER_CONSUMER_KEY,
+                api_secret=settings.TICKETMASTER_CONSUMER_SECRET
+            )
+            raw_events = await ticketmaster.search_events(query)
+            source = "ticketmaster"
+        
+        # If TicketMaster also returns no results, try Bandsintown scraper (upcoming events general)
+        if not raw_events:
+            bandsintown = BandsintownSource()
+            raw_events = await bandsintown.search_events(query)
+            source = "bandsintown"
         
         if not raw_events:
             return {"source": "external", "events": []}
         
-        # Normalize events
+        # Normalize events based on source
         normalizer = EventNormalizer()
-        normalized_events = [normalizer.normalize(event) for event in raw_events]
+        normalized_events = []
+        for event in raw_events:
+            normalized = normalizer.normalize(event, source=source)
+            normalized_events.append(normalized)
         
         # Deduplicate against existing events
         deduplicator = EventDeduplicator(db)

@@ -19,6 +19,11 @@ class FollowInDB(FollowBase):
         populate_by_name = True
 
 
+class Follow(FollowInDB):
+    """Follow model for service layer"""
+    pass
+
+
 class FollowResponse(BaseModel):
     id: str
     follower_id: str

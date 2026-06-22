@@ -1,9 +1,10 @@
-import httpx
 from typing import List, Dict, Any, Optional
+import httpx
+from datetime import datetime
 
 
 class SetlistFmSource:
-    """Source for fetching events from Setlist.fm API"""
+    """Source for fetching event data from Setlist.fm API"""
     
     BASE_URL = "https://api.setlist.fm/rest/1.0"
     
@@ -15,96 +16,82 @@ class SetlistFmSource:
         }
     
     async def search_events(self, query: str) -> List[Dict[str, Any]]:
-        """
-        Search for events by artist name, venue, or city.
-        
-        Args:
-            query: Search query (artist name, venue, or city)
-            
-        Returns:
-            List of raw event data from Setlist.fm
-        """
+        """Search for events by artist name"""
         async with httpx.AsyncClient() as client:
-            # Try searching by artist first
+            # Search for artist first
             response = await client.get(
                 f"{self.BASE_URL}/search/artists",
-                headers=self.headers,
-                params={"p": 1, "query": query}
+                params={"artistName": query},
+                headers=self.headers
             )
             
             if response.status_code != 200:
                 return []
             
             artists = response.json().get("artist", [])
-            
             if not artists:
                 return []
             
-            # Get setlists for the first artist
-            artist_mbid = artists[0].get("mbid")
+            # Get first artist's MusicBrainz ID
+            artist = artists[0] if isinstance(artists, list) else artists
+            mbid = artist.get("mbid")
             
-            if not artist_mbid:
+            if not mbid:
                 return []
             
+            # Get artist's setlists
+            return await self.get_artist_events(mbid)
+    
+    async def get_artist_events(self, mbid: str) -> List[Dict[str, Any]]:
+        """Get events for a specific artist by MusicBrainz ID"""
+        async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.BASE_URL}/artist/{artist_mbid}/setlists",
-                headers=self.headers,
-                params={"p": 1}
+                f"{self.BASE_URL}/artist/{mbid}/setlists",
+                headers=self.headers
             )
             
             if response.status_code != 200:
                 return []
             
-            setlists = response.json().get("setlist", [])
+            data = response.json()
+            setlists = data.get("setlist", [])
             
-            # Convert setlists to event format
             events = []
             for setlist in setlists:
-                event = {
-                    "artist": setlist.get("artist", {}),
-                    "venue": setlist.get("venue", {}),
-                    "eventDate": setlist.get("eventDate"),
-                    "tour": setlist.get("tour", {}),
-                    "sets": setlist.get("sets", {}),
-                    "id": setlist.get("id")
-                }
-                events.append(event)
+                event = self._normalize_setlist(setlist)
+                if event:
+                    events.append(event)
             
             return events
     
-    async def get_artist_events(self, artist_mbid: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """
-        Get events for a specific artist by MusicBrainz ID.
-        
-        Args:
-            artist_mbid: MusicBrainz ID of the artist
-            limit: Maximum number of events to return
+    def _normalize_setlist(self, setlist: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Normalize setlist data to standard event format"""
+        try:
+            venue = setlist.get("venue", {})
+            city = venue.get("city", {})
+            country = city.get("country", {})
             
-        Returns:
-            List of raw event data from Setlist.fm
-        """
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.BASE_URL}/artist/{artist_mbid}/setlists",
-                headers=self.headers,
-                params={"p": 1}
-            )
+            event_date = setlist.get("eventDate")
+            if event_date:
+                # Parse date from DD-MM-YYYY format
+                date_obj = datetime.strptime(event_date, "%d-%m-%Y")
+            else:
+                return None
             
-            if response.status_code != 200:
-                return []
-            
-            setlists = response.json().get("setlist", [])[:limit]
-            
-            events = []
-            for setlist in setlists:
-                event = {
-                    "artist": setlist.get("artist", {}),
-                    "venue": setlist.get("venue", {}),
-                    "eventDate": setlist.get("eventDate"),
-                    "tour": setlist.get("tour", {}),
-                    "sets": setlist.get("sets", {}),
-                    "id": setlist.get("id")
-                }
-                events.append(event)
-            
-            return events
+            return {
+                "title": f"{setlist.get('artist', {}).get('name', 'Unknown')} Live",
+                "artist_name": setlist.get("artist", {}).get("name", "Unknown"),
+                "venue_name": venue.get("name", "Unknown Venue"),
+                "date": date_obj.isoformat(),
+                "location": f"{city.get('name', 'Unknown')}, {country.get('name', 'Unknown')}",
+                "city": city.get("name", "Unknown"),
+                "country": country.get("name", "Unknown"),
+                "description": f"Setlist from {event_date}",
+                "image_url": None,
+                "ticket_url": None,
+                "status": "past",
+                "source": "setlistfm"
+            }
+        except Exception as e:
+            print(f"Error normalizing setlist: {e}")
+            return None

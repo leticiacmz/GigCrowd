@@ -2,9 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database.connection import db
-from app.database.indexes import create_indexes
 from contextlib import asynccontextmanager
-from app.routes import auth, users, follows, artists, events, posts, feed, show_logs
+from app.routes import auth, users, follows, artists, events, posts, feed, show_logs, spotify_auth
 
 
 @asynccontextmanager
@@ -12,7 +11,6 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
     await db.connect()
-    await create_indexes()
     yield
     # Shutdown
     await db.disconnect()
@@ -42,6 +40,7 @@ app.include_router(events.router)
 app.include_router(posts.router)
 app.include_router(feed.router)
 app.include_router(show_logs.router)
+app.include_router(spotify_auth.router)
 
 
 @app.get("/")

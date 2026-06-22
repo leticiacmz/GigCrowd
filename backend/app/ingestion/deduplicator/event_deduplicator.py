@@ -1,66 +1,51 @@
-from typing import Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime
 
 
 class EventDeduplicator:
-    """Deduplicates events based on external IDs and other attributes"""
+    """Deduplicate events from multiple sources"""
     
-    def __init__(self, db):
-        self.db = db
-    
-    async def find_duplicate(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Check if an event already exists in the database.
-        
-        Args:
-            event: Event data to check for duplicates
-            
-        Returns:
-            Existing event if found, None otherwise
-        """
-        # Check by external_id first
-        if event.get("external_id"):
-            existing = await self.db.events.find_one({
-                "external_id": event["external_id"]
-            })
-            if existing:
-                return existing
-        
-        # Check by combination of artist, venue, and date
-        existing = await self.db.events.find_one({
-            "artist_id": event.get("artist_id"),
-            "venue_name": event.get("venue_name"),
-            "date": event.get("date")
-        })
-        
-        if existing:
-            return existing
-        
-        return None
-    
-    async def deduplicate_events(self, events: list) -> list:
-        """
-        Remove duplicate events from a list.
-        
-        Args:
-            events: List of events to deduplicate
-            
-        Returns:
-            Deduplicated list of events
-        """
+    @staticmethod
+    def deduplicate_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove duplicate events based on title, artist, venue, and date"""
         seen = set()
-        deduplicated = []
+        unique_events = []
         
         for event in events:
-            # Create a unique key based on artist, venue, and date
+            # Create a unique key based on event properties
             key = (
-                event.get("artist_id", ""),
+                event.get("title", ""),
+                event.get("artist_name", ""),
                 event.get("venue_name", ""),
                 event.get("date", "")
             )
             
             if key not in seen:
                 seen.add(key)
-                deduplicated.append(event)
+                unique_events.append(event)
         
-        return deduplicated
+        return unique_events
+    
+    @staticmethod
+    def merge_duplicate_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge duplicate events, keeping the most complete data"""
+        event_map = {}
+        
+        for event in events:
+            key = (
+                event.get("title", ""),
+                event.get("artist_name", ""),
+                event.get("venue_name", ""),
+                event.get("date", "")
+            )
+            
+            if key not in event_map:
+                event_map[key] = event
+            else:
+                # Merge with existing event, preferring non-null values
+                existing = event_map[key]
+                for field, value in event.items():
+                    if value is not None and existing.get(field) is None:
+                        existing[field] = value
+        
+        return list(event_map.values())

@@ -1,30 +1,30 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
 from datetime import datetime
-from enum import Enum
+from typing import Optional, Literal
 
 
-class EventStatus(str, Enum):
+class EventStatus:
     UPCOMING = "upcoming"
     ONGOING = "ongoing"
-    CANCELLED = "cancelled"
     PAST = "past"
+    CANCELLED = "cancelled"
+
+
+EventStatusLiteral = Literal["upcoming", "ongoing", "past", "cancelled"]
 
 
 class EventBase(BaseModel):
-    title: str = Field(..., min_length=1)
-    artist_id: str
+    title: str
+    artist_name: str
     venue_name: str
-    venue_id: Optional[str] = None
     date: datetime
-    location: str  # City, Country
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    location: str
+    city: str
+    country: str
     description: Optional[str] = None
     image_url: Optional[str] = None
     ticket_url: Optional[str] = None
-    price_min: Optional[float] = None
-    price_max: Optional[float] = None
+    status: str = EventStatus.UPCOMING
 
 
 class EventCreate(EventBase):
@@ -33,61 +33,41 @@ class EventCreate(EventBase):
 
 class EventUpdate(BaseModel):
     title: Optional[str] = None
+    artist_name: Optional[str] = None
     venue_name: Optional[str] = None
-    venue_id: Optional[str] = None
     date: Optional[datetime] = None
     location: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
     ticket_url: Optional[str] = None
-    price_min: Optional[float] = None
-    price_max: Optional[float] = None
-    status: Optional[EventStatus] = None
+    status: Optional[str] = None
 
 
 class EventInDB(EventBase):
     id: str = Field(alias="_id")
-    status: EventStatus = EventStatus.UPCOMING
-    attendees_count: int = 0
+    created_at: datetime
+    updated_at: datetime
     going_count: int = 0
     maybe_count: int = 0
     went_count: int = 0
-    is_cached: bool = False  # True if from cache, False if permanent
+    is_cached: bool = False
     cached_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
-    source: Optional[str] = None  # Where the event was ingested from
-    external_id: Optional[str] = None  # External API ID for deduplication
 
     class Config:
         populate_by_name = True
 
 
-class EventResponse(BaseModel):
+class EventResponse(EventBase):
     id: str
-    title: str
-    artist_id: str
-    venue_name: str
-    venue_id: Optional[str] = None
-    date: datetime
-    location: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    description: Optional[str] = None
-    image_url: Optional[str] = None
-    ticket_url: Optional[str] = None
-    price_min: Optional[float] = None
-    price_max: Optional[float] = None
-    status: EventStatus
-    attendees_count: int
-    going_count: int
-    maybe_count: int
-    went_count: int
-    is_cached: bool = False
     created_at: datetime
     updated_at: datetime
+    going_count: int = 0
+    maybe_count: int = 0
+    went_count: int = 0
+    is_cached: bool = False
+    cached_at: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
