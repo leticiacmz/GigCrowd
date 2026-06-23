@@ -1,7 +1,7 @@
 from app.database.connection import get_database
 from app.models.show_log import ShowLogCreate, ShowLogInDB, ShowLogUpdate, AttendanceStatus
 from app.services.event_service import EventService
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional, List
 
 
@@ -26,7 +26,7 @@ class ShowLogService:
             # Update existing log
             old_status = existing_log["status"]
             update_dict = show_log_data.model_dump(exclude_unset=True)
-            update_dict["updated_at"] = datetime.utcnow()
+            update_dict["updated_at"] = datetime.now(UTC)
             
             await db.show_logs.update_one(
                 {"_id": existing_log["_id"]},
@@ -44,8 +44,8 @@ class ShowLogService:
         show_log_dict = show_log_data.model_dump()
         show_log_dict["user_id"] = user_id
         show_log_dict["date"] = event.date
-        show_log_dict["created_at"] = datetime.utcnow()
-        show_log_dict["updated_at"] = datetime.utcnow()
+        show_log_dict["created_at"] = datetime.now(UTC)
+        show_log_dict["updated_at"] = datetime.now(UTC)
         
         result = await db.show_logs.insert_one(show_log_dict)
         show_log_dict["_id"] = str(result.inserted_id)

@@ -1,6 +1,6 @@
 from app.database.connection import get_database
 from app.models.event import EventCreate, EventInDB, EventUpdate, EventStatus
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional, List
 
 
@@ -16,8 +16,8 @@ class EventService:
         event_dict["going_count"] = 0
         event_dict["maybe_count"] = 0
         event_dict["went_count"] = 0
-        event_dict["created_at"] = datetime.utcnow()
-        event_dict["updated_at"] = datetime.utcnow()
+        event_dict["created_at"] = datetime.now(UTC)
+        event_dict["updated_at"] = datetime.now(UTC)
         
         result = await db.events.insert_one(event_dict)
         event_dict["_id"] = str(result.inserted_id)
@@ -72,7 +72,7 @@ class EventService:
         if not update_dict:
             return await EventService.get_event_by_id(event_id)
         
-        update_dict["updated_at"] = datetime.utcnow()
+        update_dict["updated_at"] = datetime.now(UTC)
         
         await db.events.update_one(
             {"_id": event_id},
@@ -87,7 +87,7 @@ class EventService:
         db = await get_database()
         await db.events.update_one(
             {"_id": event_id},
-            {"$set": {"status": status, "updated_at": datetime.utcnow()}}
+            {"$set": {"status": status, "updated_at": datetime.now(UTC)}}
         )
     
     @staticmethod

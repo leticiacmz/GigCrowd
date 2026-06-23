@@ -5,7 +5,7 @@ from app.models.show_log import ShowLogCreate, AttendanceStatus
 from app.services.show_log_service import ShowLogService
 from app.auth.dependencies import get_current_active_user
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from app.config import settings
 from app.ingestion.sources.setlistfm_source import SetlistFmSource
 from app.ingestion.sources.ticketmaster_source import TicketMasterSource
@@ -169,7 +169,7 @@ async def search_external_events(
     
     if cached_result:
         # Check if cache is still valid
-        cache_age = datetime.utcnow() - cached_result["created_at"]
+        cache_age = datetime.now(UTC) - cached_result["created_at"]
         if cache_age < timedelta(seconds=settings.CACHE_TTL_SECONDS):
             return {
                 "source": "cache",
@@ -230,7 +230,7 @@ async def search_external_events(
             else:
                 # Add to cache with temporary flag
                 event["is_cached"] = True
-                event["cached_at"] = datetime.utcnow()
+                event["cached_at"] = datetime.now(UTC)
                 final_events.append(event)
         
         # Store in cache collection with TTL
@@ -239,7 +239,7 @@ async def search_external_events(
             {
                 "$set": {
                     "events": final_events,
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(UTC),
                     "query": query
                 }
             },

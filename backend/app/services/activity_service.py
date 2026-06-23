@@ -1,6 +1,6 @@
 from app.database.connection import get_database
 from app.models.activity import ActivityCreate, ActivityInDB
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional, List
 
 
@@ -12,7 +12,7 @@ class ActivityService:
         
         activity_dict = activity_data.model_dump()
         activity_dict["user_id"] = user_id
-        activity_dict["created_at"] = datetime.utcnow()
+        activity_dict["created_at"] = datetime.now(UTC)
         
         result = await db.activities.insert_one(activity_dict)
         activity_dict["_id"] = str(result.inserted_id)

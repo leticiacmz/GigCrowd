@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, UTC
 from typing import List, Dict
 from app.database.connection import get_database
 
@@ -58,7 +58,7 @@ class FeedAlgorithm:
         activity_type = activity["activity_type"]
         
         # Recency score (decays over time)
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         days_old = (now - created_at).total_seconds() / 86400
         recency_score = max(0, 1 - (days_old / 30))  # 0 to 1, decays over 30 days
         

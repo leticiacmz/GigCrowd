@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, UTC
 
 
 class EventNormalizer:
@@ -40,7 +40,7 @@ class EventNormalizer:
         location = f"{city.get('name', '')}, {city.get('country', {}).get('name', '')}"
         
         normalized = {
-            "_id": raw_event.get("id", f"event_{datetime.utcnow().timestamp()}"),
+            "_id": raw_event.get("id", f"event_{datetime.now(UTC).timestamp()}"),
             "title": f"{artist.get('name', 'Unknown Artist')} Concert",
             "artist_id": artist.get("mbid", ""),
             "artist_name": artist.get("name", "Unknown Artist"),
@@ -55,13 +55,13 @@ class EventNormalizer:
             "description": raw_event.get("tour", {}).get("name", ""),
             "source": "setlistfm",
             "external_id": raw_event.get("id", ""),
-            "status": "upcoming" if event_date >= datetime.utcnow() else "past",
+            "status": "upcoming" if event_date >= datetime.now(UTC) else "past",
             "going_count": 0,
             "maybe_count": 0,
             "went_count": 0,
             "attendees_count": 0,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC)
         }
         
         return normalized
@@ -94,7 +94,7 @@ class EventNormalizer:
         ticket_url = raw_event.get("url", "")
         
         normalized = {
-            "_id": raw_event.get("id", f"event_{datetime.utcnow().timestamp()}"),
+            "_id": raw_event.get("id", f"event_{datetime.now(UTC).timestamp()}"),
             "title": raw_event.get("name", "Event"),
             "artist_id": artist_id,
             "artist_name": artist_name,
@@ -111,13 +111,13 @@ class EventNormalizer:
             "ticket_url": ticket_url,
             "source": "ticketmaster",
             "external_id": raw_event.get("id", ""),
-            "status": "upcoming" if event_date >= datetime.utcnow() else "past",
+            "status": "upcoming" if event_date >= datetime.now(UTC) else "past",
             "going_count": 0,
             "maybe_count": 0,
             "went_count": 0,
             "attendees_count": 0,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC)
         }
         
         return normalized
@@ -133,7 +133,7 @@ class EventNormalizer:
             datetime object
         """
         if not date_str:
-            return datetime.utcnow()
+            return datetime.now(UTC)
         
         try:
             # Setlist.fm format: DD-MM-YYYY
@@ -144,7 +144,7 @@ class EventNormalizer:
         except (ValueError, IndexError):
             pass
         
-        return datetime.utcnow()
+        return datetime.now(UTC)
     
     def _parse_ticketmaster_date(self, date_str: str) -> datetime:
         """
@@ -157,7 +157,7 @@ class EventNormalizer:
             datetime object
         """
         if not date_str:
-            return datetime.utcnow()
+            return datetime.now(UTC)
         
         try:
             # TicketMaster format: YYYY-MM-DD
@@ -168,7 +168,7 @@ class EventNormalizer:
         except (ValueError, IndexError):
             pass
         
-        return datetime.utcnow()
+        return datetime.now(UTC)
     
     def _normalize_bandsintown(self, raw_event: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize Bandsintown event data"""
@@ -176,7 +176,7 @@ class EventNormalizer:
         event_date = self._parse_bandsintown_date(raw_event.get("date"))
         
         normalized = {
-            "_id": raw_event.get("id", f"event_{datetime.utcnow().timestamp()}"),
+            "_id": raw_event.get("id", f"event_{datetime.now(UTC).timestamp()}"),
             "title": raw_event.get("title", "Event"),
             "artist_id": raw_event.get("artist_id", ""),
             "artist_name": raw_event.get("title", "Unknown Artist").split(" at ")[0] if " at " in raw_event.get("title", "") else raw_event.get("title", "Unknown Artist"),
@@ -193,13 +193,13 @@ class EventNormalizer:
             "ticket_url": raw_event.get("url", ""),
             "source": "bandsintown",
             "external_id": raw_event.get("id", ""),
-            "status": "upcoming" if event_date >= datetime.utcnow() else "past",
+            "status": "upcoming" if event_date >= datetime.now(UTC) else "past",
             "going_count": 0,
             "maybe_count": 0,
             "went_count": 0,
             "attendees_count": 0,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC)
         }
         
         return normalized
@@ -207,7 +207,7 @@ class EventNormalizer:
     def _parse_bandsintown_date(self, date_str: str) -> datetime:
         """Parse date string from Bandsintown format"""
         if not date_str:
-            return datetime.utcnow()
+            return datetime.now(UTC)
         
         try:
             # Try various date formats
@@ -232,12 +232,12 @@ class EventNormalizer:
         except:
             pass
         
-        return datetime.utcnow()
+        return datetime.now(UTC)
     
     def _normalize_spotify(self, raw_event: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize Spotify event data"""
         normalized = {
-            "_id": raw_event.get("id", f"event_{datetime.utcnow().timestamp()}"),
+            "_id": raw_event.get("id", f"event_{datetime.now(UTC).timestamp()}"),
             "title": raw_event.get("name", "Event"),
             "artist_id": raw_event.get("artist_id", ""),
             "artist_name": raw_event.get("artist_name", "Unknown Artist"),
@@ -253,13 +253,13 @@ class EventNormalizer:
             "image_url": raw_event.get("image_url"),
             "source": "spotify",
             "external_id": raw_event.get("id", ""),
-            "status": "upcoming" if self._parse_spotify_date(raw_event.get("date")) >= datetime.utcnow() else "past",
+            "status": "upcoming" if self._parse_spotify_date(raw_event.get("date")) >= datetime.now(UTC) else "past",
             "going_count": 0,
             "maybe_count": 0,
             "went_count": 0,
             "attendees_count": 0,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC)
         }
         
         return normalized
@@ -267,7 +267,7 @@ class EventNormalizer:
     def _parse_spotify_date(self, date_str: str) -> datetime:
         """Parse date string from Spotify format"""
         if not date_str:
-            return datetime.utcnow()
+            return datetime.now(UTC)
         
         try:
             return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
@@ -282,4 +282,4 @@ class EventNormalizer:
         except (ValueError, IndexError):
             pass
         
-        return datetime.utcnow()
+        return datetime.now(UTC)

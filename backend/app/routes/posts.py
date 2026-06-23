@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from typing import List, Optional
 from app.database.connection import get_database
 from app.auth.dependencies import get_current_active_user
-from datetime import datetime
+from datetime import datetime, UTC
 import uuid
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -22,8 +22,8 @@ async def create_post(
         "user_id": current_user["_id"],
         "content": content,
         "image_url": None,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
         "likes_count": 0,
         "comments_count": 0
     }

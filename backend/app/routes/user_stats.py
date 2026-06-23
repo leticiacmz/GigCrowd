@@ -3,7 +3,7 @@ from app.models.user import UserResponse
 from app.services.user_service import UserService
 from app.auth.dependencies import get_current_active_user
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, UTC
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -38,7 +38,7 @@ async def get_user_stats(current_user: dict = Depends(get_current_active_user)):
     # Get upcoming events
     upcoming_events = await db.events.find({
         "_id": {"$in": [log.get("event_id") for log in show_logs if log.get("status") in ["going", "maybe"]]},
-        "date": {"$gte": datetime.utcnow()}
+        "date": {"$gte": datetime.now(UTC)}
     }).to_list(length=None)
     
     # Get recent posts
@@ -104,7 +104,7 @@ async def update_user_preferences(
     from app.database.connection import get_database
     db = get_database()
     
-    update_data = {"updated_at": datetime.utcnow()}
+    update_data = {"updated_at": datetime.now(UTC)}
     if favorite_genres is not None:
         update_data["favorite_genres"] = favorite_genres
     if favorite_artists is not None:

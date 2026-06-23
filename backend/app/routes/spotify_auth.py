@@ -7,7 +7,7 @@ from app.models.user import UserResponse
 from app.services.user_service import UserService
 from typing import Dict, Any
 import httpx
-from datetime import datetime
+from datetime import datetime, UTC
 
 router = APIRouter(prefix="/auth/spotify", tags=["spotify-auth"])
 
@@ -142,14 +142,14 @@ async def connect_spotify(
         "spotify_id": current_user.get("spotify_id"),
         "spotify_access_token": access_token,
         "spotify_refresh_token": refresh_token,
-        "spotify_connected_at": datetime.utcnow(),
+        "spotify_connected_at": datetime.now(UTC),
         "favorite_artists": [artist.get("id") for artist in top_artists],
         "favorite_genres": list(set([
             genre 
             for artist in top_artists 
             for genre in artist.get("genres", [])
         ])),
-        "updated_at": datetime.utcnow()
+        "updated_at": datetime.now(UTC)
     }
     
     result = await db.users.update_one(
@@ -247,7 +247,7 @@ async def get_spotify_recommendations(
             unique_events.append(event)
     
     # Sort by date (upcoming first)
-    unique_events.sort(key=lambda x: x.get("date", datetime.utcnow()), reverse=False)
+    unique_events.sort(key=lambda x: x.get("date", datetime.now(UTC)), reverse=False)
     
     return {
         "source": "spotify_recommendations",
@@ -274,7 +274,7 @@ async def disconnect_spotify(current_user: dict = Depends(get_current_active_use
                 "spotify_refresh_token": "",
                 "spotify_connected_at": ""
             },
-            "$set": {"updated_at": datetime.utcnow()}
+            "$set": {"updated_at": datetime.now(UTC)}
         }
     )
     

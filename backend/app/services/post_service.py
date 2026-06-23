@@ -1,6 +1,6 @@
 from app.database.connection import get_database
 from app.models.post import PostCreate, PostInDB, PostUpdate
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional, List
 
 
@@ -14,8 +14,8 @@ class PostService:
         post_dict["user_id"] = user_id
         post_dict["likes_count"] = 0
         post_dict["comments_count"] = 0
-        post_dict["created_at"] = datetime.utcnow()
-        post_dict["updated_at"] = datetime.utcnow()
+        post_dict["created_at"] = datetime.now(UTC)
+        post_dict["updated_at"] = datetime.now(UTC)
         
         result = await db.posts.insert_one(post_dict)
         post_dict["_id"] = str(result.inserted_id)
@@ -66,7 +66,7 @@ class PostService:
         if not update_dict:
             return await PostService.get_post_by_id(post_id)
         
-        update_dict["updated_at"] = datetime.utcnow()
+        update_dict["updated_at"] = datetime.now(UTC)
         
         await db.posts.update_one(
             {"_id": post_id},

@@ -1,12 +1,19 @@
 from app.database.connection import get_database
 from app.models.user import UserCreate, UserInDB, UserUpdate
 from app.auth.security import get_password_hash, verify_password
-from datetime import datetime
+from datetime import datetime, UTC
 from bson import ObjectId
 from typing import Optional
 
 
 class UserService:
+
+    @staticmethod
+    def _convert_objectid_to_str(user: dict) -> dict:
+        if user:
+            user["_id"] = str(user["_id"])
+        return user
+    
     @staticmethod
     async def create_user(user_data: UserCreate) -> UserInDB:
         """Create a new user"""
@@ -31,8 +38,8 @@ class UserService:
         user_dict["is_active"] = True
         user_dict["followers_count"] = 0
         user_dict["following_count"] = 0
-        user_dict["created_at"] = datetime.utcnow()
-        user_dict["updated_at"] = datetime.utcnow()
+        user_dict["created_at"] = datetime.now(UTC)
+        user_dict["updated_at"] = datetime.now(UTC)
         
         result = await db.users.insert_one(user_dict)
         user_dict["_id"] = str(result.inserted_id)
@@ -43,9 +50,18 @@ class UserService:
     async def get_user_by_id(user_id: str) -> Optional[UserInDB]:
         """Get a user by ID"""
         db = await get_database()
-        user = await db.users.find_one({"_id": user_id})
+
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            return None
+
+        user = await db.users.find_one({"_id": object_id})
+
         if user:
+            user = UserService._convert_objectid_to_str(user)
             return UserInDB(**user)
+
         return None
     
     @staticmethod
@@ -54,6 +70,7 @@ class UserService:
         db = await get_database()
         user = await db.users.find_one({"email": email})
         if user:
+            user = UserService._convert_objectid_to_str(user)
             return UserInDB(**user)
         return None
     
@@ -63,6 +80,7 @@ class UserService:
         db = await get_database()
         user = await db.users.find_one({"username": username})
         if user:
+            user = UserService._convert_objectid_to_str(user)
             return UserInDB(**user)
         return None
     
@@ -75,12 +93,12 @@ class UserService:
         if not update_dict:
             return await UserService.get_user_by_id(user_id)
         
-        update_dict["updated_at"] = datetime.utcnow()
+        update_dict["updated_at"] = datetime.now(UTC)
         
         await db.users.update_one(
-            {"_id": user_id},
-            {"$set": update_dict}
-        )
+        {"_id": ObjectId(user_id)},
+        {"$set": update_dict}
+    )
         
         return await UserService.get_user_by_id(user_id)
     
@@ -95,37 +113,19 @@ class UserService:
         return user
     
     @staticmethod
-    async def increment_followers_count(user_id: str) -> None:
-        """Increment the followers count for a user"""
-        db = await get_database()
-        await db.users.update_one(
-            {"_id": user_id},
-            {"$inc": {"followers_count": 1}}
-        )
-    
-    @staticmethod
-    async def decrement_followers_count(user_id: str) -> None:
-        """Decrement the followers count for a user"""
-        db = await get_database()
-        await db.users.update_one(
-            {"_id": user_id},
-            {"$inc": {"followers_count": -1}}
-        )
-    
-    @staticmethod
     async def increment_following_count(user_id: str) -> None:
         """Increment the following count for a user"""
         db = await get_database()
         await db.users.update_one(
-            {"_id": user_id},
-            {"$inc": {"following_count": 1}}
-        )
+        {"_id": ObjectId(user_id)},
+        {"$inc": {"followers_count": 1}}
+    )
     
     @staticmethod
     async def decrement_following_count(user_id: str) -> None:
         """Decrement the following count for a user"""
         db = await get_database()
         await db.users.update_one(
-            {"_id": user_id},
-            {"$inc": {"following_count": -1}}
-        )
+        {"_id": ObjectId(user_id)},
+        {"$inc": {"following_count": -1}}
+    )
