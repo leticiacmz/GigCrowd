@@ -19,12 +19,16 @@ interface Event {
   maybe_count: number;
 }
 
+type EventMode = 'all' | 'past' | 'future';
+
 export default function EventsPage() {
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [eventMode, setEventMode] = useState<EventMode>('all');
+  const [specificDate, setSpecificDate] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -57,13 +61,58 @@ export default function EventsPage() {
 
     try {
       setSearching(true);
-      const data = await eventAPI.getEvents({ query: searchQuery });
-      setEvents(data);
+      
+      // If specific date is provided, use it with intelligent fallback
+      // Otherwise, use event_type filter
+      if (specificDate) {
+        const data = await eventAPI.searchExternal(
+          searchQuery,
+          undefined, // event_type ignored when specific_date is provided
+          specificDate,
+          undefined, // start_date
+          undefined  // end_date
+        );
+        setEvents(data.events || []);
+      } else {
+        // Use event_type filter (past/future)
+        const eventType = eventMode === 'all' ? 'future' : eventMode;
+        const data = await eventAPI.searchExternal(
+          searchQuery,
+          eventType,
+          undefined, // specific_date
+          undefined, // start_date
+          undefined  // end_date
+        );
+        setEvents(data.events || []);
+      }
     } catch (error) {
       console.error('Failed to search events:', error);
     } finally {
       setSearching(false);
     }
+  };
+
+  // Get date constraints based on event mode
+  const getDateConstraints = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (eventMode === 'past') {
+      // Past mode: max date is yesterday
+      return {
+        max: yesterday.toISOString().split('T')[0]
+      };
+    } else if (eventMode === 'future') {
+      // Future mode: min date is today
+      return {
+        min: today.toISOString().split('T')[0]
+      };
+    }
+    // All mode: no constraints
+    return {};
   };
 
   return (
@@ -89,16 +138,57 @@ export default function EventsPage() {
       <main className="max-w-6xl mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-6">Discover Events</h1>
 
+        {/* Event Mode Selector */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Event Mode
+          </label>
+          <select
+            value={eventMode}
+            onChange={(e) => {
+              setEventMode(e.target.value as EventMode);
+              setSpecificDate(''); // Reset date when mode changes
+            }}
+            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+          >
+            <option value="all">All Events</option>
+            <option value="past">Past Events</option>
+            <option value="future">Future Events</option>
+          </select>
+        </div>
+
         {/* Search Bar */}
         <form onSubmit={handleSearch} className="mb-8">
-          <div className="flex gap-4">
+          <div className="flex flex-col gap-4">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search for artists, venues, or events..."
+              placeholder="Search for artists..."
               className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
+            
+            {/* Specific Date Selector */}
+            {eventMode !== 'all' && (
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Specific Date (optional - uses intelligent fallback)
+                </label>
+                <input
+                  type="date"
+                  value={specificDate}
+                  onChange={(e) => setSpecificDate(e.target.value)}
+                  {...getDateConstraints()}
+                  className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {eventMode === 'past' 
+                    ? 'Only past dates allowed (yesterday and earlier)' 
+                    : 'Only future dates allowed (today and later)'}
+                </p>
+              </div>
+            )}
+            
             <button
               type="submit"
               disabled={searching}

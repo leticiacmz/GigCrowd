@@ -8,7 +8,7 @@ class EventService:
     @staticmethod
     async def create_event(event_data: EventCreate) -> EventInDB:
         """Create a new event"""
-        db = await get_database()
+        db = get_database()
         
         event_dict = event_data.model_dump()
         event_dict["status"] = EventStatus.UPCOMING
@@ -33,7 +33,7 @@ class EventService:
     @staticmethod
     async def get_event_by_id(event_id: str) -> Optional[EventInDB]:
         """Get an event by ID"""
-        db = await get_database()
+        db = get_database()
         event = await db.events.find_one({"_id": event_id})
         if event:
             return EventInDB(**event)
@@ -48,7 +48,7 @@ class EventService:
         status: Optional[EventStatus] = None
     ) -> List[EventInDB]:
         """Get events with optional filters"""
-        db = await get_database()
+        db = get_database()
         
         query = {}
         if artist_id:
@@ -66,7 +66,7 @@ class EventService:
     @staticmethod
     async def update_event(event_id: str, event_data: EventUpdate) -> Optional[EventInDB]:
         """Update an event"""
-        db = await get_database()
+        db = get_database()
         
         update_dict = event_data.model_dump(exclude_unset=True)
         if not update_dict:
@@ -84,7 +84,7 @@ class EventService:
     @staticmethod
     async def update_event_status(event_id: str, status: EventStatus) -> None:
         """Update event status"""
-        db = await get_database()
+        db = get_database()
         await db.events.update_one(
             {"_id": event_id},
             {"$set": {"status": status, "updated_at": datetime.now(UTC)}}
@@ -93,7 +93,7 @@ class EventService:
     @staticmethod
     async def increment_attendees_count(event_id: str) -> None:
         """Increment the attendees count for an event"""
-        db = await get_database()
+        db = get_database()
         await db.events.update_one(
             {"_id": event_id},
             {"$inc": {"attendees_count": 1}}
@@ -102,7 +102,7 @@ class EventService:
     @staticmethod
     async def update_attendance_counts(event_id: str, status: str, increment: bool = True) -> None:
         """Update attendance counts based on status"""
-        db = await get_database()
+        db = get_database()
         field = f"{status}_count"
         operation = "$inc" if increment else "$dec"
         value = 1 if increment else -1

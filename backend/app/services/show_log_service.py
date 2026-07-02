@@ -9,7 +9,7 @@ class ShowLogService:
     @staticmethod
     async def create_show_log(user_id: str, show_log_data: ShowLogCreate) -> ShowLogInDB:
         """Create or update a show log"""
-        db = await get_database()
+        db = get_database()
         
         # Check if event exists
         event = await EventService.get_event_by_id(show_log_data.event_id)
@@ -59,7 +59,7 @@ class ShowLogService:
     @staticmethod
     async def get_show_log(user_id: str, event_id: str) -> Optional[ShowLogInDB]:
         """Get a show log for a user and event"""
-        db = await get_database()
+        db = get_database()
         show_log = await db.show_logs.find_one({
             "user_id": user_id,
             "event_id": event_id
@@ -76,7 +76,7 @@ class ShowLogService:
         status: Optional[AttendanceStatus] = None
     ) -> List[ShowLogInDB]:
         """Get all show logs for a user"""
-        db = await get_database()
+        db = get_database()
         
         query = {"user_id": user_id}
         if status:
@@ -90,7 +90,7 @@ class ShowLogService:
     @staticmethod
     async def get_event_show_logs(event_id: str, skip: int = 0, limit: int = 50) -> List[ShowLogInDB]:
         """Get all show logs for an event"""
-        db = await get_database()
+        db = get_database()
         cursor = db.show_logs.find({"event_id": event_id}).sort("created_at", -1).skip(skip).limit(limit)
         show_logs = await cursor.to_list(length=limit)
         

@@ -1,3 +1,5 @@
+import asyncio
+import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
@@ -5,7 +7,11 @@ from app.database.connection import db
 from contextlib import asynccontextmanager
 from app.routes import auth, users, follows, artists, events, posts, feed, show_logs, spotify_auth
 
-
+# Set event loop policy for Windows (required for Playwright)
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(
+        asyncio.WindowsProactorEventLoopPolicy()
+    )
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""

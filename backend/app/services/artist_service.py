@@ -8,7 +8,7 @@ class ArtistService:
     @staticmethod
     async def create_artist(artist_data: ArtistCreate) -> ArtistInDB:
         """Create a new artist"""
-        db = await get_database()
+        db = get_database()
         
         # Check if artist already exists
         existing_artist = await db.artists.find_one({"name": artist_data.name})
@@ -29,7 +29,7 @@ class ArtistService:
     @staticmethod
     async def get_artist_by_id(artist_id: str) -> Optional[ArtistInDB]:
         """Get an artist by ID"""
-        db = await get_database()
+        db = get_database()
         artist = await db.artists.find_one({"_id": artist_id})
         if artist:
             return ArtistInDB(**artist)
@@ -38,7 +38,7 @@ class ArtistService:
     @staticmethod
     async def get_artist_by_name(name: str) -> Optional[ArtistInDB]:
         """Get an artist by name"""
-        db = await get_database()
+        db = get_database()
         artist = await db.artists.find_one({"name": name})
         if artist:
             return ArtistInDB(**artist)
@@ -47,7 +47,7 @@ class ArtistService:
     @staticmethod
     async def get_artists(skip: int = 0, limit: int = 50) -> List[ArtistInDB]:
         """Get all artists"""
-        db = await get_database()
+        db = get_database()
         cursor = db.artists.find().sort("name", 1).skip(skip).limit(limit)
         artists = await cursor.to_list(length=limit)
         
@@ -56,7 +56,7 @@ class ArtistService:
     @staticmethod
     async def update_artist(artist_id: str, artist_data: ArtistUpdate) -> Optional[ArtistInDB]:
         """Update an artist"""
-        db = await get_database()
+        db = get_database()
         
         update_dict = artist_data.model_dump(exclude_unset=True)
         if not update_dict:
@@ -74,7 +74,7 @@ class ArtistService:
     @staticmethod
     async def search_artists(query: str, skip: int = 0, limit: int = 50) -> List[ArtistInDB]:
         """Search artists by name"""
-        db = await get_database()
+        db = get_database()
         cursor = db.artists.find(
             {"name": {"$regex": query, "$options": "i"}}
         ).sort("name", 1).skip(skip).limit(limit)

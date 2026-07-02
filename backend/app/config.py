@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: Optional[str] = None
     
     # External APIs
+    BANDSINTOWN_APP_ID: Optional[str] = None
     SETLIST_FM_API_KEY: Optional[str] = None
     TICKETMASTER_CONSUMER_KEY: Optional[str] = None
     TICKETMASTER_CONSUMER_SECRET: Optional[str] = None

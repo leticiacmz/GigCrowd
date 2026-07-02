@@ -17,7 +17,7 @@ class UserService:
     @staticmethod
     async def create_user(user_data: UserCreate) -> UserInDB:
         """Create a new user"""
-        db = await get_database()
+        db = get_database()
         
         # Check if email already exists
         existing_user = await db.users.find_one({"email": user_data.email})
@@ -49,7 +49,7 @@ class UserService:
     @staticmethod
     async def get_user_by_id(user_id: str) -> Optional[UserInDB]:
         """Get a user by ID"""
-        db = await get_database()
+        db = get_database()
 
         try:
             object_id = ObjectId(user_id)
@@ -67,7 +67,7 @@ class UserService:
     @staticmethod
     async def get_user_by_email(email: str) -> Optional[UserInDB]:
         """Get a user by email"""
-        db = await get_database()
+        db = get_database()
         user = await db.users.find_one({"email": email})
         if user:
             user = UserService._convert_objectid_to_str(user)
@@ -77,7 +77,7 @@ class UserService:
     @staticmethod
     async def get_user_by_username(username: str) -> Optional[UserInDB]:
         """Get a user by username"""
-        db = await get_database()
+        db = get_database()
         user = await db.users.find_one({"username": username})
         if user:
             user = UserService._convert_objectid_to_str(user)
@@ -87,7 +87,7 @@ class UserService:
     @staticmethod
     async def update_user(user_id: str, user_data: UserUpdate) -> Optional[UserInDB]:
         """Update a user"""
-        db = await get_database()
+        db = get_database()
         
         update_dict = user_data.model_dump(exclude_unset=True)
         if not update_dict:
@@ -115,7 +115,7 @@ class UserService:
     @staticmethod
     async def increment_following_count(user_id: str) -> None:
         """Increment the following count for a user"""
-        db = await get_database()
+        db = get_database()
         await db.users.update_one(
         {"_id": ObjectId(user_id)},
         {"$inc": {"followers_count": 1}}
@@ -124,7 +124,7 @@ class UserService:
     @staticmethod
     async def decrement_following_count(user_id: str) -> None:
         """Decrement the following count for a user"""
-        db = await get_database()
+        db = get_database()
         await db.users.update_one(
         {"_id": ObjectId(user_id)},
         {"$inc": {"following_count": -1}}

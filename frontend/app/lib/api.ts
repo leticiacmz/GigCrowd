@@ -61,8 +61,13 @@ export const eventAPI = {
     });
     return response.data;
   },
-  searchExternal: async (query: string) => {
-    const response = await api.get('/events/search/external', { params: { query } });
+  searchExternal: async (query: string, eventType?: 'past' | 'future', specificDate?: string, startDate?: string, endDate?: string) => {
+    const params: any = { query };
+    if (eventType) params.event_type = eventType;
+    if (specificDate) params.specific_date = specificDate;
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+    const response = await api.get('/events/search/external', { params });
     return response.data;
   },
 };

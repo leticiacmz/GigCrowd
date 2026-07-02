@@ -16,7 +16,7 @@ async def get_feed(
     
     # Enrich activities with related data
     from app.database.connection import get_database
-    db = await get_database()
+    db = get_database()
     
     enriched_activities = []
     for activity in activities:

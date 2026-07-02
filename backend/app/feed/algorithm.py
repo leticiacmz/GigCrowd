@@ -14,7 +14,7 @@ class FeedAlgorithm:
         - Recent activities
         - Engagement score
         """
-        db = await get_database()
+        db = get_database()
         
         # Get users that the current user follows
         follows = await db.follows.find({"follower_id": user_id}).to_list(length=None)
@@ -79,7 +79,7 @@ class FeedAlgorithm:
     @staticmethod
     async def get_trending_events(limit: int = 20) -> List[Dict]:
         """Get trending events based on attendance and engagement"""
-        db = await get_database()
+        db = get_database()
         
         # Get events sorted by attendance counts
         events = await db.events.find(
@@ -100,7 +100,7 @@ class FeedAlgorithm:
         - Artists user follows (if we had artist follows)
         - Similar users' attendance
         """
-        db = await get_database()
+        db = get_database()
         
         # Get user's location
         user = await db.users.find_one({"_id": user_id})

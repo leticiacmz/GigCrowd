@@ -31,6 +31,6 @@ class Database:
 db = Database()
 
 
-async def get_database():
+def get_database():
     """Dependency to get database instance"""
     return db.get_database()

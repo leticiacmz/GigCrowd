@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 import httpx
-from datetime import datetime
+from datetime import datetime, timedelta, UTC
 
 
 class SetlistFmSource:
@@ -15,12 +15,27 @@ class SetlistFmSource:
             "x-api-key": api_key
         }
     
-    async def search_events(self, query: str) -> List[Dict[str, Any]]:
-        """Search for events by artist name"""
+    async def search_events(
+        self, 
+        query: str, 
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for events by artist name with optional date filtering.
+        
+        Args:
+            query: Artist name or search query
+            start_date: Start date for filtering (default: 2 years ago for past events)
+            end_date: End date for filtering (default: current date for past events)
+        
+        Returns:
+            List of normalized event data
+        """
         async with httpx.AsyncClient() as client:
-            # Search for artist first
+            # Search setlists directly by artist name
             response = await client.get(
-                f"{self.BASE_URL}/search/artists",
+                f"{self.BASE_URL}/search/setlists",
                 params={"artistName": query},
                 headers=self.headers
             )
@@ -28,22 +43,40 @@ class SetlistFmSource:
             if response.status_code != 200:
                 return []
             
-            artists = response.json().get("artist", [])
-            if not artists:
-                return []
+            data = response.json()
+            setlists = data.get("setlist", [])
             
-            # Get first artist's MusicBrainz ID
-            artist = artists[0] if isinstance(artists, list) else artists
-            mbid = artist.get("mbid")
+            events = []
+            for setlist in setlists:
+                event = self._normalize_setlist(setlist, start_date, end_date)
+                if event:
+                    events.append(event)
             
-            if not mbid:
-                return []
-            
-            # Get artist's setlists
-            return await self.get_artist_events(mbid)
+            return events
     
-    async def get_artist_events(self, mbid: str) -> List[Dict[str, Any]]:
-        """Get events for a specific artist by MusicBrainz ID"""
+    async def get_artist_events(
+        self, 
+        mbid: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get events for a specific artist by MusicBrainz ID with date filtering.
+        
+        Args:
+            mbid: MusicBrainz ID of the artist
+            start_date: Start date for filtering (default: 2 years ago)
+            end_date: End date for filtering (default: current date)
+        
+        Returns:
+            List of normalized event data filtered by date range
+        """
+        # Set default date range for past events (2 years back)
+        if not start_date:
+            start_date = datetime.now(UTC) - timedelta(days=730)  # 2 years
+        if not end_date:
+            end_date = datetime.now(UTC)
+        
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{self.BASE_URL}/artist/{mbid}/setlists",
@@ -58,14 +91,29 @@ class SetlistFmSource:
             
             events = []
             for setlist in setlists:
-                event = self._normalize_setlist(setlist)
+                event = self._normalize_setlist(setlist, start_date, end_date)
                 if event:
                     events.append(event)
             
             return events
     
-    def _normalize_setlist(self, setlist: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Normalize setlist data to standard event format"""
+    def _normalize_setlist(
+        self, 
+        setlist: Dict[str, Any],
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Normalize setlist data to standard event format with date filtering.
+        
+        Args:
+            setlist: Raw setlist data from API
+            start_date: Start date for filtering
+            end_date: End date for filtering
+        
+        Returns:
+            Normalized event data or None if outside date range
+        """
         try:
             venue = setlist.get("venue", {})
             city = venue.get("city", {})
@@ -73,10 +121,37 @@ class SetlistFmSource:
             
             event_date = setlist.get("eventDate")
             if event_date:
-                # Parse date from DD-MM-YYYY format
+                # Parse date from DD-MM-YYYY format (naive datetime)
                 date_obj = datetime.strptime(event_date, "%d-%m-%Y")
+                
+                # Remove timezone from start_date and end_date if present for comparison
+                start_date_naive = start_date.replace(tzinfo=None) if start_date and start_date.tzinfo else start_date
+                end_date_naive = end_date.replace(tzinfo=None) if end_date and end_date.tzinfo else end_date
+                
+                # Filter by date range if provided
+                if start_date_naive and date_obj < start_date_naive:
+                    return None
+                if end_date_naive and date_obj > end_date_naive:
+                    return None
             else:
                 return None
+            
+            # Extract setlist songs
+            sets_data = setlist.get("sets", {})
+            set_items = sets_data.get("set", [])
+            
+            songs = []
+            if set_items:
+                for set_item in set_items:
+                    songs_in_set = set_item.get("song", [])
+                    if songs_in_set:
+                        for song in songs_in_set:
+                            if isinstance(song, dict):
+                                song_name = song.get("name", "")
+                                if song_name:
+                                    songs.append(song_name)
+                            elif isinstance(song, str):
+                                songs.append(song)
             
             return {
                 "title": f"{setlist.get('artist', {}).get('name', 'Unknown')} Live",
@@ -90,7 +165,9 @@ class SetlistFmSource:
                 "image_url": None,
                 "ticket_url": None,
                 "status": "past",
-                "source": "setlistfm"
+                "source": "setlistfm",
+                "setlist": songs,
+                "setlist_count": len(songs)
             }
         except Exception as e:
             print(f"Error normalizing setlist: {e}")

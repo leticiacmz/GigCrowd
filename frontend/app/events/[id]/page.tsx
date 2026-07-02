@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { eventAPI } from '../lib/api';
+import { eventAPI } from '../../lib/api';
 import { format } from 'date-fns';
 
 interface Event {
@@ -22,6 +22,8 @@ interface Event {
   going_count: number;
   maybe_count: number;
   went_count: number;
+  setlist?: string[];
+  setlist_count?: number;
 }
 
 export default function EventDetailPage() {
@@ -158,6 +160,26 @@ export default function EventDetailPage() {
                 <div>
                   <h2 className="text-lg font-semibold text-white">Description</h2>
                   <p className="text-gray-400">{event.description}</p>
+                </div>
+              )}
+
+              {event.setlist && event.setlist.length > 0 && (
+                <div>
+                  <h2 className="text-lg font-semibold text-white mb-4">
+                    Setlist ({event.setlist_count || event.setlist.length} songs)
+                  </h2>
+                  <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+                    <ol className="space-y-2">
+                      {event.setlist.map((song, index) => (
+                        <li key={index} className="text-gray-300 flex items-start gap-3">
+                          <span className="text-purple-400 font-semibold min-w-[24px]">
+                            {index + 1}.
+                          </span>
+                          <span>{song}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
                 </div>
               )}
             </div>

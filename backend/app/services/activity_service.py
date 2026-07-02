@@ -8,7 +8,7 @@ class ActivityService:
     @staticmethod
     async def create_activity(user_id: str, activity_data: ActivityCreate) -> ActivityInDB:
         """Create a new activity"""
-        db = await get_database()
+        db = get_database()
         
         activity_dict = activity_data.model_dump()
         activity_dict["user_id"] = user_id
@@ -22,7 +22,7 @@ class ActivityService:
     @staticmethod
     async def get_user_activities(user_id: str, skip: int = 0, limit: int = 50) -> List[ActivityInDB]:
         """Get activities for a user"""
-        db = await get_database()
+        db = get_database()
         cursor = db.activities.find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit)
         activities = await cursor.to_list(length=limit)
         
@@ -31,7 +31,7 @@ class ActivityService:
     @staticmethod
     async def get_followed_activities(user_id: str, skip: int = 0, limit: int = 100) -> List[dict]:
         """Get activities from users that the current user follows"""
-        db = await get_database()
+        db = get_database()
         
         # Get list of followed users
         follows = await db.follows.find({"follower_id": user_id}).to_list(length=None)

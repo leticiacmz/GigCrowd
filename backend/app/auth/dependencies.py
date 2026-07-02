@@ -39,7 +39,11 @@ async def get_current_user(
     if not user:
         raise credentials_exception
 
-    return user.model_dump()
+    user_dict = user.model_dump(by_alias=True)
+    # Ensure both 'id' and '_id' are present for compatibility
+    if '_id' in user_dict and 'id' not in user_dict:
+        user_dict['id'] = user_dict['_id']
+    return user_dict
 
 
 async def get_current_active_user(

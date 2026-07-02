@@ -1,18 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from app.models.event import EventCreate, EventResponse, EventUpdate, EventStatusLiteral
+from app.models.event import EventCreate, EventResponse, EventUpdate, EventStatusLiteral, EventTypeLiteral
 from app.services.event_service import EventService
 from app.models.show_log import ShowLogCreate, AttendanceStatus
 from app.services.show_log_service import ShowLogService
 from app.auth.dependencies import get_current_active_user
+from app.database.connection import get_database
 from typing import List, Optional
 from datetime import datetime, timedelta, UTC
 from app.config import settings
-from app.ingestion.sources.setlistfm_source import SetlistFmSource
-from app.ingestion.sources.ticketmaster_source import TicketMasterSource
 from app.ingestion.sources.bandsintown_source import BandsintownSource
-from app.ingestion.sources.spotify_source import SpotifySource
-from app.ingestion.normalizers.event_normalizer import EventNormalizer
-from app.ingestion.deduplicator.event_deduplicator import EventDeduplicator
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -140,32 +136,85 @@ async def get_event_attendees(event_id: str, skip: int = 0, limit: int = 50):
 
 @router.get("/search/external")
 async def search_external_events(
-    query: str = Query(..., description="Search query (artist name, venue, or city)"),
-    skip: int = 0,
-    limit: int = 20
+    query: str = Query(..., description="Search query (artist name)"),
+    event_type: EventTypeLiteral = Query("future", description="Type of events: 'past' or 'future' (ignored if specific_date is provided)"),
+    specific_date: Optional[str] = Query(None, description="Specific date in YYYY-MM-DD format (uses intelligent fallback: exact date → ±1 week range → all events)"),
+    start_date: Optional[str] = Query(None, description="Start date for search range (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date for search range (ISO format)"),
+    skip: int = Query(0, ge=0, description="Number of results to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of results to return"),
+    database = Depends(get_database)
 ):
     """
-    Search events from external API (Setlist.fm) with intelligent caching.
+    Search events from external APIs with intelligent caching and date filtering.
     
     Strategy:
     1. Check cache in MongoDB first (if searched within 7 days)
-    2. If not cached, fetch from Setlist.fm API
-    3. Normalize and deduplicate
-    4. Store in MongoDB with TTL (7 days)
+    2. If not cached or cache expired, fetch from Bandsintown API:
+       - If specific_date provided: Use intelligent fallback (exact date → ±1 week → all events)
+       - If no specific_date: Use event_type filter (past/future/all)
+    3. Normalize events
+    4. Store in MongoDB cache with TTL (7 days)
     5. If user interacts with event, it becomes permanent
-    """
-    if not settings.SETLISTFM_API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Setlist.fm API key not configured"
-        )
     
-    # Check cache first
+    Cache Strategy:
+    - Cache key includes query and date filter for separate caching
+    - Cache is valid for 7 days
+    - On cache hit, return cached events
+    - On cache miss, fetch from API and update cache
+    """
     from app.database.connection import get_database
     db = get_database()
     
-    cache_key = f"search:{query.lower()}"
-    cached_result = await db.cache.find_one({"_id": cache_key})
+    # Parse date parameters if provided
+    parsed_start_date = None
+    parsed_end_date = None
+    if start_date:
+        try:
+            parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid start_date format. Use ISO format (e.g., 2024-01-01T00:00:00)"
+            )
+    if end_date:
+        try:
+            parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid end_date format. Use ISO format (e.g., 2024-12-31T23:59:59)"
+            )
+    
+    # Determine cache key and date strategy
+    if specific_date:
+        # Use specific date with intelligent fallback
+        cache_key = f"search:{query.lower()}:specific_date:{specific_date}"
+        date_strategy = f"specific_date:{specific_date}"
+    else:
+        # Use event_type filter
+        # Set default date ranges based on event_type
+        if event_type == "past":
+            if not parsed_start_date:
+                parsed_start_date = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=730)  # 2 years ago (naive)
+            if not parsed_end_date:
+                parsed_end_date = datetime.now(UTC).replace(tzinfo=None)  # naive
+        else:  # future
+            if not parsed_start_date:
+                parsed_start_date = datetime.now(UTC).replace(tzinfo=None)  # naive
+            if not parsed_end_date:
+                parsed_end_date = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=365)  # 1 year ahead (naive)
+        
+        # Also remove timezone from parsed dates if they were provided
+        if parsed_start_date and parsed_start_date.tzinfo:
+            parsed_start_date = parsed_start_date.replace(tzinfo=None)
+        if parsed_end_date and parsed_end_date.tzinfo:
+            parsed_end_date = parsed_end_date.replace(tzinfo=None)
+        
+        cache_key = f"search:{query.lower()}:{event_type}:{parsed_start_date.isoformat()}:{parsed_end_date.isoformat()}"
+        date_strategy = f"event_type:{event_type}"
+    
+    cached_result = await database.cache.find_one({"_id": cache_key})
     
     if cached_result:
         # Check if cache is still valid
@@ -173,88 +222,90 @@ async def search_external_events(
         if cache_age < timedelta(seconds=settings.CACHE_TTL_SECONDS):
             return {
                 "source": "cache",
-                "events": cached_result["events"],
-                "cached_at": cached_result["created_at"]
+                "events": cached_result["events"][skip:skip+limit],
+                "total": len(cached_result["events"]),
+                "cached_at": cached_result["created_at"],
+                "date_strategy": date_strategy
             }
     
-    # Fetch from external API with fallback strategy
+    # Fetch from external API using Bandsintown
     try:
-        # Strategy:
-        # - Past events: Setlist.fm (historical data)
-        # - Upcoming events (TicketMaster sales): TicketMaster API
-        # - Upcoming events (general): Bandsintown scraper
-        
         raw_events = []
-        source = "unknown"
+        source = "bandsintown"
         
-        # Try Setlist.fm first (good for both past and upcoming)
-        if settings.SETLIST_FM_API_KEY:
-            setlistfm = SetlistFmSource(api_key=settings.SETLIST_FM_API_KEY)
-            raw_events = await setlistfm.search_events(query)
-            source = "setlistfm"
-        
-        # If Setlist.fm returns no results, try TicketMaster (upcoming events with sales)
-        if not raw_events and settings.TICKETMASTER_CONSUMER_KEY:
-            ticketmaster = TicketMasterSource(
-                api_key=settings.TICKETMASTER_CONSUMER_KEY,
-                api_secret=settings.TICKETMASTER_CONSUMER_SECRET
+        # Use Bandsintown API
+        if not settings.BANDSINTOWN_APP_ID:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Bandsintown APP_ID not configured"
             )
-            raw_events = await ticketmaster.search_events(query)
-            source = "ticketmaster"
         
-        # If TicketMaster also returns no results, try Bandsintown scraper (upcoming events general)
-        if not raw_events:
-            bandsintown = BandsintownSource()
-            raw_events = await bandsintown.search_events(query)
-            source = "bandsintown"
+        bandsintown = BandsintownSource()
         
-        if not raw_events:
-            return {"source": "external", "events": []}
-        
-        # Normalize events based on source
-        normalizer = EventNormalizer()
-        normalized_events = []
-        for event in raw_events:
-            normalized = normalizer.normalize(event, source=source)
-            normalized_events.append(normalized)
-        
-        # Deduplicate against existing events
-        deduplicator = EventDeduplicator(db)
-        final_events = []
-        
-        for event in normalized_events:
-            # Check if event already exists in permanent storage
-            existing = await deduplicator.find_duplicate(event)
-            if existing:
-                final_events.append(existing)
+        # Use intelligent date fallback if specific_date provided, otherwise use event_type
+        if specific_date:
+            raw_events = await bandsintown.search_events_with_date_fallback(query, specific_date=specific_date)
+        else:
+            # Determine date filter based on event_type
+            if event_type == "past":
+                date_filter = "past"
+            elif event_type == "future":
+                date_filter = "upcoming"
             else:
-                # Add to cache with temporary flag
-                event["is_cached"] = True
-                event["cached_at"] = datetime.now(UTC)
-                final_events.append(event)
+                date_filter = "all"
+            
+            raw_events = await bandsintown.search_events(query, date_filter=date_filter)
+        
+        if not raw_events:
+            return {
+                "source": "bandsintown",
+                "events": [],
+                "total": 0,
+                "date_strategy": date_strategy
+            }
+        
+        # Events are already normalized by BandsintownSource
+        # Add cache metadata
+        final_events = []
+        for event in raw_events:
+            event["is_cached"] = True
+            event["cached_at"] = datetime.now(UTC)
+            final_events.append(event)
         
         # Store in cache collection with TTL
-        await db.cache.update_one(
+        cache_data = {
+            "events": final_events,
+            "created_at": datetime.now(UTC),
+            "query": query,
+            "date_strategy": date_strategy
+        }
+        
+        if specific_date:
+            cache_data["specific_date"] = specific_date
+        else:
+            cache_data["event_type"] = event_type
+            cache_data["start_date"] = parsed_start_date.isoformat()
+            cache_data["end_date"] = parsed_end_date.isoformat()
+        
+        await database.cache.update_one(
             {"_id": cache_key},
-            {
-                "$set": {
-                    "events": final_events,
-                    "created_at": datetime.now(UTC),
-                    "query": query
-                }
-            },
+            {"$set": cache_data},
             upsert=True
         )
         
-        # Create TTL index on cache collection
-        await db.cache.create_index("created_at", expireAfterSeconds=settings.CACHE_TTL_SECONDS)
+        # Create TTL index on cache collection if it doesn't exist
+        await database.cache.create_index("created_at", expireAfterSeconds=settings.CACHE_TTL_SECONDS)
         
         return {
-            "source": "external",
-            "events": final_events,
-            "cached": False
+            "source": "bandsintown",
+            "events": final_events[skip:skip+limit],
+            "total": len(final_events),
+            "cached": False,
+            "date_strategy": date_strategy
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
