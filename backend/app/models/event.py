@@ -1,50 +1,34 @@
 from pydantic import BaseModel, Field
+from typing import Optional, List
 from datetime import datetime
-from typing import Optional, Literal
+from enum import Enum
 
-
-class EventStatus:
+class EventStatus(str, Enum):
     UPCOMING = "upcoming"
     ONGOING = "ongoing"
     PAST = "past"
     CANCELLED = "cancelled"
 
-
-EventStatusLiteral = Literal["upcoming", "ongoing", "past", "cancelled"]
-
-
-class EventType:
-    PAST = "past"
-    FUTURE = "future"
-
-
-EventTypeLiteral = Literal["past", "future"]
-
-
-class EventSearchParams(BaseModel):
-    """Parameters for searching events"""
-    query: str = Field(..., description="Search query (artist name, venue, or city)")
-    event_type: EventTypeLiteral = Field("future", description="Type of events: 'past' or 'future'")
-    start_date: Optional[datetime] = Field(None, description="Start date for search range")
-    end_date: Optional[datetime] = Field(None, description="End date for search range")
-    skip: int = Field(0, ge=0, description="Number of results to skip")
-    limit: int = Field(20, ge=1, le=100, description="Maximum number of results to return")
-
-
 class EventBase(BaseModel):
     title: str
+    artist_id: Optional[str] = None
     artist_name: str
+
+    venue_id: Optional[str] = None
     venue_name: str
+
     date: datetime
     location: str
     city: str
     country: str
+
     description: Optional[str] = None
     image_url: Optional[str] = None
     ticket_url: Optional[str] = None
+
     status: str = EventStatus.UPCOMING
-    setlist: Optional[list] = None
-    setlist_count: Optional[int] = None
+
+    setlist: Optional[List[str]] = None
 
 
 class EventCreate(EventBase):
@@ -67,27 +51,17 @@ class EventUpdate(BaseModel):
 
 class EventInDB(EventBase):
     id: str = Field(alias="_id")
-    created_at: datetime
-    updated_at: datetime
+
     going_count: int = 0
     maybe_count: int = 0
     went_count: int = 0
-    is_cached: bool = False
-    cached_at: Optional[datetime] = None
+
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         populate_by_name = True
 
 
-class EventResponse(EventBase):
-    id: str
-    created_at: datetime
-    updated_at: datetime
-    going_count: int = 0
-    maybe_count: int = 0
-    went_count: int = 0
-    is_cached: bool = False
-    cached_at: Optional[datetime] = None
-
-    class Config:
-        populate_by_name = True
+class EventResponse(EventInDB):
+    pass

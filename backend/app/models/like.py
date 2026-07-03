@@ -24,14 +24,3 @@ class LikeInDB(LikeBase):
 
     class Config:
         populate_by_name = True
-
-
-class LikeResponse(BaseModel):
-    id: str
-    user_id: str
-    target_id: str
-    target_type: LikeTargetType
-    created_at: datetime
-
-    class Config:
-        populate_by_name = True

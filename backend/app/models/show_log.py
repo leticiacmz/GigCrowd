@@ -28,8 +28,9 @@ class ShowLogUpdate(BaseModel):
 
 class ShowLogInDB(ShowLogBase):
     id: str = Field(alias="_id")
+
     user_id: str
-    date: datetime
+
     created_at: datetime
     updated_at: datetime
 
@@ -37,15 +38,5 @@ class ShowLogInDB(ShowLogBase):
         populate_by_name = True
 
 
-class ShowLogResponse(BaseModel):
-    id: str
-    event_id: str
-    user_id: str
-    status: AttendanceStatus
-    notes: Optional[str] = None
-    date: datetime
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        populate_by_name = True
+class ShowLogResponse(ShowLogInDB):
+    pass

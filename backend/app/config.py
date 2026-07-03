@@ -34,9 +34,6 @@ class Settings(BaseSettings):
     SPOTIFY_CLIENT_ID: Optional[str] = None
     SPOTIFY_SECRET: Optional[str] = None
     
-    # Cache Configuration
-    CACHE_TTL_SECONDS: int = 604800  # 7 days for cached events
-    
     # CORS
     CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8000"]
     
