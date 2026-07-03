@@ -1,42 +1,35 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 
 
 class Settings(BaseSettings):
-    # Application
-    APP_NAME: str = "GigCrowd API"
-    APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True
     
-    # MongoDB
-    MONGODB_URL: str = "mongodb://localhost:27017"
-    DATABASE_NAME: str = "gigcrowd"
-    
-    # JWT
-    JWT_SECRET_KEY: str = "your-secret-key-change-in-production"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
-    
-    # Media Upload (Images only for MongoDB Atlas optimization)
-    MAX_IMAGE_SIZE_MB: int = 2  # Reduced for production
-    UPLOAD_DIR: str = "uploads"
-    
-    # Cloudinary (External image storage - saves MongoDB space)
-    CLOUDINARY_CLOUD_NAME: Optional[str] = None
-    CLOUDINARY_API_KEY: Optional[str] = None
-    CLOUDINARY_API_SECRET: Optional[str] = None
-    
-    # External APIs
-    BANDSINTOWN_APP_ID: Optional[str] = None
-    SETLIST_FM_API_KEY: Optional[str] = None
-    TICKETMASTER_CONSUMER_KEY: Optional[str] = None
-    TICKETMASTER_CONSUMER_SECRET: Optional[str] = None
-    SPOTIFY_CLIENT_ID: Optional[str] = None
-    SPOTIFY_SECRET: Optional[str] = None
-    
-    # CORS
-    CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8000"]
-    
+    APP_NAME: str
+    APP_VERSION: str
+    DEBUG: bool
+
+    MONGODB_URL: str
+    DATABASE_NAME: str
+
+    JWT_SECRET_KEY: str
+    JWT_ALGORITHM: str
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int
+
+    MAX_IMAGE_SIZE_MB: int
+    UPLOAD_DIR: str
+
+    CLOUDINARY_CLOUD_NAME: Optional[str]
+    CLOUDINARY_API_KEY: Optional[str]
+    CLOUDINARY_API_SECRET: Optional[str]
+
+    BANDSINTOWN_APP_ID: str
+
+    SPOTIFY_CLIENT_ID: str
+    SPOTIFY_CLIENT_SECRET: str
+    SPOTIFY_REDIRECT_URI: str
+
+    CORS_ORIGINS: List[str]
+
     class Config:
         env_file = ".env"
         case_sensitive = True

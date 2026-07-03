@@ -86,3 +86,4 @@ htmlcov/
 # Distribution
 dist/
 
+/architecture

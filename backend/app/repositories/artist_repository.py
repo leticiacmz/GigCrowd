@@ -8,8 +8,3 @@ class ArtistRepository(BaseRepository):
 
     async def get_by_name(self, name: str):
         return await self.find_one({"name": name})
-
-    async def search_by_name(self, query: str):
-        return await self.find_many({
-            "name": {"$regex": query, "$options": "i"}
-        })

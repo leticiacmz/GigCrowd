@@ -1,31 +1,27 @@
 from app.providers.base import BaseProvider
-from typing import List, Dict, Any
 from app.core.logger import get_logger
 
-logger = get_logger("spotify_provider")
+logger = get_logger("spotify")
 
 
 class SpotifyProvider(BaseProvider):
 
-    async def search_artist(self, query: str) -> List[Dict[str, Any]]:
-        logger.info(f"Searching Spotify artists: {query}")
+    async def search_artist(self, query: str):
+        logger.info(f"Spotify search: {query}")
 
-        # STUB (fase 1 não integra API ainda)
         return [
             {
-                "id": "spotify_1",
-                "name": f"{query} Artist 1",
+                "id": "sp_1",
+                "name": f"{query} (Spotify)",
                 "followers": 1000,
                 "source": "spotify"
             }
         ]
 
-    async def get_artist(self, artist_id: str) -> Dict[str, Any]:
-        logger.info(f"Getting Spotify artist: {artist_id}")
-
+    async def get_artist(self, artist_id: str):
         return {
             "id": artist_id,
-            "name": "Mock Artist",
+            "name": "Spotify Artist",
             "followers": 1000,
             "source": "spotify"
         }

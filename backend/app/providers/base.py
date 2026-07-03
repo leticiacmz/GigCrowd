@@ -6,9 +6,6 @@ class BaseProvider(ABC):
 
     @abstractmethod
     async def search_artist(self, query: str) -> List[Dict[str, Any]]:
-        """
-        Returns normalized artist list
-        """
         pass
 
     @abstractmethod
