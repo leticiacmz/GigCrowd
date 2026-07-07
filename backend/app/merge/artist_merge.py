@@ -1,5 +1,7 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
+
+from app.utils.slug import generate_slug
 
 
 class ArtistMerge:
@@ -7,16 +9,32 @@ class ArtistMerge:
     @staticmethod
     def merge(
         spotify: dict[str, Any] | None = None,
-        bandsintown: dict[str, Any] | None = None
+        bandsintown: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
 
         spotify = spotify or {}
         bandsintown = bandsintown or {}
 
-        return {
+        name = (
+            spotify.get("name")
+            or bandsintown.get("name")
+            or ""
+        )
 
-            "name": spotify.get("name")
-                or bandsintown.get("name"),
+        now = datetime.now(UTC)
+
+        providers = []
+
+        if spotify:
+            providers.append("spotify")
+
+        if bandsintown:
+            providers.append("bandsintown")
+
+        return {
+            "name": name,
+
+            "slug": generate_slug(name),
 
             "followers": spotify.get("followers", 0),
 
@@ -25,31 +43,24 @@ class ArtistMerge:
             "image": spotify.get("image"),
 
             "external_ids": {
-
                 "spotify": spotify.get("id"),
-
-                "bandsintown": bandsintown.get("id")
-
+                "bandsintown": bandsintown.get("id"),
             },
 
-            "providers": [
+            "providers": providers,
 
-                provider
+            "sync_metadata": {
+                "spotify_last_sync": now,
+                "bandsintown_last_sync": now,
+                "search_count": 1,
+                "sync_failures": 0,
+            },
 
-                for provider in [
-                    "spotify" if spotify else None,
-                    "bandsintown" if bandsintown else None
-                ]
+            "last_synced_at": now,
 
-                if provider
-            ],
+            "created_at": now,
 
-            "last_synced_at": datetime.now(UTC),
+            "updated_at": now,
 
-            "created_at": datetime.now(UTC),
-
-            "updated_at": datetime.now(UTC),
-
-            "sync_status": "pending"
-
+            "sync_status": "pending",
         }
