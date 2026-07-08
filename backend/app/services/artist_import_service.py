@@ -2,18 +2,12 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.repositories.artist_repository import ArtistRepository
+from app.utils.text import normalize_text
 
 logger = get_logger("artist_import")
 
 
 class ArtistImportService:
-    """
-    Responsible only for importing artists into GigCrowd.
-
-    This service does not search for artists.
-
-    It only imports an artist already chosen by the user.
-    """
 
     def __init__(
         self,
@@ -32,16 +26,21 @@ class ArtistImportService:
 
         if existing:
             logger.info(
-                f"Artist '{artist['name']}' already imported."
+                f"Artist '{artist['name']}' already exists."
             )
+
             return existing
+
+        artist["normalized_name"] = normalize_text(
+            artist["name"]
+        )
 
         await self.artist_repository.insert_one(
             artist
         )
 
         logger.info(
-            f"Artist '{artist['name']}' imported successfully."
+            f"Artist '{artist['name']}' imported."
         )
 
         return artist

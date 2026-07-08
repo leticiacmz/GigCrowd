@@ -1,5 +1,6 @@
 from app.repositories.base import BaseRepository
 from app.utils.slug import generate_slug
+from app.utils.text import normalize_text
 
 
 class ArtistRepository(BaseRepository):
@@ -10,9 +11,17 @@ class ArtistRepository(BaseRepository):
     async def get_by_slug(self, slug: str):
         return await self.find_one({"slug": slug})
 
-    async def get_by_name(self, name: str):
-        return await self.get_by_slug(
-            generate_slug(name)
+    async def get_by_name(
+    self,
+    name: str,
+    ):
+
+        normalized = normalize_text(name)
+
+        return await self.collection.find_one(
+            {
+                "normalized_name": normalized
+            }
         )
 
     async def get_by_external_id(

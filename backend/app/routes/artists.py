@@ -33,6 +33,7 @@ artist_repository = ArtistRepository(db)
 
 artist_search_service = ArtistSearchService(
     provider_manager=provider_manager,
+    artist_repository=artist_repository,
 )
 
 artist_import_service = ArtistImportService(
