@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ArtistSearchItem(BaseModel):
@@ -23,4 +23,4 @@ class ArtistSearchItem(BaseModel):
 
     verified: bool = False
 
-    genres: list[str] = []
+    genres: list[str] = Field(default_factory=list)

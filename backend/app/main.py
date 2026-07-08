@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from app.routes import artists
 
 from app.providers.registry import registry
-from app.providers.spotify import SpotifyProvider
+from app.providers.spotify.provider import SpotifyProvider
 from app.providers.bandsintown import BandsintownProvider
 
 

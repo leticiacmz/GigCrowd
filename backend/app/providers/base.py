@@ -1,13 +1,26 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+
+from app.schemas.artist_search import ArtistSearchItem
 
 
 class BaseProvider(ABC):
 
     @abstractmethod
-    async def search_artist(self, query: str) -> List[Dict[str, Any]]:
-        pass
+    async def search_artist(
+        self,
+        query: str,
+    ) -> list[ArtistSearchItem]:
+        """
+        Search artists in the provider.
+        """
+        raise NotImplementedError
 
     @abstractmethod
-    async def get_artist(self, artist_id: str) -> Dict[str, Any]:
-        pass
+    async def get_artist(
+        self,
+        artist_id: str,
+    ) -> dict:
+        """
+        Return complete provider artist payload.
+        """
+        raise NotImplementedError
