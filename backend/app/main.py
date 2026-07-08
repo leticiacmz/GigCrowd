@@ -10,22 +10,23 @@ from app.providers.bandsintown import BandsintownProvider
 from app.repositories.artist_repository import ArtistRepository
 
 from app.services.provider_manager import ProviderManager
-from app.services.discovery_service import DiscoveryService
+from app.services.artist_search_service import ArtistSearchService
+from app.services.artist_import_service import ArtistImportService
 
 app = FastAPI(title="GigCrowd")
 
 
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 # Database
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 
 client = AsyncIOMotorClient(settings.MONGODB_URL)
 db = client[settings.DATABASE_NAME]
 
 
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 # Providers
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 
 registry.register("spotify", SpotifyProvider())
 registry.register("bandsintown", BandsintownProvider())
@@ -33,44 +34,44 @@ registry.register("bandsintown", BandsintownProvider())
 provider_manager = ProviderManager()
 
 
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 # Repositories
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 
 artist_repository = ArtistRepository(db)
 
 
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 # Services
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 
-discovery_service = DiscoveryService(
-    artist_repository=artist_repository,
+artist_search_service = ArtistSearchService(
     provider_manager=provider_manager,
 )
 
+artist_import_service = ArtistImportService(
+    artist_repository=artist_repository,
+)
 
-# -------------------------------------------------------------------
-# Health Check
-# -------------------------------------------------------------------
+
+# ----------------------------------------------------
+# Health
+# ----------------------------------------------------
 
 @app.get("/")
 def health():
     return {"status": "ok"}
 
 
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 # Test Routes
-# -------------------------------------------------------------------
+# ----------------------------------------------------
 
 @app.get("/test/search")
 async def test_search(q: str):
-    return await discovery_service.search_artist(
-        "spotify",
-        q,
-    )
+    return await artist_search_service.search_artist(q)
 
 
 @app.post("/test/import")
 async def test_import(data: dict):
-    return await discovery_service.get_or_create_artist(data)
+    return await artist_import_service.import_artist(data)
