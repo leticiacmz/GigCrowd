@@ -1,6 +1,5 @@
-from typing import Any
-
 from app.core.logger import get_logger
+from app.schemas.artist_search import ArtistSearchItem
 from app.services.provider_manager import ProviderManager
 
 logger = get_logger("artist_search")
@@ -8,12 +7,9 @@ logger = get_logger("artist_search")
 
 class ArtistSearchService:
     """
-    Responsible only for searching artists in external providers.
+    Responsible only for searching artists.
 
-    This service does not:
-    - save artists
-    - import artists
-    - access MongoDB
+    It does not import or save artists.
     """
 
     def __init__(
@@ -25,20 +21,30 @@ class ArtistSearchService:
     async def search_artist(
         self,
         query: str,
-    ) -> list[dict[str, Any]]:
-        """
-        Search artists using the default provider.
-
-        Today:
-            Spotify
-
-        Future:
-            Spotify + cache + other providers.
-        """
+    ) -> list[ArtistSearchItem]:
 
         logger.info(f"Searching artist '{query}'")
 
-        return await self.provider_manager.search_artist(
+        spotify_results = await self.provider_manager.search_artist(
             provider_name="spotify",
             query=query,
         )
+
+        artists: list[ArtistSearchItem] = []
+
+        for artist in spotify_results:
+
+            artists.append(
+                ArtistSearchItem(
+                    provider="spotify",
+                    provider_artist_id=artist["id"],
+                    name=artist["name"],
+                    followers=artist.get("followers"),
+                    image=artist.get("image"),
+                    popularity=artist.get("popularity"),
+                    verified=artist.get("verified", False),
+                    genres=artist.get("genres", []),
+                )
+            )
+
+        return artists
