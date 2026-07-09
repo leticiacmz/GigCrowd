@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     SPOTIFY_CLIENT_ID: str
     SPOTIFY_CLIENT_SECRET: str
     SPOTIFY_REDIRECT_URI: str
+    SPOTIFY_API_URL: str 
+    SPOTIFY_AUTH_URL: str 
 
     CORS_ORIGINS: List[str]
 

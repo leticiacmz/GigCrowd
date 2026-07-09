@@ -1,34 +1,32 @@
 import httpx
 
 from app.config import settings
+from app.providers.spotify.auth import spotify_auth
 
 
 class SpotifyClient:
 
-    BASE_URL = "https://api.spotify.com/v1"
-
     def __init__(self):
 
         self.client = httpx.AsyncClient(
-            timeout=30
+            base_url=settings.SPOTIFY_API_URL,
+            timeout=30,
         )
 
-    async def search_artist(
-        self,
-        query: str,
-        token: str,
-    ):
+    async def search_artist(self, query: str):
+
+        token = await spotify_auth.get_access_token()
 
         response = await self.client.get(
-            f"{self.BASE_URL}/search",
+            "/search",
             params={
                 "q": query,
                 "type": "artist",
                 "limit": 10,
             },
             headers={
-                "Authorization": f"Bearer {token}"
-            }
+                "Authorization": f"Bearer {token}",
+            },
         )
 
         response.raise_for_status()
