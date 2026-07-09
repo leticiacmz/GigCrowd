@@ -13,7 +13,10 @@ class SpotifyClient:
             timeout=30,
         )
 
-    async def search_artist(self, query: str):
+    async def search_artist(
+        self,
+        query: str,
+    ) -> dict:
 
         token = await spotify_auth.get_access_token()
 
@@ -24,6 +27,24 @@ class SpotifyClient:
                 "type": "artist",
                 "limit": 10,
             },
+            headers={
+                "Authorization": f"Bearer {token}",
+            },
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
+    async def get_artist(
+        self,
+        artist_id: str,
+    ) -> dict:
+
+        token = await spotify_auth.get_access_token()
+
+        response = await self.client.get(
+            f"/artists/{artist_id}",
             headers={
                 "Authorization": f"Bearer {token}",
             },

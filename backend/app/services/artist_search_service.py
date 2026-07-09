@@ -2,7 +2,6 @@ from app.core.logger import get_logger
 from app.schemas.artist_search import ArtistSearchItem
 from app.services.provider_manager import ProviderManager
 from app.repositories.artist_repository import ArtistRepository
-from app.utils.text import normalize_text
 
 logger = get_logger("artist_search")
 
@@ -41,10 +40,7 @@ class ArtistSearchService:
             ]
 
         logger.info(
-            f"Artist '{query}' not found locally. Searching Spotify."
+            f"Artist '{query}' not found locally."
         )
 
-        return await self.provider_manager.search_artist(
-            provider_name="spotify",
-            query=query,
-        )
+        return await self.provider_manager.search_artist(query)

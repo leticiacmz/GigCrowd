@@ -2,6 +2,7 @@ from app.core.logger import get_logger
 
 from app.providers.base import BaseProvider
 from app.providers.spotify.client import SpotifyClient
+from app.providers.spotify.mapper import SpotifyMapper
 
 from app.schemas.artist_search import ArtistSearchItem
 
@@ -21,24 +22,22 @@ class SpotifyProvider(BaseProvider):
     ) -> list[ArtistSearchItem]:
 
         logger.info(
-            "Spotify search requested."
+            f"Searching Spotify artists: {query}"
         )
 
-        return [
-            ArtistSearchItem(
-                provider="spotify",
-                provider_artist_id="sp_1",
-                name=query,
-                followers=1000,
-            )
-        ]
+        response = await self.client.search_artist(query)
+
+        return SpotifyMapper.map_search_results(response)
 
     async def get_artist(
         self,
         artist_id: str,
     ):
 
-        return {
-            "provider": "spotify",
-            "provider_artist_id": artist_id,
-        }
+        logger.info(
+            f"Fetching Spotify artist: {artist_id}"
+        )
+
+        raise NotImplementedError(
+            "get_artist() will be implemented in the next commit."
+        )
