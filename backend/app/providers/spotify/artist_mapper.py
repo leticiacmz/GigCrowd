@@ -28,3 +28,25 @@ class SpotifyArtistMapper:
             )
 
         return results
+    
+    @staticmethod
+    def map_artist(payload: dict) -> dict:
+
+        images = payload.get("images", [])
+
+        return {
+            "provider": "spotify",
+            "provider_artist_id": payload["id"],
+            "name": payload["name"],
+            "normalized_name": payload["name"],
+            "followers": payload.get(
+                "followers",
+                {},
+            ).get(
+                "total",
+            ),
+            "image": images[0]["url"] if images else None,
+            "genres": payload.get("genres", []),
+            "popularity": payload.get("popularity"),
+            "verified": False,
+        }

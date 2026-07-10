@@ -35,9 +35,13 @@ class SpotifyProvider(BaseProvider):
     ):
 
         logger.info(
-            f"Fetching Spotify artist: {artist_id}"
+            f"Fetching Spotify artist {artist_id}"
         )
 
-        raise NotImplementedError(
-            "get_artist() will be implemented in the next commit."
+        response = await self.client.get_artist(
+            artist_id
+        )
+
+        return SpotifyArtistMapper.map_artist(
+            response
         )

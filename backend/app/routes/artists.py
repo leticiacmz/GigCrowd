@@ -37,6 +37,7 @@ artist_search_service = ArtistSearchService(
 )
 
 artist_import_service = ArtistImportService(
+    provider_manager=provider_manager,
     artist_repository=artist_repository,
 )
 
