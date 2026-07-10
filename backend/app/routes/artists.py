@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from app.services.artist_search_service import ArtistSearchService
 from app.services.artist_import_service import ArtistImportService
 from app.services.provider_manager import ProviderManager
-
+from app.schemas.artist_import import ArtistImportRequest
 from app.repositories.artist_repository import ArtistRepository
 
 from app.providers.registry import registry
@@ -51,5 +51,6 @@ async def search_artist(q: str):
 
 
 @router.post("/import")
-async def import_artist(data: dict):
+async def import_artist(
+    data: ArtistImportRequest,):
     return await artist_import_service.import_artist(data)

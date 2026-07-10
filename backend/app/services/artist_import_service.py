@@ -1,8 +1,8 @@
-from typing import Any
-
 from app.core.logger import get_logger
+
 from app.repositories.artist_repository import ArtistRepository
-from app.utils.text import normalize_text
+
+from app.schemas.artist_import import ArtistImportRequest
 
 logger = get_logger("artist_import")
 
@@ -17,30 +17,13 @@ class ArtistImportService:
 
     async def import_artist(
         self,
-        artist: dict[str, Any],
-    ) -> dict[str, Any]:
-
-        existing = await self.artist_repository.get_by_name(
-            artist["name"]
-        )
-
-        if existing:
-            logger.info(
-                f"Artist '{artist['name']}' already exists."
-            )
-
-            return existing
-
-        artist["normalized_name"] = normalize_text(
-            artist["name"]
-        )
-
-        await self.artist_repository.insert_one(
-            artist
-        )
+        request: ArtistImportRequest,
+    ):
 
         logger.info(
-            f"Artist '{artist['name']}' imported."
+            f"Import requested for {request.provider}: {request.provider_artist_id}"
         )
 
-        return artist
+        raise NotImplementedError(
+            "Testing. Spotify import will be implemented in the next commit."
+        )
