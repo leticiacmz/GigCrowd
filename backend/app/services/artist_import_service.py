@@ -46,8 +46,20 @@ class ArtistImportService:
             provider=request.provider,
             artist_id=request.provider_artist_id,
         )
-        
+
         artist.slug = await self.artist_repository.generate_unique_slug(
-    artist.name
-)
-        return artist
+            artist.name
+        )
+
+        await self.artist_repository.insert_artist(
+            artist
+        )
+
+        logger.info(
+            f"Artist '{artist.name}' imported successfully."
+        )
+
+        return await self.artist_repository.get_by_external_id(
+            request.provider,
+            request.provider_artist_id,
+        )

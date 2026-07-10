@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+from app.domain.artist import Artist
 from app.schemas.artist_search import ArtistSearchItem
 
 
@@ -19,8 +20,8 @@ class BaseProvider(ABC):
     async def get_artist(
         self,
         artist_id: str,
-    ) -> dict:
+    ) -> Artist:
         """
-        Return complete provider artist payload.
+        Return a domain Artist.
         """
         raise NotImplementedError

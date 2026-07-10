@@ -1,5 +1,7 @@
 from app.domain.artist import Artist
 
+from app.mappers.artist_document_mapper import ArtistDocumentMapper
+
 from app.repositories.base import BaseRepository
 
 from app.utils.slug import generate_slug
@@ -9,42 +11,67 @@ from app.utils.text import normalize_text
 class ArtistRepository(BaseRepository):
 
     def __init__(self, db):
-        super().__init__(db, "artists")
+
+        super().__init__(
+            db,
+            "artists",
+        )
 
     async def get_by_slug(
         self,
         slug: str,
-    ):
+    ) -> Artist | None:
 
-        return await self.find_one(
+        document = await self.find_one(
             {
                 "slug": slug,
             }
         )
 
+        if not document:
+            return None
+
+        return ArtistDocumentMapper.to_domain(
+            document
+        )
+
     async def get_by_name(
         self,
         name: str,
-    ):
+    ) -> Artist | None:
 
         normalized = normalize_text(name)
 
-        return await self.find_one(
+        document = await self.find_one(
             {
                 "normalized_name": normalized,
             }
+        )
+
+        if not document:
+            return None
+
+        return ArtistDocumentMapper.to_domain(
+            document
         )
 
     async def get_by_external_id(
         self,
         provider: str,
         external_id: str,
-    ):
+    ) -> Artist | None:
 
-        return await self.find_one(
+        document = await self.find_one(
             {
                 f"external_ids.{provider}": external_id,
             }
+        )
+
+        if not document:
+            return None
+
+        return ArtistDocumentMapper.to_domain(
+            document
         )
 
     async def generate_unique_slug(
