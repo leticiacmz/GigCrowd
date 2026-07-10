@@ -1,7 +1,7 @@
 from app.schemas.artist_search import ArtistSearchItem
 
 
-class SpotifyMapper:
+class SpotifyArtistMapper:
 
     @staticmethod
     def map_search_results(payload: dict) -> list[ArtistSearchItem]:

@@ -2,7 +2,7 @@ from app.core.logger import get_logger
 
 from app.providers.base import BaseProvider
 from app.providers.spotify.client import SpotifyClient
-from app.providers.spotify.mapper import SpotifyMapper
+from app.providers.spotify.artist_mapper import SpotifyArtistMapper
 
 from app.schemas.artist_search import ArtistSearchItem
 
@@ -27,7 +27,7 @@ class SpotifyProvider(BaseProvider):
 
         response = await self.client.search_artist(query)
 
-        return SpotifyMapper.map_search_results(response)
+        return SpotifyArtistMapper.map_search_results(response)
 
     async def get_artist(
         self,
