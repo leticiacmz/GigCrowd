@@ -2,6 +2,7 @@ from app.domain.artist import Artist
 
 from app.repositories.base import BaseRepository
 
+from app.utils.slug import generate_slug
 from app.utils.text import normalize_text
 
 
@@ -17,7 +18,7 @@ class ArtistRepository(BaseRepository):
 
         return await self.find_one(
             {
-                "slug": slug
+                "slug": slug,
             }
         )
 
@@ -30,7 +31,7 @@ class ArtistRepository(BaseRepository):
 
         return await self.find_one(
             {
-                "normalized_name": normalized
+                "normalized_name": normalized,
             }
         )
 
@@ -42,9 +43,28 @@ class ArtistRepository(BaseRepository):
 
         return await self.find_one(
             {
-                f"external_ids.{provider}": external_id
+                f"external_ids.{provider}": external_id,
             }
         )
+
+    async def generate_unique_slug(
+        self,
+        name: str,
+    ) -> str:
+
+        base_slug = generate_slug(name)
+
+        slug = base_slug
+
+        counter = 2
+
+        while await self.get_by_slug(slug):
+
+            slug = f"{base_slug}-{counter}"
+
+            counter += 1
+
+        return slug
 
     async def insert_artist(
         self,
