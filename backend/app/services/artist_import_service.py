@@ -1,7 +1,9 @@
 from app.core.logger import get_logger
 
 from app.repositories.artist_repository import ArtistRepository
+
 from app.schemas.artist_import import ArtistImportRequest
+
 from app.services.provider_manager import ProviderManager
 
 
@@ -26,6 +28,19 @@ class ArtistImportService:
         logger.info(
             f"Import requested for {request.provider}: {request.provider_artist_id}"
         )
+
+        existing = await self.artist_repository.get_by_external_id(
+            request.provider,
+            request.provider_artist_id,
+        )
+
+        if existing:
+
+            logger.info(
+                "Artist already imported."
+            )
+
+            return existing
 
         artist = await self.provider_manager.get_artist(
             provider=request.provider,

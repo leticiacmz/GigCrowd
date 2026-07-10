@@ -31,14 +31,26 @@ class ArtistSearchService:
 
             return [
                 ArtistSearchItem(
-                    provider="gigcrowd",
-                    provider_artist_id=str(existing["_id"]),
+
+                    provider="spotify",
+
+                    provider_artist_id=existing["external_ids"]["spotify"],
+
                     name=existing["name"],
+
                     followers=existing.get("followers"),
+
                     image=existing.get("image"),
+
+                    popularity=existing.get("popularity"),
+
+                    genres=existing.get("genres", []),
+
+                    verified=existing.get("verified", False),
+
+                    is_imported=True,
                 )
             ]
-
         logger.info(
             f"Artist '{query}' not found locally."
         )

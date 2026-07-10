@@ -1,13 +1,8 @@
-from typing import Optional
-
 from pydantic import BaseModel, Field
+from typing import Optional
 
 
 class ArtistSearchItem(BaseModel):
-    """
-    Standard search result returned to the frontend,
-    regardless of the provider.
-    """
 
     provider: str
 
@@ -24,3 +19,5 @@ class ArtistSearchItem(BaseModel):
     verified: bool = False
 
     genres: list[str] = Field(default_factory=list)
+
+    is_imported: bool = False
