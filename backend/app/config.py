@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: Optional[str]
 
     BANDSINTOWN_APP_ID: str
-
+    BANDSINTOWN_BASE_URL: str
+    
     SPOTIFY_CLIENT_ID: str
     SPOTIFY_CLIENT_SECRET: str
     SPOTIFY_REDIRECT_URI: str
@@ -37,4 +38,5 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 
+settings = Settings()
 settings = Settings()

@@ -4,9 +4,9 @@ from app.routes import artists
 
 from app.providers.registry import registry
 from app.providers.spotify.provider import SpotifyProvider
-from app.providers.bandsintown import BandsintownProvider
+from app.providers.bandsintown.provider import BandsintownProvider
 from app.providers.spotify.auth import spotify_auth
-
+from app.providers.bandsintown.client import BandsintownClient
 
 app = FastAPI(title="GigCrowd")
 
@@ -36,10 +36,11 @@ def health():
         "status": "ok",
     }
 
-@app.get("/test/token")
-async def test_token():
-    token = await spotify_auth.get_access_token()
+@app.get("/test/bandsintown")
+async def test_bandsintown():
 
-    return {
-        "token": token[:20]
-    }
+    client = BandsintownClient()
+
+    return await client.get_artist_events(
+        "Coldplay"
+    )
