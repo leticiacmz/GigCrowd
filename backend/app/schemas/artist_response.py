@@ -5,20 +5,24 @@ from pydantic import BaseModel, Field
 
 class ArtistResponse(BaseModel):
 
-    id: str
+    provider: str
+
+    provider_artist_id: str
 
     name: str
 
-    slug: str
+    followers: int | None
 
-    followers: Optional[int] = None
+    image: str | None
 
-    image: Optional[str] = None
+    genres: list[str]
 
-    genres: list[str] = Field(default_factory=list)
+    popularity: int | None
 
-    popularity: Optional[int] = None
+    verified: bool
 
-    verified: bool = False
+    is_imported: bool
 
-    is_imported: bool = True
+    slug: str | None = None
+
+    id: str | None = None

@@ -5,7 +5,7 @@ from app.repositories.artist_repository import ArtistRepository
 from app.schemas.artist_import import ArtistImportRequest
 
 from app.services.provider_manager import ProviderManager
-
+from app.mappers.artist_response_mapper import ArtistResponseMapper
 
 logger = get_logger("artist_import")
 
@@ -59,7 +59,4 @@ class ArtistImportService:
             f"Artist '{artist.name}' imported successfully."
         )
 
-        return await self.artist_repository.get_by_external_id(
-            request.provider,
-            request.provider_artist_id,
-        )
+        return ArtistResponseMapper.from_domain(artist)

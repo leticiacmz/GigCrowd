@@ -26,7 +26,7 @@ class SpotifyProvider(BaseProvider):
         )
 
         response = await self.client.search_artist(query)
-
+        
         return SpotifyArtistMapper.map_search_results(response)
 
     async def get_artist(

@@ -2,6 +2,8 @@ from app.core.logger import get_logger
 from app.schemas.artist_search import ArtistSearchItem
 from app.services.provider_manager import ProviderManager
 from app.repositories.artist_repository import ArtistRepository
+from app.schemas.artist_response import ArtistResponse
+from app.mappers.artist_response_mapper import ArtistResponseMapper
 
 logger = get_logger("artist_search")
 
@@ -25,34 +27,45 @@ class ArtistSearchService:
 
         if existing:
 
-            logger.info(
-                f"Artist '{query}' found locally."
-            )
-
             return [
-                ArtistSearchItem(
-
-                    provider="spotify",
-
-                    provider_artist_id=existing["external_ids"]["spotify"],
-
-                    name=existing["name"],
-
-                    followers=existing.get("followers"),
-
-                    image=existing.get("image"),
-
-                    popularity=existing.get("popularity"),
-
-                    genres=existing.get("genres", []),
-
-                    verified=existing.get("verified", False),
-
-                    is_imported=True,
+                ArtistResponseMapper.from_domain(
+                    existing
                 )
             ]
+    
+    
         logger.info(
             f"Artist '{query}' not found locally."
         )
 
-        return await self.provider_manager.search_artist(query)
+        spotify_results = await self.provider_manager.search_artist(query)
+
+        responses = []
+
+        for artist in spotify_results:
+
+            responses.append(
+
+                ArtistResponse(
+
+                    provider=artist.provider,
+
+                    provider_artist_id=artist.provider_artist_id,
+
+                    name=artist.name,
+
+                    followers=artist.followers,
+
+                    image=artist.image,
+
+                    genres=artist.genres,
+
+                    popularity=artist.popularity,
+
+                    verified=artist.verified,
+
+                    is_imported=False,
+                )
+            )
+
+        return responses
