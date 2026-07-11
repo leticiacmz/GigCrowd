@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -11,13 +9,13 @@ class ArtistResponse(BaseModel):
 
     name: str
 
-    followers: int | None
+    followers: int | None = None
 
-    image: str | None
+    image: str | None = None
 
-    genres: list[str]
+    genres: list[str] = Field(default_factory=list)
 
-    popularity: int | None
+    popularity: int | None = None
 
     verified: bool
 

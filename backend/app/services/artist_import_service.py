@@ -40,7 +40,9 @@ class ArtistImportService:
                 "Artist already imported."
             )
 
-            return existing
+            return ArtistResponseMapper.from_domain(
+                existing
+            )
 
         artist = await self.provider_manager.get_artist(
             provider=request.provider,

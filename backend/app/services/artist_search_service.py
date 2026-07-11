@@ -40,32 +40,9 @@ class ArtistSearchService:
 
         spotify_results = await self.provider_manager.search_artist(query)
 
-        responses = []
-
-        for artist in spotify_results:
-
-            responses.append(
-
-                ArtistResponse(
-
-                    provider=artist.provider,
-
-                    provider_artist_id=artist.provider_artist_id,
-
-                    name=artist.name,
-
-                    followers=artist.followers,
-
-                    image=artist.image,
-
-                    genres=artist.genres,
-
-                    popularity=artist.popularity,
-
-                    verified=artist.verified,
-
-                    is_imported=False,
-                )
+        return [
+            ArtistResponseMapper.from_search_item(
+                artist
             )
-
-        return responses
+            for artist in spotify_results
+        ]

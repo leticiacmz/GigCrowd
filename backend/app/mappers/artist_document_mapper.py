@@ -11,7 +11,8 @@ class ArtistDocumentMapper:
     ) -> Artist:
 
         return Artist(
-
+            id=str(document["_id"]),
+            
             name=document["name"],
 
             normalized_name=document["normalized_name"],

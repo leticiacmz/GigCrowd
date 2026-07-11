@@ -1,5 +1,6 @@
 from app.domain.artist import Artist
 from app.schemas.artist_response import ArtistResponse
+from app.schemas.artist_search import ArtistSearchItem
 
 
 class ArtistResponseMapper:
@@ -34,4 +35,30 @@ class ArtistResponseMapper:
             verified=artist.verified,
 
             is_imported=True,
+        )
+    
+    @staticmethod
+    def from_search_item(
+        artist: ArtistSearchItem,
+    ) -> ArtistResponse:
+
+        return ArtistResponse(
+
+            provider=artist.provider,
+
+            provider_artist_id=artist.provider_artist_id,
+
+            name=artist.name,
+
+            followers=artist.followers,
+
+            image=artist.image,
+
+            genres=artist.genres,
+
+            popularity=artist.popularity,
+
+            verified=artist.verified,
+
+            is_imported=False,
         )
