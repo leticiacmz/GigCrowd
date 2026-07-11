@@ -21,7 +21,7 @@ class ArtistResponseMapper:
             provider_artist_id=spotify_id,
 
             name=artist.name,
-
+            id=artist.id,
             slug=artist.slug,
 
             followers=artist.followers,
@@ -49,6 +49,10 @@ class ArtistResponseMapper:
             provider_artist_id=artist.provider_artist_id,
 
             name=artist.name,
+            
+            id=artist.id,
+
+            slug=artist.slug,
 
             followers=artist.followers,
 

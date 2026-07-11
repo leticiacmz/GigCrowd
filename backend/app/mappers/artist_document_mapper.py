@@ -1,5 +1,3 @@
-from bson import ObjectId
-
 from app.domain.artist import Artist
 
 
@@ -12,7 +10,7 @@ class ArtistDocumentMapper:
 
         return Artist(
             id=str(document["_id"]),
-            
+
             name=document["name"],
 
             normalized_name=document["normalized_name"],
