@@ -15,12 +15,14 @@ class BandsintownClient:
     async def get_artist_events(
         self,
         artist_name: str,
+        date: str = "upcoming",
     ) -> list[dict]:
 
         response = await self.client.get(
             f"/artists/{artist_name}/events",
             params={
                 "app_id": settings.BANDSINTOWN_APP_ID,
+                "date": date,
             },
         )
 

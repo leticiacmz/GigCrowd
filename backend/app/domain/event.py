@@ -1,31 +1,27 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import Field
-
-from app.domain.entity import Entity
+from pydantic import BaseModel, Field
 
 
-class Event(Entity):
+class Event(BaseModel):
 
-    provider: str
+    id: Optional[str] = None
 
-    provider_event_id: str
+    external_ids: dict[str, str] = Field(
+        default_factory=dict,
+    )
 
-    artist_ids: list[str] = Field(default_factory=list)
+    artist_slug: str
 
-    venue_id: Optional[str] = None
+    venue_slug: str
 
     title: str
 
-    description: Optional[str] = None
-
     starts_at: datetime
 
-    url: Optional[str] = None
+    sold_out: bool = False
 
-    image: Optional[str] = None
+    free: bool = False
 
-    status: str = "scheduled"
-
-    last_synced_at: Optional[datetime] = None
+    ticket_url: Optional[str] = None
