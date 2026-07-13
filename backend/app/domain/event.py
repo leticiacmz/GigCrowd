@@ -18,7 +18,7 @@ class Event(BaseModel):
 
     title: str
 
-    starts_at: datetime
+    starts_at: Optional[datetime] = None
 
     sold_out: bool = False
 

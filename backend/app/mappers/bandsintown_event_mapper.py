@@ -1,4 +1,5 @@
 from app.domain.event import Event
+from app.domain.venue import Venue
 
 from app.mappers.bandsintown_venue_mapper import (
     BandsintownVenueMapper,
@@ -11,7 +12,7 @@ class BandsintownEventMapper:
     def to_domain(
         payload: dict,
         artist_slug: str,
-    ) -> tuple[Event, Event]:
+    ) -> tuple[Event, Venue]:
 
         venue = BandsintownVenueMapper.to_domain(
             payload["venue"]
@@ -52,7 +53,10 @@ class BandsintownEventMapper:
 
             title=title,
 
-            starts_at=payload["starts_at"],
+            starts_at=(
+                payload.get("starts_at")
+                or payload.get("datetime")
+            ),
 
             sold_out=payload.get(
                 "sold_out",

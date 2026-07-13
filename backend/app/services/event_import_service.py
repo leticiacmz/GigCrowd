@@ -4,6 +4,14 @@ from app.mappers.bandsintown_event_mapper import (
     BandsintownEventMapper,
 )
 
+from app.repositories.event_repository import (
+    EventRepository,
+)
+
+from app.repositories.venue_repository import (
+    VenueRepository,
+)
+
 from app.services.provider_manager import (
     ProviderManager,
 )
@@ -17,9 +25,15 @@ class EventImportService:
     def __init__(
         self,
         provider_manager: ProviderManager,
+        event_repository: EventRepository,
+        venue_repository: VenueRepository,
     ):
 
         self.provider_manager = provider_manager
+
+        self.event_repository = event_repository
+
+        self.venue_repository = venue_repository
 
     async def import_artist_events(
         self,
@@ -35,9 +49,12 @@ class EventImportService:
             artist_name
         )
 
-        events = []
+        venues_created = 0
 
-        venues = []
+        events_created = 0
+
+        venues_existing = 0
+        
 
         for payload in payloads:
 
@@ -46,12 +63,66 @@ class EventImportService:
                 artist_slug,
             )
 
-            events.append(event)
+            #
+            # Venue
+            #
 
-            venues.append(venue)
+            existing_venue = await self.venue_repository.get_by_name(
+                venue.name
+            )
+
+            if existing_venue:
+
+                venue.slug = existing_venue["slug"]
+                venues_existing += 1
+
+            else:
+
+                venue.slug = await self.venue_repository.generate_unique_slug(
+                    venue.name
+                )
+
+                await self.venue_repository.insert_venue(
+                    venue
+                )
+
+                venues_created += 1
+
+            event.venue_slug = venue.slug
+
+            #
+            # Event
+            #
+
+            existing_event = (
+                await self.event_repository.get_by_external_id(
+                    "bandsintown",
+                    event.external_ids["bandsintown"],
+                )
+            )
+
+            if existing_event:
+
+                continue
+
+            await self.event_repository.insert_event(
+                event
+            )
+
+            events_created += 1
 
         logger.info(
-            f"{len(events)} events mapped."
+
+            f"Imported {events_created} events and "
+
+            f"{venues_created} venues."
+
         )
 
-        return events, venues
+        return {
+
+            "venues_created": venues_created,
+
+            "events_created": events_created,
+
+        }
