@@ -9,16 +9,22 @@ class ProviderManager:
         provider_name: str,
     ) -> BaseProvider:
 
-        return registry.get_provider(provider_name)
+        return registry.get_provider(
+            provider_name
+        )
 
     async def search_artist(
         self,
         query: str,
     ):
 
-        spotify = self.get_provider("spotify")
+        spotify = self.get_provider(
+            "spotify"
+        )
 
-        return await spotify.search_artist(query)
+        return await spotify.search_artist(
+            query
+        )
 
     async def get_artist(
         self,
@@ -26,8 +32,23 @@ class ProviderManager:
         artist_id: str,
     ):
 
-        selected_provider = self.get_provider(provider)
+        selected_provider = self.get_provider(
+            provider
+        )
 
         return await selected_provider.get_artist(
             artist_id
+        )
+
+    async def get_artist_events(
+        self,
+        artist_name: str,
+    ):
+
+        bandsintown = self.get_provider(
+            "bandsintown"
+        )
+
+        return await bandsintown.get_artist_events(
+            artist_name
         )
