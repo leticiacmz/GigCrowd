@@ -2,10 +2,6 @@ from app.domain.event import Event
 
 from app.repositories.base import BaseRepository
 
-from app.mappers.event_document_mapper import (
-    EventDocumentMapper,
-)
-
 
 class EventRepository(BaseRepository):
 
@@ -19,21 +15,13 @@ class EventRepository(BaseRepository):
     async def get_by_external_id(
         self,
         provider: str,
-        provider_event_id: str,
+        external_id: str,
     ):
 
-        document = await self.find_one(
+        return await self.find_one(
             {
-                "provider": provider,
-                "provider_event_id": provider_event_id,
+                f"external_ids.{provider}": external_id,
             }
-        )
-
-        if not document:
-            return None
-
-        return EventDocumentMapper.to_domain(
-            document
         )
 
     async def insert_event(
@@ -42,7 +30,5 @@ class EventRepository(BaseRepository):
     ):
 
         await self.insert_one(
-            event.model_dump(
-                exclude={"id"},
-            )
+            event.model_dump()
         )
