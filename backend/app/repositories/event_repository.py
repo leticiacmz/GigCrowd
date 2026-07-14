@@ -1,6 +1,6 @@
 from app.domain.event import Event
 from app.repositories.base import BaseRepository
-
+from app.mappers.event_document_mapper import EventDocumentMapper
 
 class EventRepository(BaseRepository):
 
@@ -25,16 +25,30 @@ class EventRepository(BaseRepository):
     ):
 
         cursor = (
-        self.collection
-        .find(
-            {
-                "artist_slug": artist_slug,
-            }
+            self.collection
+            .find(
+                {
+                    "artist_slug": artist_slug,
+                }
+            )
+            .sort(
+                "starts_at",
+                -1,
+            )
         )
-        .sort("starts_at", -1)
+
+        documents = await cursor.to_list(
+            length=1000,
         )
-        
-        return await cursor.to_list(length=1000)
+
+        return [
+
+            EventDocumentMapper.to_domain(
+                document
+            )
+
+            for document in documents
+        ]
 
     async def insert_event(
         self,

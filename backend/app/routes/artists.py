@@ -10,7 +10,7 @@ from app.repositories.venue_repository import VenueRepository
 from app.services.event_import_service import EventImportService
 from app.services.event_service import EventService
 from app.providers.registry import registry
-
+from app.schemas.event_response import EventResponse
 from app.config import settings
 
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -53,6 +53,7 @@ event_repository = EventRepository(db)
 
 event_service = EventService(
     event_repository=event_repository,
+    venue_repository=venue_repository,
 )
 
 # ----------------------------------------------------
@@ -79,6 +80,7 @@ async def import_events():
 
 @router.get(
     "/{artist_slug}/events",
+    response_model=list[EventResponse],
 )
 async def get_artist_events(
     artist_slug: str,

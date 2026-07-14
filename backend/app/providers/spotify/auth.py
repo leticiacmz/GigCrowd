@@ -64,7 +64,9 @@ class SpotifyAuth:
                     "grant_type": "client_credentials"
                 },
             )
-
+            print("TOKEN STATUS:", response.status_code)
+            print("TOKEN RESPONSE:", response.text)
+            
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError:

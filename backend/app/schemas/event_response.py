@@ -3,6 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.schemas.venue_response import VenueResponse
 
 class EventResponse(BaseModel):
 
@@ -19,3 +20,5 @@ class EventResponse(BaseModel):
     sold_out: Optional[bool] = None
 
     venue_slug: str
+
+    venue: VenueResponse
