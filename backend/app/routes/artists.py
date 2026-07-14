@@ -8,7 +8,7 @@ from app.repositories.artist_repository import ArtistRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.venue_repository import VenueRepository
 from app.services.event_import_service import EventImportService
-
+from app.services.event_service import EventService
 from app.providers.registry import registry
 
 from app.config import settings
@@ -49,6 +49,12 @@ event_import_service = EventImportService(
     venue_repository=venue_repository,
 )
 
+event_repository = EventRepository(db)
+
+event_service = EventService(
+    event_repository=event_repository,
+)
+
 # ----------------------------------------------------
 # Routes
 # ----------------------------------------------------
@@ -69,4 +75,15 @@ async def import_events():
     return await event_import_service.import_artist_events(
         artist_slug="demi-lovato",
         artist_name="Demi Lovato",
+    )
+
+@router.get(
+    "/{artist_slug}/events",
+)
+async def get_artist_events(
+    artist_slug: str,
+):
+
+    return await event_service.get_artist_events(
+        artist_slug
     )

@@ -12,41 +12,32 @@ class EventDocumentMapper:
 
             id=str(document["_id"]),
 
-            provider=document["provider"],
-
-            provider_event_id=document["provider_event_id"],
-
-            artist_ids=document.get(
-                "artist_ids",
-                [],
+            external_ids=document.get(
+                "external_ids",
+                {},
             ),
 
-            venue_id=document.get(
-                "venue_id",
-            ),
+            artist_slug=document["artist_slug"],
+
+            venue_slug=document["venue_slug"],
 
             title=document["title"],
 
-            description=document.get(
-                "description",
+            starts_at=document.get(
+                "starts_at"
             ),
 
-            starts_at=document["starts_at"],
-
-            url=document.get(
-                "url",
+            sold_out=document.get(
+                "sold_out",
+                False,
             ),
 
-            image=document.get(
-                "image",
+            free=document.get(
+                "free",
+                False,
             ),
 
-            status=document.get(
-                "status",
-                "scheduled",
-            ),
-
-            last_synced_at=document.get(
-                "last_synced_at",
+            ticket_url=document.get(
+                "ticket_url"
             ),
         )
