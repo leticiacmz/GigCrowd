@@ -17,6 +17,7 @@ import {
 } from '../../lib/api';
 
 
+
 interface ArtistProfile {
 
   id: string;
@@ -65,6 +66,8 @@ interface ArtistEvent {
 
 
 
+
+
 export default function ArtistProfilePage() {
 
 
@@ -77,10 +80,12 @@ export default function ArtistProfilePage() {
 
 
 
+
   const [
     artist,
     setArtist,
   ] = useState<ArtistProfile | null>(null);
+
 
 
 
@@ -91,6 +96,7 @@ export default function ArtistProfilePage() {
 
 
 
+
   const [
     loading,
     setLoading,
@@ -98,10 +104,30 @@ export default function ArtistProfilePage() {
 
 
 
+
   const [
     error,
     setError,
   ] = useState('');
+
+
+
+
+  const [
+    isFollowing,
+    setIsFollowing,
+  ] = useState(false);
+
+
+
+
+  const [
+    followLoading,
+    setFollowLoading,
+  ] = useState(false);
+
+
+
 
 
 
@@ -133,6 +159,8 @@ export default function ArtistProfilePage() {
 
 
 
+
+
   async function loadArtist() {
 
 
@@ -150,13 +178,16 @@ export default function ArtistProfilePage() {
         eventsData,
       ] = await Promise.all([
 
+
         artistAPI.getArtist(
           artistSlug
         ),
 
+
         artistAPI.getArtistEvents(
           artistSlug
         ),
+
 
       ]);
 
@@ -165,6 +196,7 @@ export default function ArtistProfilePage() {
       setArtist(
         artistData
       );
+
 
 
       setEvents(
@@ -187,6 +219,7 @@ export default function ArtistProfilePage() {
       );
 
 
+
     } finally {
 
 
@@ -196,6 +229,41 @@ export default function ArtistProfilePage() {
 
 
   }
+
+
+
+
+
+
+
+  function handleFollowToggle() {
+
+
+    try {
+
+
+      setFollowLoading(true);
+
+
+
+      setIsFollowing(
+        previous => !previous
+      );
+
+
+
+    } finally {
+
+
+      setFollowLoading(false);
+
+
+    }
+
+
+  }
+
+
 
 
 
@@ -226,6 +294,8 @@ export default function ArtistProfilePage() {
 
 
 
+
+
   if (loading) {
 
 
@@ -237,6 +307,7 @@ export default function ArtistProfilePage() {
         items-center
         justify-center
       ">
+
 
         <p className="
           text-gray-400
@@ -253,6 +324,7 @@ export default function ArtistProfilePage() {
 
 
   }
+
 
 
 
@@ -340,6 +412,7 @@ export default function ArtistProfilePage() {
         ">
 
 
+
           <Link
 
             href="/feed"
@@ -363,6 +436,7 @@ export default function ArtistProfilePage() {
 
 
 
+
           <Link
 
             href="/artists"
@@ -379,10 +453,13 @@ export default function ArtistProfilePage() {
           </Link>
 
 
+
         </div>
 
 
       </header>
+
+
 
 
 
@@ -401,6 +478,7 @@ export default function ArtistProfilePage() {
 
 
 
+
         <section className="
           bg-gray-900
           border
@@ -408,6 +486,8 @@ export default function ArtistProfilePage() {
           rounded-xl
           overflow-hidden
         ">
+
+
 
 
 
@@ -435,22 +515,84 @@ export default function ArtistProfilePage() {
 
 
 
+
+
           <div className="
             p-8
           ">
 
 
 
-            <h1 className="
-              text-4xl
-              font-bold
-              text-white
-              mb-4
+
+
+            <div className="
+              flex
+              justify-between
+              items-start
+              gap-4
+              mb-6
             ">
 
-              {artist.name}
 
-            </h1>
+              <h1 className="
+                text-4xl
+                font-bold
+                text-white
+              ">
+
+                {artist.name}
+
+              </h1>
+
+
+
+
+
+              <button
+
+                onClick={
+                  handleFollowToggle
+                }
+
+                disabled={
+                  followLoading
+                }
+
+                className={`
+                  px-5
+                  py-2
+                  rounded-lg
+                  font-semibold
+                  transition-colors
+
+                  ${
+                    isFollowing
+                    ? 'bg-gray-700 text-white'
+                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                  }
+
+                  disabled:opacity-50
+                `}
+
+              >
+
+                {
+                  followLoading
+                  ? 'Loading...'
+                  : isFollowing
+                    ? 'Following'
+                    : 'Follow'
+                }
+
+
+              </button>
+
+
+
+            </div>
+
+
+
 
 
 
@@ -458,6 +600,7 @@ export default function ArtistProfilePage() {
 
             {
               artist.genres.length > 0 && (
+
 
                 <div className="
                   flex
@@ -490,15 +633,20 @@ export default function ArtistProfilePage() {
 
                         </span>
 
+
                       )
                     )
                   }
 
 
+
                 </div>
+
 
               )
             }
+
+
 
 
 
@@ -548,6 +696,7 @@ export default function ArtistProfilePage() {
 
 
 
+
               <div className="
                 bg-gray-800
                 rounded-lg
@@ -579,11 +728,16 @@ export default function ArtistProfilePage() {
               </div>
 
 
+
+
             </div>
 
 
 
+
           </div>
+
+
 
 
 
@@ -602,6 +756,7 @@ export default function ArtistProfilePage() {
         ">
 
 
+
           <h2 className="
             text-2xl
             font-bold
@@ -612,6 +767,7 @@ export default function ArtistProfilePage() {
             Upcoming Events
 
           </h2>
+
 
 
 
@@ -638,10 +794,10 @@ export default function ArtistProfilePage() {
               ">
 
 
+
                 {
                   events.map(
                     event => (
-
 
                       <div
 
@@ -672,6 +828,7 @@ export default function ArtistProfilePage() {
 
 
 
+
                         <p className="
                           text-gray-400
                           mt-2
@@ -682,6 +839,7 @@ export default function ArtistProfilePage() {
                           )}
 
                         </p>
+
 
 
 
@@ -698,10 +856,12 @@ export default function ArtistProfilePage() {
 
                               {event.venue.name}
 
+
                               {
                                 event.venue.city &&
                                 ` - ${event.venue.city}`
                               }
+
 
                               {
                                 event.venue.country &&
@@ -713,6 +873,7 @@ export default function ArtistProfilePage() {
 
                           )
                         }
+
 
 
 
@@ -742,6 +903,7 @@ export default function ArtistProfilePage() {
 
                             </a>
 
+
                           )
                         }
 
@@ -756,11 +918,13 @@ export default function ArtistProfilePage() {
                 }
 
 
+
               </div>
 
 
             )
           }
+
 
 
 
@@ -771,6 +935,8 @@ export default function ArtistProfilePage() {
 
 
       </main>
+
+
 
 
 
