@@ -9,6 +9,7 @@ from app.services.event_import_service import (
 from app.schemas.artist_import import (
     ArtistImportRequest,
 )
+from app.domain.artist import Artist
 
 
 class ArtistSynchronizationService:
@@ -25,6 +26,8 @@ class ArtistSynchronizationService:
             event_import_service
         )
 
+        
+
     async def synchronize_artist(
         self,
         request: ArtistImportRequest,
@@ -35,8 +38,7 @@ class ArtistSynchronizationService:
         )
 
         await self.event_import_service.import_artist_events(
-            artist_slug=artist.slug,
-            artist_name=artist.name,
+            artist=artist
         )
 
         return artist

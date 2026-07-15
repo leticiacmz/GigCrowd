@@ -15,7 +15,9 @@ from app.repositories.venue_repository import (
 from app.services.provider_manager import (
     ProviderManager,
 )
+import time
 
+from app.domain.artist import Artist
 
 logger = get_logger("event_import")
 
@@ -37,30 +39,34 @@ class EventImportService:
 
     async def import_artist_events(
         self,
-        artist_slug: str,
-        artist_name: str,
+        artist: Artist,
     ):
 
+        started_at = time.perf_counter()
+
         logger.info(
-            f"Importing events for '{artist_name}'"
+            f"🎤 Synchronizing artist: '{artist.name}'"
         )
 
         payloads = await self.provider_manager.get_artist_events(
-            artist_name
+            artist.name
+        )
+
+        logger.info(
+            f"📥 Received {len(payloads)} events from provider."
         )
 
         venues_created = 0
-
         events_created = 0
+        events_existing = 0
 
-        venues_existing = 0
-        
+        existing_venues = set()
 
         for payload in payloads:
 
             event, venue = BandsintownEventMapper.to_domain(
                 payload,
-                artist_slug,
+                artist.slug,
             )
 
             #
@@ -74,7 +80,10 @@ class EventImportService:
             if existing_venue:
 
                 venue.slug = existing_venue["slug"]
-                venues_existing += 1
+
+                existing_venues.add(
+                    venue.slug
+                )
 
             else:
 
@@ -103,6 +112,8 @@ class EventImportService:
 
             if existing_event:
 
+                events_existing += 1
+
                 continue
 
             await self.event_repository.insert_event(
@@ -111,18 +122,50 @@ class EventImportService:
 
             events_created += 1
 
+        elapsed = time.perf_counter() - started_at
+
         logger.info(
+            "──────── Synchronization Summary ────────"
+        )
 
-            f"Imported {events_created} events and "
+        logger.info(
+            f"🎤 Artist: {artist.name}"
+        )
 
-            f"{venues_created} venues."
+        logger.info(
+            f"📥 Events received: {len(payloads)}"
+        )
 
+        logger.info(
+            f"✅ New events: {events_created}"
+        )
+
+        logger.info(
+            f"♻️ Existing events: {events_existing}"
+        )
+
+        logger.info(
+            f"🏟️ New venues: {venues_created}"
+        )
+
+        logger.info(
+            f"♻️ Existing venues: {len(existing_venues)}"
+        )
+
+        logger.info(
+            f"⏱️ Finished in {elapsed:.2f}s"
+        )
+
+        logger.info(
+            "─────────────────────────────────────────"
         )
 
         return {
-
-            "venues_created": venues_created,
-
+            "artist": artist.name,
+            "events_received": len(payloads),
             "events_created": events_created,
-
+            "events_existing": events_existing,
+            "venues_created": venues_created,
+            "venues_existing": len(existing_venues),
+            "elapsed_seconds": round(elapsed, 2),
         }
