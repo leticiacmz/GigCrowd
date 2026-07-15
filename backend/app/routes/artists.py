@@ -12,7 +12,7 @@ from app.services.event_service import EventService
 from app.providers.registry import registry
 from app.schemas.event_response import EventResponse
 from app.config import settings
-
+from app.services.artist_synchronization_service import ArtistSynchronizationService
 from motor.motor_asyncio import AsyncIOMotorClient
 
 
@@ -55,7 +55,11 @@ event_service = EventService(
     event_repository=event_repository,
     venue_repository=venue_repository,
 )
-
+artist_synchronization_service = (
+    ArtistSynchronizationService(
+        artist_import_service=artist_import_service,
+    )
+)
 # ----------------------------------------------------
 # Routes
 # ----------------------------------------------------
@@ -67,15 +71,11 @@ async def search_artist(q: str):
 
 @router.post("/import")
 async def import_artist(
-    data: ArtistImportRequest,):
-    return await artist_import_service.import_artist(data)
-
-@router.post("/import-events-test")
-async def import_events():
-
-    return await event_import_service.import_artist_events(
-        artist_slug="demi-lovato",
-        artist_name="Demi Lovato",
+    data: ArtistImportRequest,
+):
+    return await (
+        artist_synchronization_service
+        .synchronize_artist(data)
     )
 
 @router.get(
