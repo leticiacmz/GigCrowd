@@ -8,26 +8,41 @@ class EventResponseMapper:
     @staticmethod
     def from_domain(
         event: Event,
+        venue,
     ) -> EventResponse:
 
-        venue = None
+        venue_response = None
 
-        if event.venue:
-            venue = VenueResponse(
-                id=event.venue.id,
-                slug=event.venue.slug,
-                name=event.venue.name,
-                city=event.venue.city,
-                country=event.venue.country,
-                latitude=event.venue.latitude,
-                longitude=event.venue.longitude,
+        if venue:
+
+            venue_response = VenueResponse(
+
+                id=venue.get("id"),
+
+                slug=venue.get("slug"),
+
+                name=venue.get("name"),
+
+                city=venue.get("city"),
+
+                country=venue.get("country"),
+
+                latitude=venue.get("latitude"),
+
+                longitude=venue.get("longitude"),
             )
 
         return EventResponse(
+
             id=event.id,
+
             title=event.title,
+
             starts_at=event.starts_at,
+
             ticket_url=event.ticket_url,
-            venue_slug=event.venue.slug if event.venue else None,
-            venue=venue,
+
+            venue_slug=event.venue_slug,
+
+            venue=venue_response,
         )

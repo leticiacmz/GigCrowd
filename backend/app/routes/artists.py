@@ -58,8 +58,10 @@ event_service = EventService(
 artist_synchronization_service = (
     ArtistSynchronizationService(
         artist_import_service=artist_import_service,
+        event_import_service=event_import_service,
     )
 )
+
 # ----------------------------------------------------
 # Routes
 # ----------------------------------------------------
