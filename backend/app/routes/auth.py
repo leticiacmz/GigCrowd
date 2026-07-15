@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.models.user import UserCreate, UserResponse
 from app.services.user_service import UserService
+from fastapi.security import OAuth2PasswordRequestForm
 from app.auth.security import create_access_token
 from datetime import timedelta
 from app.config import settings
@@ -22,23 +23,34 @@ async def register(user_data: UserCreate):
 
 
 @router.post("/login")
-async def login(email: str, password: str):
-    """Login and get access token"""
-    user = await UserService.authenticate_user(email, password)
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends()
+):
+
+    user = await UserService.authenticate_user(
+        form_data.username,
+        form_data.password
+    )
+
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=401,
+            detail="Incorrect email or password"
         )
-    
-    access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.id}, expires_delta=access_token_expires
+
+    access_token_expires = timedelta(
+        minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
     )
-    
+
+    access_token = create_access_token(
+        data={"sub": user.id},
+        expires_delta=access_token_expires
+    )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse(**user.model_dump())
+        "user": UserResponse(
+            **user.model_dump()
+        )
     }

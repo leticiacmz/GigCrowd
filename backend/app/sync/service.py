@@ -1,66 +1,6 @@
-"""
-Synchronization Service
-
-This module implements the SynchronizationService which orchestrates the
-synchronization of data from external APIs (Bandsintown) into MongoDB.
-
-Why it exists:
-- Orchestrates data synchronization from external APIs to MongoDB
-- Centralizes sync logic in one place
-- Manages sync metadata (last_synced_at, sync_status)
-- Handles deduplication during sync
-- Logs sync operations for monitoring
-- Provides error handling and retry logic
-
-Responsibility:
-- Orchestrate artist synchronization (fetch, normalize, store)
-- Orchestrate event synchronization (fetch, normalize, store)
-- Orchestrate venue synchronization (fetch, normalize, store)
-- Manage sync metadata (last_synced_at, sync_status)
-- Handle deduplication (check if entity already exists)
-- Log sync operations for monitoring
-- Handle sync errors and retry logic
-
-Inputs:
-- Artist names (for artist sync)
-- Artist IDs (for event sync)
-- Venue names and locations (for venue sync)
-- Sync status updates
-
-Outputs:
-- Synced artist documents
-- Synced event documents
-- Synced venue documents
-- Sync status updates
-- Error messages
-
-Dependencies:
-- ProviderAdapter (BandsintownAdapter)
-- ArtistRepository
-- VenueRepository
-- EventRepository
-- SyncLogRepository (for logging)
-
-Communication:
-- Called by routes (on-demand sync) and background jobs (scheduled sync)
-- Calls provider adapters to fetch data
-- Calls repositories to store data
-- Returns synced entities to callers
-- Never communicates directly with routes or MongoDB
-
-Why this design is preferable:
-- Orchestration: Centralizes sync logic in one place
-- Abstraction: Hides sync complexity from business logic
-- Testability: Easy to mock providers and repositories
-- Maintainability: Sync logic changes isolated to this service
-- Reusability: Used by both on-demand and scheduled sync
-- Error Handling: Centralized error handling and retry logic
-- Logging: Centralized sync operation logging
-"""
-
 from typing import Optional, List, Dict, Any
 from datetime import datetime, UTC
-from app.providers.bandsintown import BandsintownAdapter
+from app.providers.bandsintown.provider import BandsintownProvider
 from app.repositories.artist_repository import ArtistRepository
 from app.repositories.venue_repository import VenueRepository
 from app.repositories.event_repository import EventRepository
@@ -108,7 +48,7 @@ class SynchronizationService:
         self.artist_repo = artist_repo
         self.venue_repo = venue_repo
         self.event_repo = event_repo
-        self.provider = BandsintownAdapter()
+        self.provider = BandsintownProvider()
 
     async def sync_artist(self, artist_name: str) -> Optional[Dict[str, Any]]:
         """
