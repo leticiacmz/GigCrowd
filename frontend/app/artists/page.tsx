@@ -1,32 +1,36 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import {
+  useEffect,
+  useState,
+} from 'react';
+
+import {
+  useRouter,
+} from 'next/navigation';
+
 import Link from 'next/link';
-import { artistAPI } from '../lib/api';
 
+import {
+  artistAPI,
+} from '../lib/api';
 
-interface Artist {
-  id: string;
-  name: string;
-  followers?: number;
-  image?: string;
-  genres: string[];
-  popularity?: number;
-  verified: boolean;
-}
-
+import {
+  Artist,
+} from '../types/artist';
 
 export default function ArtistsPage() {
+
   const router = useRouter();
 
   const [artists, setArtists] = useState<Artist[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
-
+  const [error, setError] = useState('');
 
   useEffect(() => {
+
     const token = localStorage.getItem('token');
 
     if (!token) {
@@ -35,51 +39,76 @@ export default function ArtistsPage() {
     }
 
     loadArtists();
+
   }, [router]);
 
+  async function loadArtists() {
 
-  const loadArtists = async () => {
     try {
+
       setLoading(true);
+      setError('');
 
       const data = await artistAPI.getArtists();
 
       setArtists(data);
 
     } catch (error) {
-      console.error('Failed to load artists:', error);
+
+      console.error(
+        'Failed to load artists:',
+        error,
+      );
+
+      setError(
+        'Could not load artists.',
+      );
 
     } finally {
       setLoading(false);
     }
-  };
 
+  }
 
-  const handleSearch = async (e: React.FormEvent) => {
+  async function handleSearch(
+    e: React.FormEvent,
+  ) {
+
     e.preventDefault();
-
 
     if (!searchQuery.trim()) {
       loadArtists();
       return;
     }
 
-
     try {
-      setSearching(true);
 
-      const data = await artistAPI.searchArtists(searchQuery);
+      setSearching(true);
+      setError('');
+
+      const data =
+        await artistAPI.searchArtists(
+          searchQuery,
+        );
 
       setArtists(data);
 
     } catch (error) {
-      console.error('Failed to search artists:', error);
+
+      console.error(
+        'Failed to search artists:',
+        error,
+      );
+
+      setError(
+        'Could not search artists.',
+      );
 
     } finally {
       setSearching(false);
     }
-  };
 
+  }
 
   return (
     <div className="min-h-screen">
@@ -95,28 +124,25 @@ export default function ArtistsPage() {
             GigCrowd
           </Link>
 
-
-          <nav className="flex items-center gap-4">
+          <nav className="flex gap-4">
 
             <Link
               href="/feed"
-              className="text-gray-400 hover:text-white transition-colors"
+              className="text-gray-400 hover:text-white"
             >
               Feed
             </Link>
 
-
             <Link
               href="/events"
-              className="text-gray-400 hover:text-white transition-colors"
+              className="text-gray-400 hover:text-white"
             >
               Events
             </Link>
 
-
             <Link
               href="/profile"
-              className="text-gray-400 hover:text-white transition-colors"
+              className="text-gray-400 hover:text-white"
             >
               Profile
             </Link>
@@ -127,36 +153,32 @@ export default function ArtistsPage() {
 
       </header>
 
-
-
       <main className="max-w-6xl mx-auto px-4 py-8">
 
         <h1 className="text-3xl font-bold mb-6">
           Discover Artists
         </h1>
 
-
-
-        <form
-          onSubmit={handleSearch}
-          className="mb-8"
-        >
+        <form onSubmit={handleSearch} className="mb-8">
 
           <div className="flex gap-4">
 
             <input
-              type="text"
+
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search for artists..."
-              className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+
+              onChange={(e) =>
+                setSearchQuery(e.target.value)
+              }
+
+              placeholder="Search artists..."
+
+              className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white"
             />
 
-
             <button
-              type="submit"
               disabled={searching}
-              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition-colors disabled:opacity-50"
+              className="px-6 py-3 bg-purple-600 rounded-lg text-white disabled:opacity-50"
             >
               {searching ? 'Searching...' : 'Search'}
             </button>
@@ -165,110 +187,79 @@ export default function ArtistsPage() {
 
         </form>
 
-
-
+        {error && (
+          <div className="mb-6 p-4 rounded bg-red-900 text-red-200">
+            {error}
+          </div>
+        )}
 
         {loading ? (
 
-          <div className="text-center py-12">
-            <div className="text-gray-400">
-              Loading artists...
-            </div>
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div
+                key={index}
+                className="bg-gray-900 rounded-lg p-4 animate-pulse"
+              >
+                <div className="h-48 bg-gray-800 rounded mb-4" />
+                <div className="h-5 bg-gray-800 rounded w-3/4" />
+              </div>
+            ))}
+
+          </div>
 
         ) : artists.length === 0 ? (
 
-          <div className="text-center py-12">
-
-            <p className="text-gray-400 mb-4">
-              No artists found.
-            </p>
-
-            <p className="text-gray-500">
-              Try searching for your favorite artists!
-            </p>
-
+          <div className="text-gray-400">
+            No artists found.
           </div>
-
 
         ) : (
 
-
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-
             {artists.map((artist) => (
-
-              <Link
-                key={artist.id}
-                href={`/artists/${artist.id}`}
-                className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-gray-700 transition-colors"
+              <div
+                key={
+                  artist.slug ||
+                  artist.provider_artist_id
+                }
+                className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden"
               >
 
-
-                {artist.image && (
-
+                {artist.image ? (
                   <img
                     src={artist.image}
                     alt={artist.name}
                     className="w-full h-48 object-cover"
                   />
-
+                ) : (
+                  <div className="h-48 flex items-center justify-center bg-gray-800 text-5xl">
+                    🎵
+                  </div>
                 )}
-
-
 
                 <div className="p-4">
 
-
-                  <h3 className="font-semibold text-white mb-2">
+                  <h3 className="text-white font-semibold">
                     {artist.name}
                   </h3>
 
-
-
-                  {artist.genres.length > 0 && (
-
-                    <p className="text-sm text-gray-400 mb-2">
+                  {artist.genres?.length > 0 && (
+                    <p className="text-sm text-gray-400 mt-2">
                       {artist.genres.join(', ')}
                     </p>
-
                   )}
-
-
-
-                  {artist.followers !== undefined && (
-
-                    <p className="text-sm text-gray-500">
-                      {artist.followers.toLocaleString()} followers
-                    </p>
-
-                  )}
-
-
-
-                  {artist.verified && (
-
-                    <p className="text-sm text-purple-400 mt-2">
-                      Verified artist
-                    </p>
-
-                  )}
-
 
                 </div>
 
-
-              </Link>
-
+              </div>
             ))}
-
 
           </div>
 
         )}
-
 
       </main>
 
