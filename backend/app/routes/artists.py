@@ -18,6 +18,9 @@ from app.services.artist_service import ArtistService
 from app.schemas.artist_profile_response import (
     ArtistProfileResponse,
 )
+from app.schemas.artist_list_response import (
+    ArtistListResponse,
+)
 
 router = APIRouter(
     prefix="/artists",
@@ -99,6 +102,20 @@ async def get_artist_events(
         artist_slug
     )
 
+@router.get(
+    "",
+    response_model=list[ArtistListResponse],
+)
+async def get_artists(
+    limit: int = 20,
+    skip: int = 0,
+):
+
+    return await artist_service.get_artists(
+        limit=limit,
+        skip=skip,
+    )
+    
 @router.get(
     "/{artist_slug}",
     response_model=ArtistProfileResponse,

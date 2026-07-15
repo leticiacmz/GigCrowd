@@ -8,6 +8,9 @@ from app.schemas.artist_profile_response import (
     ArtistEventStats,
 )
 
+from app.schemas.artist_list_response import (
+    ArtistListResponse,
+)
 
 class ArtistService:
 
@@ -68,3 +71,35 @@ class ArtistService:
                 total=total,
             ),
         )
+
+    async def get_artists(
+        self,
+        limit: int = 20,
+        skip: int = 0,
+    ) -> list[ArtistListResponse]:
+
+        artists = await self.artist_repository.get_all(
+            limit=limit,
+            skip=skip,
+        )
+
+
+        return [
+
+            ArtistListResponse(
+
+                id=artist.id,
+
+                slug=artist.slug,
+
+                name=artist.name,
+
+                image=artist.image,
+
+                genres=artist.genres,
+
+            )
+
+            for artist in artists
+
+        ]

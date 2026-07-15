@@ -101,3 +101,24 @@ class ArtistRepository(BaseRepository):
         return await self.insert_one(
             artist.model_dump()
         )
+
+    async def get_all(
+        self,
+        limit: int = 20,
+        skip: int = 0,
+    ) -> list[Artist]:
+
+        documents = await self.find_many(
+            {}
+        )
+
+        documents = documents[
+            skip : skip + limit
+        ]
+
+        return [
+            ArtistDocumentMapper.to_domain(
+                document
+            )
+            for document in documents
+        ]
