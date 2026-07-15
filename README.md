@@ -1,138 +1,194 @@
 # 🎵 GigCrowd
 
-GigCrowd is a social platform built for concert and live music fans.
+### Every concert tells a story.
 
-The goal is to bring together event discovery, concert tracking, and social interaction in a single place, allowing users to document their live music journey and connect with others who share the same passion.
+GigCrowd is a social platform for live music enthusiasts, designed to bring the entire concert experience together in one place.
 
----
+Inspired by the event discovery experience of **Facebook Events** and the social cataloging of **Letterboxd**, GigCrowd helps people discover concerts, build their concert history, and connect through unforgettable live music experiences.
 
-## 🎯 Why GigCrowd?
+> 🚧 **Work in progress** — actively under development.
+<br>
 
-Music fans often rely on multiple platforms to:
 
-* Discover concerts and festivals
-* Track attended shows
-* Follow artists and venues
-* Share photos and memories
-* Connect with other fans
+## 🎯 The Problem
 
-GigCrowd aims to combine all of these experiences into one platform centered around live events and music communities.
+Live music fans constantly switch between different platforms to:
 
----
+- 🎫 Discover concerts
+- ❤️ Follow favorite artists
+- 📅 Keep track of upcoming events
+- 📸 Save memories
+- 👥 Connect with friends
+- 🎶 Remember every concert they've attended
 
-## 🚀 Features
+There isn't a platform focused on the complete live music journey.
 
-### 🎫 Event Discovery
 
-* Search for upcoming concerts and live events
-* Discover events by artist, venue, or location
-* View event details and schedules
-* Explore future and past performances
+## 🚀 The Solution
 
-### 🎵 Concert Tracking
+GigCrowd brings every part of the concert experience into a single platform.
 
-* Mark events as:
+Whether you're discovering your next show, tracking every concert you've attended, or sharing unforgettable memories with friends, GigCrowd aims to become the home for live music fans.
 
-  * Going
-  * Maybe
-  * Attended
-* Build a personal concert history
-* Keep track of favorite artists and genres
-* Create a timeline of live music experiences
+<br>
 
-### 👥 Social Features
+## ✨ Features
 
-* Follow other users
-* View community activity
-* Discover concerts attended by friends
-* Connect with people who share similar music interests
+### 🎫 Concert Discovery
 
-### 📸 Event Memories
+Discover concerts through integrated event providers and explore artists, venues, and upcoming live events.
 
-* Share photos and videos from events
-* Create posts related to concerts and festivals
-* Preserve memories from live experiences
 
----
+### 🎵 Concert History
 
-## 🛠️ Tech Stack
+Build your personal concert timeline and keep a record of every unforgettable live experience.
+
+
+### ❤️ Favorite Artists
+
+Follow your favorite artists and never miss upcoming concerts.
+
+
+### 👥 Social Platform
+
+Connect with friends, discover what they're attending, and share your own concert experiences.
+
+
+### 📸 Concert Memories
+
+Create posts, upload photos, and preserve the memories behind every show.
+
+
+### 🤖 Personalized Recommendations *(Planned)*
+
+Receive recommendations based on your favorite artists, music preferences, attendance history, and community activity.
+<br>
+
+## 🏗 Architecture
+
+GigCrowd is being built with a modern, scalable architecture focused on maintainability and performance.
+
+```text
+                 Next.js + React
+                        │
+                        ▼
+                 FastAPI Backend
+                        │
+         ┌──────────────┼──────────────┐
+         ▼              ▼              ▼
+    MongoDB        RabbitMQ      External APIs
+                                      │
+                         Spotify • Bandsintown
+```
+
+
+## 🛠 Tech Stack
 
 ### Frontend
 
-* React
-* Next.js
-* Tailwind CSS
+- Next.js
+- React
+- TypeScript
+- Material UI
 
 ### Backend
 
-* Python
-* FastAPI
-* JWT Authentication
+- Python
+- FastAPI
+- JWT Authentication
 
 ### Database
 
-* MongoDB
+- MongoDB
+
+### Infrastructure
+
+- Docker
+- RabbitMQ
+- AWS
 
 ### External Integrations
 
-* Event discovery providers
-* Concert and festival data sources
-* Artist and venue information services
+- Spotify API
+- Bandsintown API
 
----
+<br>
 
-## 🚧 Project Status
+## 🗺 Roadmap
 
-GigCrowd is currently in active development and is not yet ready for production use.
+### ✅ Completed
 
-This repository is public to document the project's progress, showcase implementation decisions, and allow community feedback and contributions.
+- JWT Authentication
+- User Profiles
+- Artist Search
+- Spotify Integration
+- Bandsintown Integration
+- Artist Import Pipeline
+- Follow System
+- REST API Foundation
 
----
+### 🚧 In Progress
 
-## 🔨 Current Development Focus
+- Artist Profile
+- Activity Feed
+- Concert Attendance
+- Social Posts
+- Media Upload
+- Event Timeline
 
-Current priorities include:
+### 💡 Planned
 
-* User authentication and authorization
-* User profiles
-* Social interactions and following system
-* Concert attendance tracking
-* Event discovery integrations
-* Media sharing
-* Activity feed improvements
+- Spotify Authentication
+- Personalized Recommendations
+- Festival Tracking
+- Concert Wishlist
+- Notifications
+- Mobile Application
 
----
+<br>
 
-## 🔮 Future Features
+## ❤️ Why GigCrowd?
 
-Planned ideas and long-term goals:
+GigCrowd started from a simple frustration.
 
-* Concert recap and yearly summaries
-* Personalized event recommendations
-* Festival tracking
-* Concert wishlists
-* Enhanced social engagement features
+As someone who loves going to concerts, I realized there wasn't a platform built specifically for people who enjoy live music.
 
----
+Most existing services focus on selling tickets or listing events, but none truly capture the entire experience: discovering concerts, remembering every show, sharing memories, and connecting with people who were there.
+
+GigCrowd was born to change that.
+
+<br>
+
+## 🌱 Current Status
+
+GigCrowd is currently under active development.
+
+This repository documents the project's evolution, architectural decisions, and ongoing implementation as new features continue to be added.
+
+<br>
 
 ## 🤝 Contributing
 
-Feedback, suggestions, and discussions are always welcome.
+Suggestions, ideas, and feedback are always welcome.
 
-If you discover a bug, have an idea for a feature, or would like to contribute, feel free to open an issue or submit a pull request.
+If you'd like to contribute, report a bug, or discuss new features, feel free to open an issue or submit a pull request.
 
----
+<br>
 
-## 🌟 Vision
+## 🔮 Vision
 
-GigCrowd aims to become a central hub for live music enthusiasts.
+GigCrowd aims to become the go-to platform for live music enthusiasts.
 
-Instead of using separate apps to discover events, track attendance, share memories, and connect with fellow fans, users will be able to manage their entire concert experience in one place.
+Instead of relying on multiple apps to discover concerts, track attendance, organize memories, and connect with friends, users will have a single place dedicated to their entire live music journey.
 
-Think of it as a social network built specifically for the live music community.
+Because every concert tells a story.
 
----
+**GigCrowd is where those stories live.**
 
-## 📜 License
+<br>
 
-This project is currently being developed for learning, portfolio, and experimentation purposes.
+<p align="center">
+
+Made with ❤️ by <b>Leticia Cruz</b>
+
+</p>
