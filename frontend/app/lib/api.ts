@@ -319,12 +319,6 @@ export const feedAPI = {
 
 };
 
-
-
-
-
-
-
 export const followAPI = {
 
 
@@ -362,13 +356,6 @@ export const followAPI = {
 
 };
 
-
-
-
-
-
-
-
 export const artistAPI = {
 
 
@@ -382,7 +369,6 @@ export const artistAPI = {
         params,
       }
     );
-
 
     return response.data;
 
@@ -403,7 +389,6 @@ export const artistAPI = {
       }
     );
 
-
     return response.data;
 
   },
@@ -418,6 +403,19 @@ export const artistAPI = {
       `/artists/${artistSlug}`
     );
 
+    return response.data;
+
+  },
+
+
+
+  getArtistEvents: async (
+    artistSlug: string
+  ) => {
+
+    const response = await api.get(
+      `/artists/${artistSlug}/events`
+    );
 
     return response.data;
 
@@ -425,14 +423,6 @@ export const artistAPI = {
 
 
 };
-
-
-
-
-
-
-
-
 
 export const spotifyAPI = {
 

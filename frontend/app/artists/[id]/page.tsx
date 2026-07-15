@@ -17,7 +17,6 @@ import {
 } from '../../lib/api';
 
 
-
 interface ArtistProfile {
 
   id: string;
@@ -42,6 +41,28 @@ interface ArtistProfile {
 
 
 
+interface ArtistEvent {
+
+  id: string;
+
+  title: string;
+
+  starts_at: string;
+
+  ticket_url?: string;
+
+  venue?: {
+
+    name?: string;
+
+    city?: string;
+
+    country?: string;
+
+  };
+
+}
+
 
 
 export default function ArtistProfilePage() {
@@ -64,6 +85,13 @@ export default function ArtistProfilePage() {
 
 
   const [
+    events,
+    setEvents,
+  ] = useState<ArtistEvent[]>([]);
+
+
+
+  const [
     loading,
     setLoading,
   ] = useState(true);
@@ -82,8 +110,9 @@ export default function ArtistProfilePage() {
   useEffect(() => {
 
 
-    const token =
-      localStorage.getItem('token');
+    const token = localStorage.getItem(
+      'token'
+    );
 
 
     if (!token) {
@@ -104,7 +133,6 @@ export default function ArtistProfilePage() {
 
 
 
-
   async function loadArtist() {
 
 
@@ -117,14 +145,31 @@ export default function ArtistProfilePage() {
 
 
 
-      const data =
-        await artistAPI.getArtist(
-          artistSlug,
-        );
+      const [
+        artistData,
+        eventsData,
+      ] = await Promise.all([
+
+        artistAPI.getArtist(
+          artistSlug
+        ),
+
+        artistAPI.getArtistEvents(
+          artistSlug
+        ),
+
+      ]);
 
 
 
-      setArtist(data);
+      setArtist(
+        artistData
+      );
+
+
+      setEvents(
+        eventsData
+      );
 
 
 
@@ -133,14 +178,13 @@ export default function ArtistProfilePage() {
 
       console.error(
         'Failed to load artist:',
-        error,
+        error
       );
 
 
       setError(
-        'Could not load artist profile.',
+        'Could not load artist profile.'
       );
-
 
 
     } finally {
@@ -149,6 +193,29 @@ export default function ArtistProfilePage() {
       setLoading(false);
 
     }
+
+
+  }
+
+
+
+
+
+  function formatDate(
+    date: string
+  ) {
+
+
+    return new Date(
+      date
+    ).toLocaleDateString(
+      'en-US',
+      {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }
+    );
 
 
   }
@@ -171,11 +238,14 @@ export default function ArtistProfilePage() {
         justify-center
       ">
 
-        <p className="text-gray-400">
+        <p className="
+          text-gray-400
+        ">
 
           Loading artist...
 
         </p>
+
 
       </div>
 
@@ -183,7 +253,6 @@ export default function ArtistProfilePage() {
 
 
   }
-
 
 
 
@@ -205,29 +274,30 @@ export default function ArtistProfilePage() {
       ">
 
 
-        <p className="text-red-400">
+        <p className="
+          text-red-400
+        ">
 
-          {
-            error ||
-            'Artist not found.'
-          }
+          {error || 'Artist not found.'}
 
         </p>
 
 
 
         <Link
+
           href="/artists"
+
           className="
             text-purple-400
             hover:text-purple-300
           "
+
         >
 
           Back to artists
 
         </Link>
-
 
 
       </div>
@@ -243,9 +313,13 @@ export default function ArtistProfilePage() {
 
 
 
+
   return (
 
-    <div className="min-h-screen">
+
+    <div className="
+      min-h-screen
+    ">
 
 
 
@@ -266,9 +340,10 @@ export default function ArtistProfilePage() {
         ">
 
 
-
           <Link
+
             href="/feed"
+
             className="
               text-2xl
               font-bold
@@ -278,6 +353,7 @@ export default function ArtistProfilePage() {
               bg-clip-text
               text-transparent
             "
+
           >
 
             GigCrowd
@@ -287,19 +363,20 @@ export default function ArtistProfilePage() {
 
 
 
-
           <Link
+
             href="/artists"
+
             className="
               text-gray-400
               hover:text-white
             "
+
           >
 
             Back to artists
 
           </Link>
-
 
 
         </div>
@@ -314,7 +391,7 @@ export default function ArtistProfilePage() {
 
 
       <main className="
-        max-w-4xl
+        max-w-5xl
         mx-auto
         px-4
         py-10
@@ -323,15 +400,14 @@ export default function ArtistProfilePage() {
 
 
 
-        <div className="
+
+        <section className="
           bg-gray-900
           border
           border-gray-800
           rounded-xl
           overflow-hidden
         ">
-
-
 
 
 
@@ -359,10 +435,9 @@ export default function ArtistProfilePage() {
 
 
 
-
-          <div className="p-8">
-
-
+          <div className="
+            p-8
+          ">
 
 
 
@@ -370,7 +445,7 @@ export default function ArtistProfilePage() {
               text-4xl
               font-bold
               text-white
-              mb-6
+              mb-4
             ">
 
               {artist.name}
@@ -381,71 +456,49 @@ export default function ArtistProfilePage() {
 
 
 
-
-
             {
               artist.genres.length > 0 && (
 
-                <div className="mb-6">
+                <div className="
+                  flex
+                  flex-wrap
+                  gap-2
+                  mb-6
+                ">
 
 
-                  <h2 className="
-                    text-sm
-                    text-gray-400
-                    mb-2
-                  ">
+                  {
+                    artist.genres.map(
+                      genre => (
 
-                    Genres
+                        <span
 
-                  </h2>
+                          key={genre}
 
+                          className="
+                            px-3
+                            py-1
+                            bg-gray-800
+                            rounded-full
+                            text-sm
+                            text-gray-300
+                          "
 
+                        >
 
+                          {genre}
 
-                  <div className="
-                    flex
-                    flex-wrap
-                    gap-2
-                  ">
+                        </span>
 
-
-                    {
-                      artist.genres.map(
-                        genre => (
-
-                          <span
-
-                            key={genre}
-
-                            className="
-                              px-3
-                              py-1
-                              bg-gray-800
-                              rounded-full
-                              text-sm
-                              text-gray-300
-                            "
-
-                          >
-
-                            {genre}
-
-                          </span>
-
-                        )
                       )
-                    }
-
-
-                  </div>
+                    )
+                  }
 
 
                 </div>
 
               )
             }
-
-
 
 
 
@@ -461,11 +514,10 @@ export default function ArtistProfilePage() {
 
 
 
-
               <div className="
                 bg-gray-800
                 rounded-lg
-                p-4
+                p-5
               ">
 
 
@@ -474,30 +526,23 @@ export default function ArtistProfilePage() {
                   text-sm
                 ">
 
-                  Upcoming Events
+                  Upcoming Shows
 
                 </p>
-
 
 
                 <p className="
                   text-white
-                  text-2xl
-                  font-semibold
+                  text-3xl
+                  font-bold
                 ">
 
-                  {
-                    artist.events.upcoming
-                  }
+                  {artist.events.upcoming}
 
                 </p>
 
 
-
               </div>
-
-
-
 
 
 
@@ -506,7 +551,7 @@ export default function ArtistProfilePage() {
               <div className="
                 bg-gray-800
                 rounded-lg
-                p-4
+                p-5
               ">
 
 
@@ -515,35 +560,26 @@ export default function ArtistProfilePage() {
                   text-sm
                 ">
 
-                  Total Events
+                  Total Shows
 
                 </p>
-
 
 
                 <p className="
                   text-white
-                  text-2xl
-                  font-semibold
+                  text-3xl
+                  font-bold
                 ">
 
-                  {
-                    artist.events.total
-                  }
+                  {artist.events.total}
 
                 </p>
 
 
-
               </div>
-
-
-
 
 
             </div>
-
-
 
 
 
@@ -551,7 +587,185 @@ export default function ArtistProfilePage() {
 
 
 
-        </div>
+        </section>
+
+
+
+
+
+
+
+
+
+        <section className="
+          mt-10
+        ">
+
+
+          <h2 className="
+            text-2xl
+            font-bold
+            text-white
+            mb-6
+          ">
+
+            Upcoming Events
+
+          </h2>
+
+
+
+
+
+
+          {
+            events.length === 0 ? (
+
+              <p className="
+                text-gray-400
+              ">
+
+                No upcoming events found.
+
+              </p>
+
+
+            ) : (
+
+
+              <div className="
+                space-y-4
+              ">
+
+
+                {
+                  events.map(
+                    event => (
+
+
+                      <div
+
+                        key={event.id}
+
+                        className="
+                          bg-gray-900
+                          border
+                          border-gray-800
+                          rounded-lg
+                          p-5
+                        "
+
+                      >
+
+
+
+                        <h3 className="
+                          text-xl
+                          font-semibold
+                          text-white
+                        ">
+
+                          {event.title}
+
+                        </h3>
+
+
+
+
+                        <p className="
+                          text-gray-400
+                          mt-2
+                        ">
+
+                          {formatDate(
+                            event.starts_at
+                          )}
+
+                        </p>
+
+
+
+
+
+                        {
+                          event.venue && (
+
+                            <p className="
+                              text-gray-500
+                              mt-1
+                            ">
+
+
+                              {event.venue.name}
+
+                              {
+                                event.venue.city &&
+                                ` - ${event.venue.city}`
+                              }
+
+                              {
+                                event.venue.country &&
+                                `, ${event.venue.country}`
+                              }
+
+
+                            </p>
+
+                          )
+                        }
+
+
+
+
+
+                        {
+                          event.ticket_url && (
+
+                            <a
+
+                              href={event.ticket_url}
+
+                              target="_blank"
+
+                              rel="noopener noreferrer"
+
+                              className="
+                                inline-block
+                                mt-4
+                                text-purple-400
+                                hover:text-purple-300
+                              "
+
+                            >
+
+                              Buy Ticket →
+
+                            </a>
+
+                          )
+                        }
+
+
+
+
+                      </div>
+
+
+                    )
+                  )
+                }
+
+
+              </div>
+
+
+            )
+          }
+
+
+
+        </section>
+
 
 
 
@@ -561,6 +775,7 @@ export default function ArtistProfilePage() {
 
 
     </div>
+
 
   );
 
