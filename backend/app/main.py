@@ -1,13 +1,21 @@
 from fastapi import FastAPI
 
-from app.routes import artists
+from app.routes import (
+    artists,
+    auth,
+)
 
 from app.providers.registry import registry
 from app.providers.spotify.provider import SpotifyProvider
 from app.providers.bandsintown.provider import BandsintownProvider
+
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="GigCrowd")
+
+app = FastAPI(
+    title="GigCrowd"
+)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,19 +28,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ----------------------------------------------------
 # Providers
 # ----------------------------------------------------
 
-registry.register("spotify", SpotifyProvider())
-registry.register("bandsintown", BandsintownProvider())
+registry.register(
+    "spotify",
+    SpotifyProvider(),
+)
+
+registry.register(
+    "bandsintown",
+    BandsintownProvider(),
+)
+
 
 
 # ----------------------------------------------------
 # Routers
 # ----------------------------------------------------
 
-app.include_router(artists.router)
+app.include_router(
+    auth.router
+)
+
+
+app.include_router(
+    artists.router
+)
+
 
 
 # ----------------------------------------------------
@@ -41,6 +66,7 @@ app.include_router(artists.router)
 
 @app.get("/")
 def health():
+
     return {
         "status": "ok",
     }
