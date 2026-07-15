@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.services.artist_search_service import ArtistSearchService
 from app.services.artist_import_service import ArtistImportService
@@ -21,6 +21,21 @@ from app.schemas.artist_profile_response import (
 from app.schemas.artist_list_response import (
     ArtistListResponse,
 )
+from app.repositories.artist_follow_repository import (
+    ArtistFollowRepository,
+)
+
+from app.services.artist_follow_service import (
+    ArtistFollowService,
+)
+
+from app.schemas.artist_follow_response import (
+    ArtistFollowResponse,
+)
+
+from app.auth.dependencies import (
+    get_current_active_user,
+)
 
 router = APIRouter(
     prefix="/artists",
@@ -34,6 +49,13 @@ db = client[settings.DATABASE_NAME]
 provider_manager = ProviderManager()
 
 artist_repository = ArtistRepository(db)
+
+artist_follow_repository = ArtistFollowRepository(db)
+
+artist_follow_service = ArtistFollowService(
+    repository=artist_follow_repository,
+    artist_repository=artist_repository,
+)
 
 artist_search_service = ArtistSearchService(
     provider_manager=provider_manager,
@@ -115,7 +137,58 @@ async def get_artists(
         limit=limit,
         skip=skip,
     )
-    
+@router.post(
+    "/{artist_slug}/follow",
+    response_model=ArtistFollowResponse,
+)
+async def follow_artist(
+    artist_slug: str,
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+):
+
+    return await artist_follow_service.follow(
+        user_id=current_user["_id"],
+        artist_slug=artist_slug,
+    )
+
+
+
+@router.delete(
+    "/{artist_slug}/follow",
+    response_model=ArtistFollowResponse,
+)
+async def unfollow_artist(
+    artist_slug: str,
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+):
+
+    return await artist_follow_service.unfollow(
+        user_id=current_user["_id"],
+        artist_slug=artist_slug,
+    )
+
+
+
+@router.get(
+    "/{artist_slug}/follow",
+    response_model=ArtistFollowResponse,
+)
+async def get_follow_status(
+    artist_slug: str,
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+):
+
+    return await artist_follow_service.status(
+        user_id=current_user["_id"],
+        artist_slug=artist_slug,
+    )
+
 @router.get(
     "/{artist_slug}",
     response_model=ArtistProfileResponse,
@@ -127,3 +200,4 @@ async def get_artist(
     return await artist_service.get_artist_profile(
         artist_slug
     )
+
