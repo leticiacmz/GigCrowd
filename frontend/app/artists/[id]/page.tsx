@@ -1,16 +1,20 @@
 'use client';
 
+
 import {
   useEffect,
   useState,
 } from 'react';
+
 
 import {
   useParams,
   useRouter,
 } from 'next/navigation';
 
+
 import Link from 'next/link';
+
 
 import {
   artistAPI,
@@ -18,19 +22,27 @@ import {
 
 
 
+
+
 interface ArtistProfile {
 
-  id: string;
 
-  slug: string;
+  id?: string;
+
+
+  slug?: string;
+
 
   name: string;
 
+
   image?: string;
+
 
   genres: string[];
 
-  events: {
+
+  events?: {
 
     upcoming: number;
 
@@ -38,31 +50,11 @@ interface ArtistProfile {
 
   };
 
-}
-
-
-
-interface ArtistEvent {
-
-  id: string;
-
-  title: string;
-
-  starts_at: string;
-
-  ticket_url?: string;
-
-  venue?: {
-
-    name?: string;
-
-    city?: string;
-
-    country?: string;
-
-  };
 
 }
+
+
+
 
 
 
@@ -73,10 +65,14 @@ export default function ArtistProfilePage() {
 
   const params = useParams();
 
+
   const router = useRouter();
 
 
-  const artistSlug = params.id as string;
+
+  const artistSlug =
+    params.id as string;
+
 
 
 
@@ -84,16 +80,9 @@ export default function ArtistProfilePage() {
   const [
     artist,
     setArtist,
-  ] = useState<ArtistProfile | null>(null);
-
-
-
-
-  const [
-    events,
-    setEvents,
-  ] = useState<ArtistEvent[]>([]);
-
+  ] = useState<ArtistProfile | null>(
+    null
+  );
 
 
 
@@ -104,7 +93,6 @@ export default function ArtistProfilePage() {
 
 
 
-
   const [
     error,
     setError,
@@ -112,12 +100,10 @@ export default function ArtistProfilePage() {
 
 
 
-
   const [
-    isFollowing,
-    setIsFollowing,
+    following,
+    setFollowing,
   ] = useState(false);
-
 
 
 
@@ -136,24 +122,37 @@ export default function ArtistProfilePage() {
   useEffect(() => {
 
 
-    const token = localStorage.getItem(
-      'token'
-    );
+    const token =
+      localStorage.getItem(
+        'token'
+      );
+
 
 
     if (!token) {
 
-      router.push('/login');
+
+      router.push(
+        '/login'
+      );
+
 
       return;
 
     }
 
 
+
     loadArtist();
 
 
+    loadFollowStatus();
+
+
+
   }, [artistSlug]);
+
+
 
 
 
@@ -169,43 +168,21 @@ export default function ArtistProfilePage() {
 
       setLoading(true);
 
-      setError('');
 
-
-
-      const [
-        artistData,
-        eventsData,
-      ] = await Promise.all([
-
-
-        artistAPI.getArtist(
+      const data =
+        await artistAPI.getArtist(
           artistSlug
-        ),
-
-
-        artistAPI.getArtistEvents(
-          artistSlug
-        ),
-
-
-      ]);
+        );
 
 
 
       setArtist(
-        artistData
+        data
       );
 
 
 
-      setEvents(
-        eventsData
-      );
-
-
-
-    } catch (error) {
+    } catch(error) {
 
 
       console.error(
@@ -219,11 +196,11 @@ export default function ArtistProfilePage() {
       );
 
 
-
     } finally {
 
 
       setLoading(false);
+
 
     }
 
@@ -236,18 +213,99 @@ export default function ArtistProfilePage() {
 
 
 
-  function handleFollowToggle() {
+
+  async function loadFollowStatus() {
 
 
     try {
 
 
-      setFollowLoading(true);
+      const data =
+        await artistAPI.getFollowStatus(
+          artistSlug
+        );
 
 
 
-      setIsFollowing(
-        previous => !previous
+      setFollowing(
+        data.following
+      );
+
+
+
+    } catch(error) {
+
+
+      console.error(
+        'Failed to load follow status:',
+        error
+      );
+
+
+    }
+
+
+  }
+
+
+
+
+
+
+
+
+
+  async function handleFollow() {
+
+
+    try {
+
+
+      setFollowLoading(
+        true
+      );
+
+
+
+      if (following) {
+
+
+        await artistAPI.unfollowArtist(
+          artistSlug
+        );
+
+
+
+        setFollowing(
+          false
+        );
+
+
+
+      } else {
+
+
+        await artistAPI.followArtist(
+          artistSlug
+        );
+
+
+
+        setFollowing(
+          true
+        );
+
+
+      }
+
+
+
+    } catch(error) {
+
+
+      console.error(
+        'Failed to update follow:',
+        error
       );
 
 
@@ -255,35 +313,12 @@ export default function ArtistProfilePage() {
     } finally {
 
 
-      setFollowLoading(false);
+      setFollowLoading(
+        false
+      );
 
 
     }
-
-
-  }
-
-
-
-
-
-
-
-  function formatDate(
-    date: string
-  ) {
-
-
-    return new Date(
-      date
-    ).toLocaleDateString(
-      'en-US',
-      {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      }
-    );
 
 
   }
@@ -301,17 +336,10 @@ export default function ArtistProfilePage() {
 
     return (
 
-      <div className="
-        min-h-screen
-        flex
-        items-center
-        justify-center
-      ">
+      <div className="min-h-screen flex items-center justify-center">
 
 
-        <p className="
-          text-gray-400
-        ">
+        <p className="text-gray-400">
 
           Loading artist...
 
@@ -331,26 +359,22 @@ export default function ArtistProfilePage() {
 
 
 
+
+
   if (error || !artist) {
 
 
     return (
 
-      <div className="
-        min-h-screen
-        flex
-        flex-col
-        items-center
-        justify-center
-        gap-4
-      ">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
 
 
-        <p className="
-          text-red-400
-        ">
+        <p className="text-red-400">
 
-          {error || 'Artist not found.'}
+          {
+            error ||
+            'Artist not found.'
+          }
 
         </p>
 
@@ -386,21 +410,16 @@ export default function ArtistProfilePage() {
 
 
 
+
   return (
 
-
-    <div className="
-      min-h-screen
-    ">
+    <div className="min-h-screen">
 
 
 
-      <header className="
-        border-b
-        border-gray-800
-        px-4
-        py-4
-      ">
+
+
+      <header className="border-b border-gray-800 px-4 py-4">
 
 
         <div className="
@@ -410,7 +429,6 @@ export default function ArtistProfilePage() {
           justify-between
           items-center
         ">
-
 
 
           <Link
@@ -432,7 +450,6 @@ export default function ArtistProfilePage() {
             GigCrowd
 
           </Link>
-
 
 
 
@@ -468,7 +485,7 @@ export default function ArtistProfilePage() {
 
 
       <main className="
-        max-w-5xl
+        max-w-4xl
         mx-auto
         px-4
         py-10
@@ -476,10 +493,7 @@ export default function ArtistProfilePage() {
 
 
 
-
-
-
-        <section className="
+        <div className="
           bg-gray-900
           border
           border-gray-800
@@ -517,9 +531,7 @@ export default function ArtistProfilePage() {
 
 
 
-          <div className="
-            p-8
-          ">
+          <div className="p-8">
 
 
 
@@ -527,9 +539,8 @@ export default function ArtistProfilePage() {
 
             <div className="
               flex
+              items-center
               justify-between
-              items-start
-              gap-4
               mb-6
             ">
 
@@ -550,38 +561,41 @@ export default function ArtistProfilePage() {
 
               <button
 
-                onClick={
-                  handleFollowToggle
-                }
+                onClick={handleFollow}
 
-                disabled={
-                  followLoading
-                }
+                disabled={followLoading}
 
-                className={`
+                className="
                   px-5
                   py-2
                   rounded-lg
+                  bg-purple-600
+                  hover:bg-purple-700
+                  text-white
                   font-semibold
-                  transition-colors
-
-                  ${
-                    isFollowing
-                    ? 'bg-gray-700 text-white'
-                    : 'bg-purple-600 text-white hover:bg-purple-700'
-                  }
-
                   disabled:opacity-50
-                `}
+                "
 
               >
 
                 {
                   followLoading
-                  ? 'Loading...'
-                  : isFollowing
-                    ? 'Following'
-                    : 'Follow'
+
+                  ?
+
+                  'Loading...'
+
+                  :
+
+                  following
+
+                  ?
+
+                  'Following ✓'
+
+                  :
+
+                  'Follow'
                 }
 
 
@@ -601,47 +615,61 @@ export default function ArtistProfilePage() {
             {
               artist.genres.length > 0 && (
 
-
-                <div className="
-                  flex
-                  flex-wrap
-                  gap-2
-                  mb-6
-                ">
+                <div className="mb-6">
 
 
-                  {
-                    artist.genres.map(
-                      genre => (
+                  <h2 className="
+                    text-sm
+                    text-gray-400
+                    mb-2
+                  ">
 
-                        <span
+                    Genres
 
-                          key={genre}
-
-                          className="
-                            px-3
-                            py-1
-                            bg-gray-800
-                            rounded-full
-                            text-sm
-                            text-gray-300
-                          "
-
-                        >
-
-                          {genre}
-
-                        </span>
+                  </h2>
 
 
+
+
+                  <div className="
+                    flex
+                    flex-wrap
+                    gap-2
+                  ">
+
+
+                    {
+                      artist.genres.map(
+                        genre => (
+
+                          <span
+
+                            key={genre}
+
+                            className="
+                              px-3
+                              py-1
+                              bg-gray-800
+                              rounded-full
+                              text-sm
+                              text-gray-300
+                            "
+
+                          >
+
+                            {genre}
+
+                          </span>
+
+                        )
                       )
-                    )
-                  }
+                    }
 
+
+                  </div>
 
 
                 </div>
-
 
               )
             }
@@ -653,84 +681,96 @@ export default function ArtistProfilePage() {
 
 
 
-            <div className="
-              grid
-              grid-cols-1
-              md:grid-cols-2
-              gap-4
-            ">
 
+            {
+              artist.events && (
 
-
-              <div className="
-                bg-gray-800
-                rounded-lg
-                p-5
-              ">
-
-
-                <p className="
-                  text-gray-400
-                  text-sm
+                <div className="
+                  grid
+                  grid-cols-1
+                  md:grid-cols-2
+                  gap-4
                 ">
 
-                  Upcoming Shows
-
-                </p>
 
 
-                <p className="
-                  text-white
-                  text-3xl
-                  font-bold
-                ">
-
-                  {artist.events.upcoming}
-
-                </p>
+                  <div className="
+                    bg-gray-800
+                    rounded-lg
+                    p-4
+                  ">
 
 
-              </div>
+                    <p className="
+                      text-gray-400
+                      text-sm
+                    ">
 
+                      Upcoming Events
 
+                    </p>
 
 
 
+                    <p className="
+                      text-white
+                      text-xl
+                      font-semibold
+                    ">
 
-              <div className="
-                bg-gray-800
-                rounded-lg
-                p-5
-              ">
+                      {
+                        artist.events.upcoming
+                      }
 
-
-                <p className="
-                  text-gray-400
-                  text-sm
-                ">
-
-                  Total Shows
-
-                </p>
+                    </p>
 
 
-                <p className="
-                  text-white
-                  text-3xl
-                  font-bold
-                ">
-
-                  {artist.events.total}
-
-                </p>
-
-
-              </div>
+                  </div>
 
 
 
 
-            </div>
+
+                  <div className="
+                    bg-gray-800
+                    rounded-lg
+                    p-4
+                  ">
+
+
+                    <p className="
+                      text-gray-400
+                      text-sm
+                    ">
+
+                      Total Events
+
+                    </p>
+
+
+
+                    <p className="
+                      text-white
+                      text-xl
+                      font-semibold
+                    ">
+
+                      {
+                        artist.events.total
+                      }
+
+                    </p>
+
+
+                  </div>
+
+
+
+                </div>
+
+              )
+            }
+
 
 
 
@@ -738,210 +778,13 @@ export default function ArtistProfilePage() {
           </div>
 
 
-
-
-
-        </section>
-
-
-
-
-
-
-
-
-
-        <section className="
-          mt-10
-        ">
-
-
-
-          <h2 className="
-            text-2xl
-            font-bold
-            text-white
-            mb-6
-          ">
-
-            Upcoming Events
-
-          </h2>
-
-
-
-
-
-
-
-          {
-            events.length === 0 ? (
-
-              <p className="
-                text-gray-400
-              ">
-
-                No upcoming events found.
-
-              </p>
-
-
-            ) : (
-
-
-              <div className="
-                space-y-4
-              ">
-
-
-
-                {
-                  events.map(
-                    event => (
-
-                      <div
-
-                        key={event.id}
-
-                        className="
-                          bg-gray-900
-                          border
-                          border-gray-800
-                          rounded-lg
-                          p-5
-                        "
-
-                      >
-
-
-
-                        <h3 className="
-                          text-xl
-                          font-semibold
-                          text-white
-                        ">
-
-                          {event.title}
-
-                        </h3>
-
-
-
-
-
-                        <p className="
-                          text-gray-400
-                          mt-2
-                        ">
-
-                          {formatDate(
-                            event.starts_at
-                          )}
-
-                        </p>
-
-
-
-
-
-
-                        {
-                          event.venue && (
-
-                            <p className="
-                              text-gray-500
-                              mt-1
-                            ">
-
-
-                              {event.venue.name}
-
-
-                              {
-                                event.venue.city &&
-                                ` - ${event.venue.city}`
-                              }
-
-
-                              {
-                                event.venue.country &&
-                                `, ${event.venue.country}`
-                              }
-
-
-                            </p>
-
-                          )
-                        }
-
-
-
-
-
-
-                        {
-                          event.ticket_url && (
-
-                            <a
-
-                              href={event.ticket_url}
-
-                              target="_blank"
-
-                              rel="noopener noreferrer"
-
-                              className="
-                                inline-block
-                                mt-4
-                                text-purple-400
-                                hover:text-purple-300
-                              "
-
-                            >
-
-                              Buy Ticket →
-
-                            </a>
-
-
-                          )
-                        }
-
-
-
-
-                      </div>
-
-
-                    )
-                  )
-                }
-
-
-
-              </div>
-
-
-            )
-          }
-
-
-
-
-        </section>
-
-
-
+        </div>
 
 
       </main>
 
 
-
-
-
     </div>
-
 
   );
 
