@@ -1,6 +1,7 @@
 from app.domain.event import Event
 from app.repositories.base import BaseRepository
 from app.mappers.event_document_mapper import EventDocumentMapper
+from datetime import datetime, UTC
 
 class EventRepository(BaseRepository):
 
@@ -59,4 +60,30 @@ class EventRepository(BaseRepository):
             event.model_dump(
                 exclude={"id"}
             )
+        )
+
+    async def count_by_artist_slug(
+        self,
+        artist_slug: str,
+    ) -> int:
+
+        return await self.collection.count_documents(
+            {
+                    "artist_slug": artist_slug,
+                }
+            )
+
+
+    async def count_upcoming_by_artist_slug(
+        self,
+        artist_slug: str,
+    ) -> int:
+
+        return await self.collection.count_documents(
+            {
+                "artist_slug": artist_slug,
+                "starts_at": {
+                    "$gte": datetime.now(UTC),
+                },
+            }
         )

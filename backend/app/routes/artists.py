@@ -14,7 +14,10 @@ from app.schemas.event_response import EventResponse
 from app.config import settings
 from app.services.artist_synchronization_service import ArtistSynchronizationService
 from motor.motor_asyncio import AsyncIOMotorClient
-
+from app.services.artist_service import ArtistService
+from app.schemas.artist_profile_response import (
+    ArtistProfileResponse,
+)
 
 router = APIRouter(
     prefix="/artists",
@@ -61,6 +64,10 @@ artist_synchronization_service = (
         event_import_service=event_import_service,
     )
 )
+artist_service = ArtistService(
+    artist_repository=artist_repository,
+    event_repository=event_repository,
+)
 
 # ----------------------------------------------------
 # Routes
@@ -89,5 +96,17 @@ async def get_artist_events(
 ):
 
     return await event_service.get_artist_events(
+        artist_slug
+    )
+
+@router.get(
+    "/{artist_slug}",
+    response_model=ArtistProfileResponse,
+)
+async def get_artist(
+    artist_slug: str,
+):
+
+    return await artist_service.get_artist_profile(
         artist_slug
     )
