@@ -23,8 +23,6 @@ interface FollowButtonProps {
 
 
 
-
-
 export default function FollowButton({
 
   username,
@@ -32,7 +30,6 @@ export default function FollowButton({
   onFollowChange,
 
 }: FollowButtonProps) {
-
 
 
   const [
@@ -49,10 +46,6 @@ export default function FollowButton({
 
 
 
-
-
-
-
   useEffect(() => {
 
     loadFollowStatus();
@@ -63,16 +56,12 @@ export default function FollowButton({
 
 
 
-
-
-
   async function loadFollowStatus() {
-
 
     try {
 
 
-      const status =
+      const response =
         await followAPI.getStatus(
           username
         );
@@ -80,18 +69,14 @@ export default function FollowButton({
 
 
       setFollowing(
-        status.following
+        response.following
       );
 
 
 
-      if (onFollowChange) {
-
-        onFollowChange(
-          status.following
-        );
-
-      }
+      onFollowChange?.(
+        response.following
+      );
 
 
 
@@ -104,7 +89,6 @@ export default function FollowButton({
       );
 
 
-
     } finally {
 
 
@@ -113,11 +97,7 @@ export default function FollowButton({
 
     }
 
-
   }
-
-
-
 
 
 
@@ -133,10 +113,6 @@ export default function FollowButton({
 
 
 
-      let newStatus = false;
-
-
-
       if (following) {
 
 
@@ -145,7 +121,13 @@ export default function FollowButton({
         );
 
 
-        newStatus = false;
+        setFollowing(false);
+
+
+
+        onFollowChange?.(
+          false
+        );
 
 
 
@@ -157,24 +139,12 @@ export default function FollowButton({
         );
 
 
-        newStatus = true;
-
-
-      }
+        setFollowing(true);
 
 
 
-      setFollowing(
-        newStatus
-      );
-
-
-
-      if (onFollowChange) {
-
-
-        onFollowChange(
-          newStatus
+        onFollowChange?.(
+          true
         );
 
 
@@ -200,11 +170,7 @@ export default function FollowButton({
 
     }
 
-
   }
-
-
-
 
 
 
@@ -212,12 +178,29 @@ export default function FollowButton({
 
   if (loading) {
 
-    return null;
+    return (
+
+      <button
+
+        disabled
+
+        className="
+          px-5
+          py-2
+          rounded-lg
+          bg-gray-700
+          text-gray-400
+        "
+
+      >
+
+        Loading...
+
+      </button>
+
+    );
 
   }
-
-
-
 
 
 
