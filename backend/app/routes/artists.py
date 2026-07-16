@@ -82,6 +82,7 @@ event_repository = EventRepository(db)
 event_service = EventService(
     event_repository=event_repository,
     venue_repository=venue_repository,
+    artist_repository=artist_repository,
 )
 artist_synchronization_service = (
     ArtistSynchronizationService(
