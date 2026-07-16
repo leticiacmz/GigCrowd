@@ -57,8 +57,23 @@ export const authAPI = {
 };
 
 export const userAPI = {
+
   getMe: async () => {
-    const response = await api.get('/users/me');
+
+    const response = await api.get(
+      '/users/me'
+    );
+
+    return response.data;
+  },
+
+
+  getMyStats: async () => {
+
+    const response = await api.get(
+      '/users/me/stats'
+    );
+
     return response.data;
   },
 
