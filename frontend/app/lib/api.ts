@@ -1,389 +1,891 @@
 import axios from 'axios';
 import { getToken } from './auth';
 
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   'http://localhost:8000';
 
+
+
 const api = axios.create({
+
   baseURL: API_URL,
+
   headers: {
     'Content-Type': 'application/json',
   },
+
 });
 
-api.interceptors.request.use((config) => {
-  const token = getToken();
 
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+
+api.interceptors.request.use(
+
+  (config) => {
+
+    const token = getToken();
+
+
+    if (token) {
+
+      config.headers.Authorization =
+        `Bearer ${token}`;
+
+    }
+
+
+    return config;
+
   }
 
-  return config;
-});
+);
+
+
+
+
 
 export const authAPI = {
+
+
   login: async (
     email: string,
     password: string
   ) => {
 
-    const formData = new URLSearchParams();
 
-    formData.append('username', email);
-    formData.append('password', password);
+    const formData =
+      new URLSearchParams();
 
-    const response = await api.post(
-      '/auth/login',
-      formData,
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      }
+
+    formData.append(
+      'username',
+      email
     );
 
-    return response.data;
-  },
 
-  register: async (userData: any) => {
-    const response = await api.post(
-      '/auth/register',
-      userData
+    formData.append(
+      'password',
+      password
     );
 
+
+    const response =
+      await api.post(
+
+        '/auth/login',
+
+        formData,
+
+        {
+
+          headers: {
+
+            'Content-Type':
+              'application/x-www-form-urlencoded',
+
+          },
+
+        }
+
+      );
+
+
     return response.data;
+
   },
+
+
+
+  register: async (
+    userData: any
+  ) => {
+
+
+    const response =
+      await api.post(
+
+        '/auth/register',
+
+        userData
+
+      );
+
+
+    return response.data;
+
+  },
+
+
 };
+
+
+
+
+
+
 
 export const userAPI = {
 
+
   getMe: async () => {
 
-    const response = await api.get(
-      '/users/me'
-    );
+
+    const response =
+      await api.get(
+
+        '/users/me'
+
+      );
+
 
     return response.data;
+
   },
+
 
 
   getMyStats: async () => {
 
-    const response = await api.get(
-      '/users/me/stats'
-    );
+
+    const response =
+      await api.get(
+
+        '/users/me/stats'
+
+      );
+
 
     return response.data;
+
   },
 
-  updateMe: async (userData: any) => {
-    const response = await api.put(
-      '/users/me',
-      userData
-    );
+
+
+  getProfile: async (
+
+    username: string
+
+  ) => {
+
+
+    const response =
+      await api.get(
+
+        `/users/profile/${username}`
+
+      );
+
 
     return response.data;
+
   },
 
-  getUser: async (userId: string) => {
-    const response = await api.get(
-      `/users/${userId}`
-    );
+
+
+  getProfileStats: async (
+
+    username: string
+
+  ) => {
+
+
+    const response =
+      await api.get(
+
+        `/users/profile/${username}/stats`
+
+      );
+
 
     return response.data;
+
   },
+
+
+
+  updateMe: async (
+
+    userData: any
+
+  ) => {
+
+
+    const response =
+      await api.put(
+
+        '/users/me',
+
+        userData
+
+      );
+
+
+    return response.data;
+
+  },
+
+
 };
+
+
+
+
+
+
+
+
 
 export const eventAPI = {
-  getEvents: async (params?: any) => {
-    const response = await api.get(
-      '/events',
-      {
-        params,
-      }
-    );
+
+
+  getEvents: async (
+
+    params?: any
+
+  ) => {
+
+
+    const response =
+      await api.get(
+
+        '/events',
+
+        {
+          params,
+        }
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   getEvent: async (
+
     eventId: string
+
   ) => {
 
-    const response = await api.get(
-      `/events/${eventId}`
-    );
+
+    const response =
+      await api.get(
+
+        `/events/${eventId}`
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   attendEvent: async (
+
     eventId: string,
+
     status: string,
+
     notes?: string
+
   ) => {
 
-    const response = await api.post(
-      `/events/${eventId}/attend`,
-      null,
-      {
-        params: {
-          status,
-          notes,
-        },
-      }
-    );
+
+    const response =
+      await api.post(
+
+        `/events/${eventId}/attend`,
+
+        null,
+
+        {
+
+          params: {
+
+            status,
+
+            notes,
+
+          },
+
+        }
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   searchExternal: async (
+
     query: string,
+
     eventType?: 'past' | 'future',
+
     specificDate?: string,
+
     startDate?: string,
+
     endDate?: string
+
   ) => {
+
 
     const params: any = {
+
       query,
+
     };
 
-    if (eventType)
-      params.event_type = eventType;
 
-    if (specificDate)
-      params.specific_date = specificDate;
 
-    if (startDate)
-      params.start_date = startDate;
+    if (eventType) {
 
-    if (endDate)
-      params.end_date = endDate;
+      params.event_type =
+        eventType;
 
-    const response = await api.get(
-      '/events/search/external',
-      {
-        params,
-      }
-    );
+    }
+
+
+
+    if (specificDate) {
+
+      params.specific_date =
+        specificDate;
+
+    }
+
+
+
+    if (startDate) {
+
+      params.start_date =
+        startDate;
+
+    }
+
+
+
+    if (endDate) {
+
+      params.end_date =
+        endDate;
+
+    }
+
+
+
+    const response =
+      await api.get(
+
+        '/events/search/external',
+
+        {
+          params,
+        }
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 };
+
+
+
+
+
+
+
+
 
 export const postAPI = {
+
+
   getPosts: async (
+
     params?: any
+
   ) => {
 
-    const response = await api.get(
-      '/posts',
-      {
-        params,
-      }
-    );
+
+    const response =
+      await api.get(
+
+        '/posts',
+
+        {
+          params,
+        }
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   createPost: async (
+
     postData: any
+
   ) => {
 
-    const response = await api.post(
-      '/posts',
-      postData
-    );
+
+    const response =
+      await api.post(
+
+        '/posts',
+
+        postData
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   uploadMedia: async (
+
     file: File
+
   ) => {
 
-    const formData = new FormData();
+
+    const formData =
+      new FormData();
+
+
 
     formData.append(
+
       'file',
+
       file
+
     );
 
-    const response = await api.post(
-      '/posts/upload',
-      formData,
-      {
-        headers: {
-          'Content-Type':
-            'multipart/form-data',
-        },
-      }
-    );
+
+
+    const response =
+      await api.post(
+
+        '/posts/upload',
+
+        formData,
+
+        {
+
+          headers: {
+
+            'Content-Type':
+              'multipart/form-data',
+
+          },
+
+        }
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 };
+
+
+
+
+
+
+
+
 
 export const feedAPI = {
+
+
   getFeed: async (
+
     params?: any
+
   ) => {
 
-    const response = await api.get(
-      '/feed',
-      {
-        params,
-      }
-    );
+
+    const response =
+      await api.get(
+
+        '/feed',
+
+        {
+          params,
+        }
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 };
+
+
+
+
+
+
+
+
 
 export const followAPI = {
+
+
   followUser: async (
-    followingId: string
+
+    username: string
+
   ) => {
 
-    const response = await api.post(
-      '/follows',
-      {
-        following_id: followingId,
-      }
-    );
+
+    const response =
+      await api.post(
+
+        `/follows/${username}`
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   unfollowUser: async (
-    followingId: string
+
+    username: string
+
   ) => {
 
-    const response = await api.delete(
-      `/follows/${followingId}`
-    );
+
+    const response =
+      await api.delete(
+
+        `/follows/${username}`
+
+      );
+
 
     return response.data;
+
+
   },
+
+
+
+  getStatus: async (
+
+    username: string
+
+  ) => {
+
+
+    const response =
+      await api.get(
+
+        `/follows/${username}/status`
+
+      );
+
+
+    return response.data;
+
+
+  },
+
+
 };
+
+
+
+
+
+
+
+
 
 export const artistAPI = {
+
+
   getArtists: async (
+
     params?: any
+
   ) => {
 
-    const response = await api.get(
-      '/artists',
-      {
-        params,
-      }
-    );
+
+    const response =
+      await api.get(
+
+        '/artists',
+
+        {
+          params,
+        }
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   searchArtists: async (
+
     query: string
+
   ) => {
 
-    const response = await api.get(
-      '/artists/search',
-      {
-        params: {
-          q: query,
-        },
-      }
-    );
+
+    const response =
+      await api.get(
+
+        '/artists/search',
+
+        {
+
+          params: {
+
+            q: query,
+
+          },
+
+        }
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   getArtist: async (
+
     artistSlug: string
+
   ) => {
 
-    const response = await api.get(
-      `/artists/${artistSlug}`
-    );
+
+    const response =
+      await api.get(
+
+        `/artists/${artistSlug}`
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   getFollowStatus: async (
+
     artistSlug: string
+
   ) => {
 
-    const response = await api.get(
-      `/artists/${artistSlug}/follow`
-    );
+
+    const response =
+      await api.get(
+
+        `/artists/${artistSlug}/follow`
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   followArtist: async (
+
     artistSlug: string
+
   ) => {
 
-    const response = await api.post(
-      `/artists/${artistSlug}/follow`
-    );
+
+    const response =
+      await api.post(
+
+        `/artists/${artistSlug}/follow`
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   unfollowArtist: async (
+
     artistSlug: string
+
   ) => {
 
-    const response = await api.delete(
-      `/artists/${artistSlug}/follow`
-    );
+
+    const response =
+      await api.delete(
+
+        `/artists/${artistSlug}/follow`
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 };
 
+
+
+
+
+
+
+
+
 export const spotifyAPI = {
+
+
   login: async () => {
 
-    const response = await api.get(
-      '/auth/spotify/login'
-    );
+
+    const response =
+      await api.get(
+
+        '/auth/spotify/login'
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   connect: async (
+
     tokens: any
+
   ) => {
 
-    const response = await api.post(
-      '/auth/spotify/connect',
-      tokens
-    );
+
+    const response =
+      await api.post(
+
+        '/auth/spotify/connect',
+
+        tokens
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   getRecommendations: async () => {
 
-    const response = await api.get(
-      '/auth/spotify/recommendations'
-    );
+
+    const response =
+      await api.get(
+
+        '/auth/spotify/recommendations'
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 
   disconnect: async () => {
 
-    const response = await api.post(
-      '/auth/spotify/disconnect'
-    );
+
+    const response =
+      await api.post(
+
+        '/auth/spotify/disconnect'
+
+      );
+
 
     return response.data;
+
+
   },
+
+
 };
+
+
+
+
+
+
 
 export default api;

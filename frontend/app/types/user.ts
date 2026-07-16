@@ -1,9 +1,10 @@
-export interface User {
+export interface UserProfile {
+
   id: string;
 
   username: string;
 
-  email: string;
+  email?: string;
 
   full_name?: string;
 
@@ -13,38 +14,10 @@ export interface User {
 
   location?: string;
 
-  role: string;
+  followers_count: number;
+
+  following_count: number;
 
   created_at?: string;
 
-  followers_count: number;
-
-  following_count: number;
-}
-
-
-export interface UserStats {
-
-  username: string;
-
-  followers_count: number;
-
-  following_count: number;
-
-  bio?: string;
-
-  avatar_url?: string;
-
-
-  shows_attended: number;
-
-  shows_going: number;
-
-  shows_maybe: number;
-
-  artists_seen: number;
-
-  upcoming_events: number;
-
-  total_posts: number;
 }

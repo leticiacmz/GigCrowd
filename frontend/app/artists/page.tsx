@@ -13,11 +13,13 @@ import Link from 'next/link';
 
 import {
   artistAPI,
+  userAPI,
 } from '../lib/api';
 
 import {
   Artist,
 } from '../types/artist';
+
 
 
 export default function ArtistsPage() {
@@ -30,6 +32,13 @@ export default function ArtistsPage() {
     artists,
     setArtists,
   ] = useState<Artist[]>([]);
+
+
+
+  const [
+    currentUser,
+    setCurrentUser,
+  ] = useState<any>(null);
 
 
 
@@ -63,6 +72,7 @@ export default function ArtistsPage() {
 
 
 
+
   useEffect(() => {
 
 
@@ -83,9 +93,49 @@ export default function ArtistsPage() {
 
     loadArtists();
 
+    loadCurrentUser();
+
 
 
   }, [router]);
+
+
+
+
+
+
+
+  async function loadCurrentUser() {
+
+
+    try {
+
+
+      const user =
+        await userAPI.getMe();
+
+
+
+      setCurrentUser(
+        user
+      );
+
+
+    } catch(error) {
+
+
+      console.error(
+        'Failed to load user:',
+        error
+      );
+
+
+    }
+
+
+  }
+
+
 
 
 
@@ -109,11 +159,13 @@ export default function ArtistsPage() {
 
 
 
-      setArtists(data);
+      setArtists(
+        data
+      );
 
 
 
-    } catch (error) {
+    } catch(error) {
 
 
       console.error(
@@ -157,6 +209,7 @@ export default function ArtistsPage() {
 
 
 
+
     if (!searchQuery.trim()) {
 
 
@@ -166,6 +219,8 @@ export default function ArtistsPage() {
 
 
     }
+
+
 
 
 
@@ -186,11 +241,13 @@ export default function ArtistsPage() {
 
 
 
-      setArtists(data);
+      setArtists(
+        data
+      );
 
 
 
-    } catch (error) {
+    } catch(error) {
 
 
       console.error(
@@ -230,17 +287,40 @@ export default function ArtistsPage() {
 
 
 
-      <header className="border-b border-gray-800 px-4 py-4">
+      <header
+        className="
+          border-b
+          border-gray-800
+          px-4
+          py-4
+        "
+      >
 
 
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div
+          className="
+            max-w-6xl
+            mx-auto
+            flex
+            items-center
+            justify-between
+          "
+        >
 
 
           <Link
 
             href="/feed"
 
-            className="text-2xl font-bold bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent"
+            className="
+              text-2xl
+              font-bold
+              bg-gradient-to-r
+              from-purple-500
+              to-pink-500
+              bg-clip-text
+              text-transparent
+            "
 
           >
 
@@ -252,12 +332,20 @@ export default function ArtistsPage() {
 
 
 
-          <nav className="flex gap-4">
+          <nav
+            className="
+              flex
+              gap-4
+            "
+          >
 
 
             <Link
               href="/feed"
-              className="text-gray-400 hover:text-white"
+              className="
+                text-gray-400
+                hover:text-white
+              "
             >
 
               Feed
@@ -269,7 +357,10 @@ export default function ArtistsPage() {
 
             <Link
               href="/events"
-              className="text-gray-400 hover:text-white"
+              className="
+                text-gray-400
+                hover:text-white
+              "
             >
 
               Events
@@ -280,8 +371,18 @@ export default function ArtistsPage() {
 
 
             <Link
-              href="/profile"
-              className="text-gray-400 hover:text-white"
+
+              href={
+                currentUser
+                  ? `/profile/${currentUser.username}`
+                  : '/login'
+              }
+
+              className="
+                text-gray-400
+                hover:text-white
+              "
+
             >
 
               Profile
@@ -306,11 +407,25 @@ export default function ArtistsPage() {
 
 
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
+
+      <main
+        className="
+          max-w-6xl
+          mx-auto
+          px-4
+          py-8
+        "
+      >
 
 
 
-        <h1 className="text-3xl font-bold mb-6">
+        <h1
+          className="
+            text-3xl
+            font-bold
+            mb-6
+          "
+        >
 
           Discover Artists
 
@@ -347,7 +462,16 @@ export default function ArtistsPage() {
               placeholder="Search artists..."
 
 
-              className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white"
+              className="
+                flex-1
+                px-4
+                py-3
+                bg-gray-800
+                border
+                border-gray-700
+                rounded-lg
+                text-white
+              "
 
             />
 
@@ -359,7 +483,13 @@ export default function ArtistsPage() {
 
               disabled={searching}
 
-              className="px-6 py-3 bg-purple-600 rounded-lg text-white disabled:opacity-50"
+              className="
+                px-6
+                py-3
+                bg-purple-600
+                rounded-lg
+                text-white
+              "
 
             >
 
@@ -387,12 +517,18 @@ export default function ArtistsPage() {
 
 
 
-
-
         {
           error && (
 
-            <div className="mb-6 p-4 rounded bg-red-900 text-red-200">
+            <div
+              className="
+                mb-6
+                p-4
+                rounded
+                bg-red-900
+                text-red-200
+              "
+            >
 
               {error}
 
@@ -412,7 +548,14 @@ export default function ArtistsPage() {
           loading ? (
 
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div
+              className="
+                grid
+                grid-cols-1
+                md:grid-cols-3
+                gap-6
+              "
+            >
 
 
               {
@@ -427,7 +570,12 @@ export default function ArtistsPage() {
 
                       key={index}
 
-                      className="bg-gray-900 rounded-lg p-4 animate-pulse"
+                      className="
+                        bg-gray-900
+                        rounded-lg
+                        p-4
+                        animate-pulse
+                      "
 
                     >
 
@@ -435,9 +583,7 @@ export default function ArtistsPage() {
 
                       <div className="h-5 bg-gray-800 rounded w-3/4" />
 
-
                     </div>
-
 
                   )
                 )
@@ -463,7 +609,15 @@ export default function ArtistsPage() {
 
 
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div
+              className="
+                grid
+                grid-cols-1
+                md:grid-cols-2
+                lg:grid-cols-3
+                gap-6
+              "
+            >
 
 
 
@@ -487,7 +641,15 @@ export default function ArtistsPage() {
 
 
 
-                      className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-purple-500 transition"
+                      className="
+                        bg-gray-900
+                        border
+                        border-gray-800
+                        rounded-lg
+                        overflow-hidden
+                        hover:border-purple-500
+                        transition
+                      "
 
 
 
@@ -506,7 +668,11 @@ export default function ArtistsPage() {
 
                             alt={artist.name}
 
-                            className="w-full h-48 object-cover"
+                            className="
+                              w-full
+                              h-48
+                              object-cover
+                            "
 
                           />
 
@@ -514,7 +680,16 @@ export default function ArtistsPage() {
                         ) : (
 
 
-                          <div className="h-48 flex items-center justify-center bg-gray-800 text-5xl">
+                          <div
+                            className="
+                              h-48
+                              flex
+                              items-center
+                              justify-center
+                              bg-gray-800
+                              text-5xl
+                            "
+                          >
 
                             🎵
 
@@ -524,6 +699,8 @@ export default function ArtistsPage() {
                         )
 
                       }
+
+
 
 
 

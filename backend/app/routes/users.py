@@ -1,70 +1,168 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from app.models.user import UserResponse, UserUpdate
-from app.services.user_service import UserService
-from app.auth.dependencies import get_current_active_user
-from typing import List
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
 
-router = APIRouter(prefix="/users", tags=["users"])
+from app.auth.dependencies import (
+    get_current_active_user,
+)
+
+from app.database.connection import (
+    get_database,
+)
+
+from app.repositories.user_repository import (
+    UserRepository,
+)
+
+from app.services.user_profile_service import (
+    UserProfileService,
+)
+
+from app.services.user_stats_service import (
+    UserStatsService,
+)
+
+from app.repositories.show_log_repository import (
+    ShowLogRepository,
+)
+
+from app.schemas.user_stats import (
+    UserStatsResponse,
+)
+
+router = APIRouter(
+    prefix="/users",
+    tags=["users"],
+)
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_current_user_profile(current_user: dict = Depends(get_current_active_user)):
-    """Get current user profile"""
-    return UserResponse(**current_user)
+def get_profile_service():
+
+    db = get_database()
+
+    return UserProfileService(
+        user_repository=UserRepository(db),
+    )
 
 
-@router.put("/me", response_model=UserResponse)
-async def update_current_user_profile(
-    user_data: UserUpdate,
-    current_user: dict = Depends(get_current_active_user)
+def get_user_stats_service():
+
+    db = get_database()
+
+    return UserStatsService(
+        user_repository=UserRepository(db),
+        show_log_repository=ShowLogRepository(db),
+        db=db,
+    )
+
+
+@router.get("/me")
+async def get_me(
+
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+
 ):
-    """Update current user profile"""
-    user = await UserService.update_user(current_user["_id"], user_data)
-    if not user:
+
+    return current_user
+
+
+@router.get(
+    "/profile/{username}",
+)
+async def get_profile(
+
+    username: str,
+
+    service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    profile = await service.get_profile(
+        username
+    )
+
+    if not profile:
+
         raise HTTPException(
+
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+
+            detail="User not found",
         )
-    return UserResponse(**user.model_dump())
+
+    return profile
 
 
-@router.get("/{user_id}", response_model=UserResponse)
-async def get_user(user_id: str):
-    """Get user by ID"""
-    user = await UserService.get_user_by_id(user_id)
-    if not user:
+@router.get(
+    "/profile/{username}/stats",
+    response_model=UserStatsResponse,
+)
+async def get_public_user_stats(
+
+    username: str,
+
+    stats_service: UserStatsService = Depends(
+        get_user_stats_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    profile = await profile_service.get_profile(
+        username
+    )
+
+    if not profile:
+
         raise HTTPException(
+
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+
+            detail="User not found",
         )
-    return UserResponse(**user.model_dump())
+
+    return await stats_service.get_user_stats(
+        username
+    )
 
 
-@router.get("/{user_id}/followers", response_model=List[dict])
-async def get_user_followers(user_id: str, skip: int = 0, limit: int = 50):
-    """Get user's followers"""
-    followers = await UserService.get_user_by_id(user_id)
-    if not followers:
+@router.get(
+    "/me/stats",
+    response_model=UserStatsResponse,
+)
+async def get_my_stats(
+
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+
+    stats_service: UserStatsService = Depends(
+        get_user_stats_service
+    ),
+
+):
+
+    stats = await stats_service.get_user_stats(
+        current_user["_id"]
+    )
+
+    if not stats:
+
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    
-    from app.services.follow_service import FollowService
-    followers_list = await FollowService.get_followers(user_id, skip, limit)
-    return followers_list
 
-
-@router.get("/{user_id}/following", response_model=List[dict])
-async def get_user_following(user_id: str, skip: int = 0, limit: int = 50):
-    """Get users that a user is following"""
-    user = await UserService.get_user_by_id(user_id)
-    if not user:
-        raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+
+            detail="User not found",
         )
-    
-    from app.services.follow_service import FollowService
-    following_list = await FollowService.get_following(user_id, skip, limit)
-    return following_list
+
+    return stats

@@ -3,32 +3,35 @@ from datetime import datetime, UTC
 
 class UserStatsService:
 
-
     def __init__(
         self,
         user_repository,
         show_log_repository,
-        db
+        db,
     ):
 
         self.user_repository = user_repository
-
         self.show_log_repository = show_log_repository
-
         self.db = db
-
 
 
     async def get_user_stats(
         self,
-        user_id: str
+        username: str,
     ):
 
+        user = await self.user_repository.get_by_username(
+            username
+        )
 
-        user_stats = await (
-            self.user_repository.get_stats(
-                user_id
-            )
+
+        if not user:
+
+            return None
+
+
+        user_id = str(
+            user["_id"]
         )
 
 
@@ -50,7 +53,6 @@ class UserStatsService:
 
 
         for log in logs:
-
 
             status = log.get(
                 "status"
@@ -75,8 +77,9 @@ class UserStatsService:
 
             event = await self.db.events.find_one(
                 {
-                    "_id":
-                    log.get("event_id")
+                    "_id": log.get(
+                        "event_id"
+                    )
                 }
             )
 
@@ -98,18 +101,23 @@ class UserStatsService:
         )
 
 
+
         upcoming = await self.db.events.count_documents(
             {
                 "_id":
                 {
                     "$in":
                     [
-                        log.get("event_id")
+                        log.get(
+                            "event_id"
+                        )
                         for log in logs
-                        if log.get("status")
+                        if log.get(
+                            "status"
+                        )
                         in [
                             "going",
-                            "maybe"
+                            "maybe",
                         ]
                     ]
                 },
@@ -117,15 +125,35 @@ class UserStatsService:
                 "date":
                 {
                     "$gte":
-                    datetime.now(UTC)
+                    datetime.now(
+                        UTC
+                    )
                 }
             }
         )
 
 
+
         return {
 
-            **user_stats,
+            "username":
+                user.get(
+                    "username"
+                ),
+
+
+            "followers_count":
+                user.get(
+                    "followers_count",
+                    0,
+                ),
+
+
+            "following_count":
+                user.get(
+                    "following_count",
+                    0,
+                ),
 
 
             "shows_attended":
@@ -141,7 +169,9 @@ class UserStatsService:
 
 
             "artists_seen":
-                len(artists),
+                len(
+                    artists
+                ),
 
 
             "upcoming_events":
@@ -149,5 +179,5 @@ class UserStatsService:
 
 
             "total_posts":
-                posts
+                posts,
         }
