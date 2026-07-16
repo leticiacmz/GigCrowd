@@ -15,6 +15,7 @@ from app.routes import (
     follows,
     show_logs,
     spotify_auth,
+    user_stats
 )
 
 from app.providers.registry import registry
@@ -119,7 +120,7 @@ app.include_router(show_logs.router)
 
 app.include_router(spotify_auth.router)
 
-
+app.include_router(user_stats.router)
 
 # =====================================================
 # Health Check

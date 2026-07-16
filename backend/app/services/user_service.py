@@ -113,19 +113,88 @@ class UserService:
         return user
     
     @staticmethod
-    async def increment_following_count(user_id: str) -> None:
-        """Increment the following count for a user"""
+    async def increment_following_count(
+        user_id: str
+    ) -> None:
+        """
+        Increment users that this user follows.
+        """
+
         db = get_database()
+
         await db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$inc": {"followers_count": 1}}
-    )
-    
+            {
+                "_id": ObjectId(user_id)
+            },
+            {
+                "$inc": {
+                    "following_count": 1
+                }
+            }
+        )
+
+
     @staticmethod
-    async def decrement_following_count(user_id: str) -> None:
-        """Decrement the following count for a user"""
+    async def decrement_following_count(
+        user_id: str
+    ) -> None:
+        """
+        Decrement users that this user follows.
+        """
+
         db = get_database()
+
         await db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$inc": {"following_count": -1}}
-    )
+            {
+                "_id": ObjectId(user_id)
+            },
+            {
+                "$inc": {
+                    "following_count": -1
+                }
+            }
+        )
+
+
+    @staticmethod
+    async def increment_followers_count(
+        user_id: str
+    ) -> None:
+        """
+        Increment followers received by this user.
+        """
+
+        db = get_database()
+
+        await db.users.update_one(
+            {
+                "_id": ObjectId(user_id)
+            },
+            {
+                "$inc": {
+                    "followers_count": 1
+                }
+            }
+        )
+
+
+    @staticmethod
+    async def decrement_followers_count(
+        user_id: str
+    ) -> None:
+        """
+        Decrement followers received by this user.
+        """
+
+        db = get_database()
+
+        await db.users.update_one(
+            {
+                "_id": ObjectId(user_id)
+            },
+            {
+                "$inc": {
+                    "followers_count": -1
+                }
+            }
+        )

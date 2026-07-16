@@ -1,103 +1,115 @@
 from app.models.follow import FollowCreate
+
 from app.repositories.follow_repository import FollowRepository
+from app.repositories.user_repository import UserRepository
+
 from app.database.connection import get_database
 
 
-class FollowService:
-    """
-    Service responsible for follow business rules.
 
-    Responsibilities:
-    - Prevent self follow
-    - Prevent duplicated follows
-    - Update follower/following counters
-    - Delegate persistence to FollowRepository
-    """
+class FollowService:
+
 
     def __init__(self):
-        self.repository = FollowRepository()
+
+        db = get_database()
+
+        self.follow_repository = FollowRepository(
+            db
+        )
+        self.user_repository = UserRepository(
+            db
+        )
+
+
 
     async def follow_user(
         self,
         follower_id: str,
         follow_data: FollowCreate,
     ):
-        db = get_database()
 
-        # Cannot follow yourself
-        if follower_id == follow_data.following_id:
-            raise ValueError("Cannot follow yourself")
 
-        # Already following?
-        already_following = await self.repository.exists(
+        following_id = follow_data.following_id
+
+
+        if follower_id == following_id:
+
+            raise ValueError(
+                "Cannot follow yourself"
+            )
+
+
+
+        exists = await self.follow_repository.exists(
             follower_id=follower_id,
-            following_id=follow_data.following_id,
+            following_id=following_id,
         )
 
-        if already_following:
-            raise ValueError("Already following this user")
 
-        # Create follow relationship
-        follow = await self.repository.create(
+        if exists:
+
+            raise ValueError(
+                "Already following this user"
+            )
+
+
+
+        follow = await self.follow_repository.create(
             follower_id=follower_id,
-            following_id=follow_data.following_id,
+            following_id=following_id,
         )
 
-        # Update counters
-        await db.users.update_one(
-            {"_id": follower_id},
-            {
-                "$inc": {
-                    "following_count": 1
-                }
-            },
+
+
+        await self.user_repository.increment_following_count(
+            follower_id
         )
 
-        await db.users.update_one(
-            {"_id": follow_data.following_id},
-            {
-                "$inc": {
-                    "followers_count": 1
-                }
-            },
+
+        await self.user_repository.increment_followers_count(
+            following_id
         )
+
 
         return follow
+
+
+
 
     async def unfollow_user(
         self,
         follower_id: str,
         following_id: str,
-    ) -> bool:
-        db = get_database()
+    ):
 
-        deleted = await self.repository.delete(
+
+        deleted = await self.follow_repository.delete(
             follower_id=follower_id,
             following_id=following_id,
         )
 
+
         if not deleted:
+
             return False
 
-        await db.users.update_one(
-            {"_id": follower_id},
-            {
-                "$inc": {
-                    "following_count": -1
-                }
-            },
+
+
+        await self.user_repository.decrement_following_count(
+            follower_id
         )
 
-        await db.users.update_one(
-            {"_id": following_id},
-            {
-                "$inc": {
-                    "followers_count": -1
-                }
-            },
+
+        await self.user_repository.decrement_followers_count(
+            following_id
         )
+
 
         return True
+
+
+
 
     async def get_following(
         self,
@@ -105,11 +117,15 @@ class FollowService:
         skip: int = 0,
         limit: int = 20,
     ):
-        return await self.repository.get_following(
+
+
+        return await self.follow_repository.get_following(
             user_id=user_id,
             skip=skip,
             limit=limit,
         )
+
+
 
     async def get_followers(
         self,
@@ -117,18 +133,24 @@ class FollowService:
         skip: int = 0,
         limit: int = 20,
     ):
-        return await self.repository.get_followers(
+
+
+        return await self.follow_repository.get_followers(
             user_id=user_id,
             skip=skip,
             limit=limit,
         )
 
+
+
     async def is_following(
         self,
         follower_id: str,
         following_id: str,
-    ) -> bool:
-        return await self.repository.exists(
+    ):
+
+
+        return await self.follow_repository.exists(
             follower_id=follower_id,
             following_id=following_id,
         )

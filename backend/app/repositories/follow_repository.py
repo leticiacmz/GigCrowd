@@ -1,10 +1,10 @@
-from typing import Optional, List
+from typing import List
 from datetime import datetime, UTC
 
-from app.database.connection import get_database
+from app.repositories.base import BaseRepository
 
 
-class FollowRepository:
+class FollowRepository(BaseRepository):
     """
     Repository responsible for follow relationship persistence.
 
@@ -18,8 +18,16 @@ class FollowRepository:
     Business rules belong to FollowService.
     """
 
-    def __init__(self):
-        self.collection_name = "follows"
+    def __init__(
+        self,
+        db
+    ):
+
+        super().__init__(
+            db,
+            "follows"
+        )
+
 
 
     async def create(
@@ -31,21 +39,29 @@ class FollowRepository:
         Create a follow relationship.
         """
 
-        db = get_database()
-
         follow_document = {
+
             "follower_id": follower_id,
+
             "following_id": following_id,
+
             "created_at": datetime.now(UTC),
+
         }
 
-        result = await db[self.collection_name].insert_one(
+
+        result = await self.insert_one(
             follow_document
         )
 
-        follow_document["_id"] = str(result.inserted_id)
+
+        follow_document["_id"] = str(
+            result.inserted_id
+        )
+
 
         return follow_document
+
 
 
 
@@ -58,16 +74,19 @@ class FollowRepository:
         Delete a follow relationship.
         """
 
-        db = get_database()
 
-        result = await db[self.collection_name].delete_one(
+        result = await self.collection.delete_one(
             {
                 "follower_id": follower_id,
+
                 "following_id": following_id,
             }
         )
 
+
         return result.deleted_count > 0
+
+
 
 
 
@@ -80,16 +99,19 @@ class FollowRepository:
         Check if a follow relationship exists.
         """
 
-        db = get_database()
 
-        follow = await db[self.collection_name].find_one(
+        follow = await self.find_one(
             {
                 "follower_id": follower_id,
+
                 "following_id": following_id,
             }
         )
 
+
         return follow is not None
+
+
 
 
 
@@ -103,10 +125,9 @@ class FollowRepository:
         Get users followed by a user.
         """
 
-        db = get_database()
 
         follows = await (
-            db[self.collection_name]
+            self.collection
             .find(
                 {
                     "follower_id": user_id
@@ -114,7 +135,9 @@ class FollowRepository:
             )
             .skip(skip)
             .limit(limit)
-            .to_list(length=limit)
+            .to_list(
+                length=limit
+            )
         )
 
 
@@ -125,23 +148,31 @@ class FollowRepository:
 
 
         if not following_ids:
+
             return []
 
 
+
         users = await (
-            db.users
+            self.collection.database.users
             .find(
                 {
-                    "_id": {
+                    "_id":
+                    {
                         "$in": following_ids
                     }
                 }
             )
-            .to_list(length=limit)
+            .to_list(
+                length=limit
+            )
         )
 
 
         return users
+
+
+
 
 
 
@@ -155,11 +186,9 @@ class FollowRepository:
         Get users following a user.
         """
 
-        db = get_database()
-
 
         follows = await (
-            db[self.collection_name]
+            self.collection
             .find(
                 {
                     "following_id": user_id
@@ -167,7 +196,9 @@ class FollowRepository:
             )
             .skip(skip)
             .limit(limit)
-            .to_list(length=limit)
+            .to_list(
+                length=limit
+            )
         )
 
 
@@ -178,19 +209,24 @@ class FollowRepository:
 
 
         if not follower_ids:
+
             return []
 
 
+
         users = await (
-            db.users
+            self.collection.database.users
             .find(
                 {
-                    "_id": {
+                    "_id":
+                    {
                         "$in": follower_ids
                     }
                 }
             )
-            .to_list(length=limit)
+            .to_list(
+                length=limit
+            )
         )
 
 
