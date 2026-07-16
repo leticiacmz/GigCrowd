@@ -175,3 +175,39 @@ class UserRepository(BaseRepository):
 
             "avatar_url": user.get("avatar_url")
         }
+
+    async def update_user(
+        self,
+        user_id: str,
+        data: dict,
+    ):
+
+        try:
+            object_id = ObjectId(user_id)
+
+        except Exception:
+            return None
+
+
+        result = await self.collection.update_one(
+
+            {
+                "_id": object_id
+            },
+
+            {
+                "$set": data
+            }
+
+        )
+
+
+        if result.modified_count == 0:
+            return await self.get_by_id(
+                user_id
+            )
+
+
+        return await self.get_by_id(
+            user_id
+        )    

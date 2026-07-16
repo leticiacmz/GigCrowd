@@ -28,6 +28,8 @@ interface ProfileHeaderProps {
 
   isOwner?: boolean;
 
+  onEditClick?: () => void;
+
 }
 
 
@@ -37,6 +39,8 @@ export default function ProfileHeader({
   user,
 
   isOwner = false,
+
+  onEditClick,
 
 }: ProfileHeaderProps) {
 
@@ -163,9 +167,9 @@ export default function ProfileHeader({
             {
               isOwner && (
 
-                <Link
+                <button
 
-                  href="/profile/edit"
+                  onClick={onEditClick}
 
                   className="
                     px-4
@@ -180,9 +184,7 @@ export default function ProfileHeader({
 
                   Edit Profile
 
-
-                </Link>
-
+                </button>
 
               )
             }

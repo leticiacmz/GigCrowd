@@ -33,6 +33,8 @@ from app.schemas.user_stats import (
     UserStatsResponse,
 )
 
+from app.schemas.user_update import UserUpdateRequest
+
 router = APIRouter(
     prefix="/users",
     tags=["users"],
@@ -166,3 +168,31 @@ async def get_my_stats(
         )
 
     return stats
+
+@router.put("/me")
+async def update_me(
+
+    user_data: UserUpdateRequest,
+
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+
+    service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    updated_user = await service.update_profile(
+        current_user["_id"],
+        user_data.model_dump(
+            exclude_none=True
+        ),
+    )
+
+
+    return {
+        "message": "Profile updated successfully",
+        "user": updated_user,
+    }
