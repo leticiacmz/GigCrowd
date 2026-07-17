@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 
 from app.services.event_service import EventService
@@ -13,10 +13,13 @@ from app.database.connection import get_database
 
 
 
+
 router = APIRouter(
     prefix="/events",
     tags=["events"],
 )
+
+
 
 
 
@@ -54,6 +57,8 @@ def get_event_service() -> EventService:
 
 
 
+
+
 @router.get(
     "/artist/{artist_slug}"
 )
@@ -70,3 +75,38 @@ async def get_artist_events(
     return await event_service.get_artist_events(
         artist_slug
     )
+
+
+
+
+
+
+
+@router.get(
+    "/{event_id}"
+)
+async def get_event(
+
+    event_id: str,
+
+    event_service: EventService = Depends(
+        get_event_service
+    ),
+
+):
+
+
+    event = await event_service.get_event(
+        event_id
+    )
+
+
+    if not event:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Event not found",
+        )
+
+
+    return event

@@ -24,25 +24,25 @@ import {
 
 interface Event {
 
-  _id: string;
+  id: string;
 
   title: string;
 
-  artist_name: string;
+  artist_name?: string;
 
-  venue_name: string;
+  venue_name?: string;
 
-  date: string;
+  starts_at: string;
 
-  location: string;
+  location?: string;
 
   image_url?: string;
 
-  status: string;
+  status?: string;
 
-  going_count: number;
+  going_count?: number;
 
-  maybe_count: number;
+  maybe_count?: number;
 
 }
 
@@ -81,24 +81,8 @@ export default function EventsPage() {
 
 
   const [
-    searchQuery,
-    setSearchQuery,
-  ] = useState('');
-
-
-
-
-  const [
     loading,
     setLoading,
-  ] = useState(false);
-
-
-
-
-  const [
-    searching,
-    setSearching,
   ] = useState(false);
 
 
@@ -108,16 +92,6 @@ export default function EventsPage() {
     eventMode,
     setEventMode,
   ] = useState<EventMode>('all');
-
-
-
-
-  const [
-    specificDate,
-    setSpecificDate,
-  ] = useState('');
-
-
 
 
 
@@ -244,177 +218,49 @@ export default function EventsPage() {
 
 
 
-
-  async function handleSearch(
-    e: React.FormEvent
-  ) {
+  function filteredEvents() {
 
 
-    e.preventDefault();
+    if(eventMode === 'all') {
 
-
-
-    if (!searchQuery.trim()) {
-
-      loadEvents();
-
-      return;
+      return events;
 
     }
 
 
 
-    try {
-
-
-      setSearching(true);
-
-
-
-      if (specificDate) {
-
-
-        const data =
-          await eventAPI.searchExternal(
-            searchQuery,
-            undefined,
-            specificDate,
-            undefined,
-            undefined
-          );
-
-
-        setEvents(
-          data.events || []
-        );
-
-
-
-      } else {
-
-
-
-        const eventType =
-          eventMode === 'all'
-            ? 'future'
-            : eventMode;
-
-
-
-        const data =
-          await eventAPI.searchExternal(
-            searchQuery,
-            eventType,
-            undefined,
-            undefined,
-            undefined
-          );
-
-
-
-        setEvents(
-          data.events || []
-        );
-
-      }
-
-
-
-    } catch(error) {
-
-
-      console.error(
-        'Failed to search events:',
-        error
-      );
-
-
-    } finally {
-
-
-      setSearching(false);
-
-
-    }
-
-
-  }
-
-
-
-
-
-
-
-
-
-  function getDateConstraints() {
-
-
-    const today =
+    const now =
       new Date();
 
 
 
-    today.setHours(
-      0,
-      0,
-      0,
-      0
+    return events.filter(
+      event => {
+
+
+        const eventDate =
+          new Date(
+            event.starts_at
+          );
+
+
+
+        if(eventMode === 'past') {
+
+          return eventDate < now;
+
+        }
+
+
+
+        return eventDate >= now;
+
+
+      }
     );
 
-
-
-    const yesterday =
-      new Date(today);
-
-
-
-    yesterday.setDate(
-      yesterday.getDate() - 1
-    );
-
-
-
-    if(eventMode === 'past') {
-
-
-      return {
-
-        max:
-          yesterday
-            .toISOString()
-            .split('T')[0]
-
-      };
-
-
-    }
-
-
-
-    if(eventMode === 'future') {
-
-
-      return {
-
-        min:
-          today
-            .toISOString()
-            .split('T')[0]
-
-      };
-
-
-    }
-
-
-
-    return {};
 
   }
-
-
 
 
 
@@ -429,7 +275,14 @@ export default function EventsPage() {
 
       <header className="border-b border-gray-800 px-4 py-4">
 
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+
+        <div className="
+          max-w-6xl
+          mx-auto
+          flex
+          items-center
+          justify-between
+        ">
 
 
           <Link
@@ -461,11 +314,18 @@ export default function EventsPage() {
 
 
             <Link
+
               href="/feed"
-              className="text-gray-400 hover:text-white transition-colors"
+
+              className="
+                text-gray-400
+                hover:text-white
+              "
+
             >
 
               Feed
+
 
             </Link>
 
@@ -484,7 +344,6 @@ export default function EventsPage() {
               className="
                 text-gray-400
                 hover:text-white
-                transition-colors
               "
 
             >
@@ -509,12 +368,23 @@ export default function EventsPage() {
 
 
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
+
+      <main className="
+        max-w-6xl
+        mx-auto
+        px-4
+        py-8
+      ">
 
 
-        <h1 className="text-3xl font-bold mb-6">
+        <h1 className="
+          text-3xl
+          font-bold
+          mb-6
+        ">
 
           Discover Events
+
 
         </h1>
 
@@ -522,14 +392,24 @@ export default function EventsPage() {
 
 
 
-        <div className="mb-6">
 
 
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+        <div className="mb-8">
+
+
+          <label className="
+            block
+            text-sm
+            text-gray-300
+            mb-2
+          ">
 
             Event Mode
 
+
           </label>
+
+
 
 
 
@@ -538,16 +418,12 @@ export default function EventsPage() {
             value={eventMode}
 
             onChange={
-              (e) => {
-
+              e =>
                 setEventMode(
                   e.target.value as EventMode
-                );
-
-                setSpecificDate('');
-
-              }
+                )
             }
+
 
             className="
               w-full
@@ -568,13 +444,13 @@ export default function EventsPage() {
             </option>
 
 
-            <option value="past">
-              Past Events
+            <option value="future">
+              Upcoming Events
             </option>
 
 
-            <option value="future">
-              Future Events
+            <option value="past">
+              Past Events
             </option>
 
 
@@ -589,140 +465,35 @@ export default function EventsPage() {
 
 
 
-        <form
-          onSubmit={handleSearch}
-          className="mb-8"
-        >
-
-
-          <div className="flex flex-col gap-4">
-
-
-            <input
-
-              type="text"
-
-              value={searchQuery}
-
-              onChange={
-                (e) =>
-                  setSearchQuery(
-                    e.target.value
-                  )
-              }
-
-
-              placeholder="Search for artists..."
-
-
-              className="
-                px-4
-                py-3
-                bg-gray-800
-                border
-                border-gray-700
-                rounded-lg
-                text-white
-              "
-
-            />
-
-
-
-
-            {
-              eventMode !== 'all' && (
-
-                <input
-
-                  type="date"
-
-                  value={specificDate}
-
-                  onChange={
-                    (e) =>
-                      setSpecificDate(
-                        e.target.value
-                      )
-                  }
-
-
-                  {...getDateConstraints()}
-
-                  className="
-                    px-4
-                    py-2
-                    bg-gray-800
-                    border
-                    border-gray-700
-                    rounded-lg
-                    text-white
-                  "
-
-                />
-
-              )
-            }
-
-
-
-
-
-
-            <button
-
-              disabled={searching}
-
-              className="
-                px-6
-                py-3
-                bg-purple-600
-                hover:bg-purple-700
-                text-white
-                rounded-lg
-              "
-
-            >
-
-              {
-                searching
-                  ? 'Searching...'
-                  : 'Search'
-              }
-
-
-            </button>
-
-
-          </div>
-
-
-        </form>
-
-
-
-
-
 
 
         {
           loading ? (
 
 
-            <div className="text-center py-12">
+            <div className="
+              text-center
+              py-12
+            ">
 
               Loading events...
+
 
             </div>
 
 
 
-          ) : events.length === 0 ? (
+          ) : filteredEvents().length === 0 ? (
 
 
-            <div className="text-center py-12 text-gray-400">
+            <div className="
+              text-center
+              py-12
+              text-gray-400
+            ">
 
               No events found.
+
 
             </div>
 
@@ -732,27 +503,26 @@ export default function EventsPage() {
 
 
 
-            <div
-              className="
-                grid
-                grid-cols-1
-                md:grid-cols-2
-                lg:grid-cols-3
-                gap-6
-              "
-            >
+            <div className="
+              grid
+              grid-cols-1
+              md:grid-cols-2
+              lg:grid-cols-3
+              gap-6
+            ">
 
 
               {
-                events.map(
-                  (event) => (
+                filteredEvents().map(
+                  event => (
 
 
                     <Link
 
-                      key={event._id}
+                      key={event.id}
 
-                      href={`/events/${event._id}`}
+                      href={`/events/${event.id}`}
+
 
                       className="
                         bg-gray-900
@@ -760,9 +530,15 @@ export default function EventsPage() {
                         border-gray-800
                         rounded-lg
                         overflow-hidden
+                        hover:border-purple-500
+                        transition
                       "
 
                     >
+
+
+
+
 
 
                       {
@@ -787,36 +563,71 @@ export default function EventsPage() {
 
 
 
+
+
+
+
                       <div className="p-4">
 
 
-                        <h3 className="font-semibold">
+                        <h3 className="
+                          font-semibold
+                          text-white
+                        ">
 
                           {event.title}
+
 
                         </h3>
 
 
-                        <p className="text-gray-400">
-
-                          {event.artist_name}
-
-                        </p>
 
 
-                        <p className="text-gray-400">
+
+                        {
+                          event.artist_name && (
+
+                            <p className="
+                              text-gray-400
+                            ">
+
+                              {event.artist_name}
+
+
+                            </p>
+
+                          )
+                        }
+
+
+
+
+
+
+
+                        <p className="
+                          text-gray-400
+                          mt-2
+                        ">
+
 
                           {
                             format(
-                              new Date(event.date),
+                              new Date(
+                                event.starts_at
+                              ),
                               'MMM d, yyyy'
                             )
                           }
 
+
                         </p>
 
 
+
                       </div>
+
+
 
 
                     </Link>
@@ -832,6 +643,8 @@ export default function EventsPage() {
 
           )
         }
+
+
 
 
 

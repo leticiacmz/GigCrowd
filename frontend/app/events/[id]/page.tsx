@@ -25,39 +25,46 @@ import {
 
 interface Event {
 
+
   _id: string;
+
 
   title: string;
 
-  artist_name: string;
 
-  venue_name: string;
+  artist_slug?: string;
 
-  date: string;
 
-  location: string;
+  venue_slug?: string;
 
-  city: string;
 
-  country: string;
+  starts_at: string;
+
+
+  ticket_url?: string | null;
+
+
+  sold_out?: boolean;
+
+
+  free?: boolean;
+
+
+
+  going_count?: number;
+
+
+  maybe_count?: number;
+
+
+  went_count?: number;
+
 
   description?: string;
 
+
   image_url?: string;
 
-  ticket_url?: string;
-
-  status: string;
-
-  going_count: number;
-
-  maybe_count: number;
-
-  went_count: number;
-
-  setlist?: string[];
-
-  setlist_count?: number;
 
 }
 
@@ -67,13 +74,16 @@ interface Event {
 
 
 
-export default function EventDetailPage() {
+
+
+export default function EventDetailPage(){
 
 
   const router = useRouter();
 
 
   const params = useParams();
+
 
 
   const eventId =
@@ -91,6 +101,7 @@ export default function EventDetailPage() {
 
 
 
+
   const [
     currentUser,
     setCurrentUser,
@@ -99,10 +110,21 @@ export default function EventDetailPage() {
 
 
 
+
   const [
     loading,
     setLoading,
   ] = useState(true);
+
+
+
+
+
+  const [
+    submitting,
+    setSubmitting,
+  ] = useState(false);
+
 
 
 
@@ -117,6 +139,7 @@ export default function EventDetailPage() {
 
 
 
+
   const [
     notes,
     setNotes,
@@ -125,19 +148,12 @@ export default function EventDetailPage() {
 
 
 
-  const [
-    submitting,
-    setSubmitting,
-  ] = useState(false);
 
 
 
 
 
-
-
-
-  useEffect(() => {
+  useEffect(()=>{
 
 
     const token =
@@ -161,7 +177,7 @@ export default function EventDetailPage() {
 
 
 
-  }, [eventId, router]);
+  },[eventId]);
 
 
 
@@ -182,16 +198,15 @@ export default function EventDetailPage() {
 
 
 
-      setCurrentUser(
-        user
-      );
+      setCurrentUser(user);
+
 
 
     }catch(error){
 
 
       console.error(
-        'Failed to load user:',
+        'Failed loading user',
         error
       );
 
@@ -200,6 +215,8 @@ export default function EventDetailPage() {
 
 
   }
+
+
 
 
 
@@ -226,16 +243,15 @@ export default function EventDetailPage() {
 
 
 
-      setEvent(
-        data
-      );
+      setEvent(data);
+
 
 
     }catch(error){
 
 
       console.error(
-        'Failed to load event:',
+        'Failed loading event',
         error
       );
 
@@ -259,11 +275,15 @@ export default function EventDetailPage() {
 
 
 
+
+
   async function handleAttend(
+
     status:
       'going'
       | 'maybe'
       | 'went'
+
   ){
 
 
@@ -275,20 +295,22 @@ export default function EventDetailPage() {
 
 
       await eventAPI.attendEvent(
+
         eventId,
+
         status,
+
         notes || undefined
+
       );
 
 
 
-      setAttendStatus(
-        status
-      );
+      setAttendStatus(status);
 
 
 
-      loadEvent();
+      await loadEvent();
 
 
 
@@ -296,7 +318,7 @@ export default function EventDetailPage() {
 
 
       console.error(
-        'Failed to mark attendance:',
+        'Failed updating attendance',
         error
       );
 
@@ -332,11 +354,9 @@ export default function EventDetailPage() {
         justify-center
       ">
 
-        <div className="text-gray-400">
-
+        <p className="text-gray-400">
           Loading event...
-
-        </div>
+        </p>
 
       </div>
 
@@ -344,6 +364,7 @@ export default function EventDetailPage() {
 
 
   }
+
 
 
 
@@ -364,12 +385,9 @@ export default function EventDetailPage() {
         justify-center
       ">
 
-        <div className="text-gray-400">
-
-          Event not found
-
-        </div>
-
+        <p className="text-gray-400">
+          Event not found.
+        </p>
 
       </div>
 
@@ -391,7 +409,6 @@ export default function EventDetailPage() {
     <div className="min-h-screen">
 
 
-
       <header className="
         border-b
         border-gray-800
@@ -404,10 +421,9 @@ export default function EventDetailPage() {
           max-w-6xl
           mx-auto
           flex
-          items-center
           justify-between
+          items-center
         ">
-
 
 
           <Link
@@ -433,41 +449,23 @@ export default function EventDetailPage() {
 
 
 
-
-
-
-          <nav className="flex items-center gap-4">
+          <nav className="flex gap-4">
 
 
             <Link
-              href="/feed"
-              className="
-                text-gray-400
-                hover:text-white
-              "
+              href="/artists"
+              className="text-gray-400 hover:text-white"
             >
-
-              Feed
-
+              Artists
             </Link>
-
-
-
 
 
             <Link
               href="/events"
-              className="
-                text-gray-400
-                hover:text-white
-              "
+              className="text-gray-400 hover:text-white"
             >
-
               Events
-
             </Link>
-
-
 
 
 
@@ -479,18 +477,13 @@ export default function EventDetailPage() {
                   : '/login'
               }
 
-              className="
-                text-gray-400
-                hover:text-white
-              "
+              className="text-gray-400 hover:text-white"
 
             >
 
               Profile
 
-
             </Link>
-
 
 
           </nav>
@@ -510,11 +503,12 @@ export default function EventDetailPage() {
 
 
       <main className="
-        max-w-6xl
+        max-w-5xl
         mx-auto
         px-4
         py-8
       ">
+
 
 
         <Link
@@ -522,15 +516,13 @@ export default function EventDetailPage() {
           href="/events"
 
           className="
-            inline-block
-            mb-6
             text-purple-400
+            hover:text-purple-300
           "
 
         >
 
-          ← Back to Events
-
+          ← Back to events
 
         </Link>
 
@@ -541,8 +533,8 @@ export default function EventDetailPage() {
 
 
 
-
         <div className="
+          mt-6
           grid
           grid-cols-1
           lg:grid-cols-3
@@ -553,7 +545,9 @@ export default function EventDetailPage() {
 
 
 
-          <div className="lg:col-span-2">
+          <div className="
+            lg:col-span-2
+          ">
 
 
             {
@@ -567,7 +561,7 @@ export default function EventDetailPage() {
 
                   className="
                     w-full
-                    h-64
+                    h-72
                     object-cover
                     rounded-lg
                     mb-6
@@ -586,13 +580,13 @@ export default function EventDetailPage() {
             <h1 className="
               text-4xl
               font-bold
-              mb-4
+              mb-6
             ">
 
               {event.title}
 
-
             </h1>
+
 
 
 
@@ -604,53 +598,7 @@ export default function EventDetailPage() {
               <div>
 
                 <h2 className="font-semibold">
-
-                  Artist
-
-                </h2>
-
-
-                <p className="text-gray-400">
-
-                  {event.artist_name}
-
-                </p>
-
-
-              </div>
-
-
-
-
-
-              <div>
-
-                <h2 className="font-semibold">
-
-                  Venue
-
-                </h2>
-
-
-                <p className="text-gray-400">
-
-                  {event.venue_name}
-
-                </p>
-
-
-              </div>
-
-
-
-
-
-              <div>
-
-                <h2 className="font-semibold">
-
                   Date
-
                 </h2>
 
 
@@ -658,7 +606,7 @@ export default function EventDetailPage() {
 
                   {
                     format(
-                      new Date(event.date),
+                      new Date(event.starts_at),
                       'MMMM d, yyyy • h:mm a'
                     )
                   }
@@ -672,30 +620,38 @@ export default function EventDetailPage() {
 
 
 
-              <div>
 
-                <h2 className="font-semibold">
+              {
+                event.artist_slug && (
 
-                  Location
+                  <div>
 
-                </h2>
-
-
-                <p className="text-gray-400">
-
-                  {event.location}
-
-                </p>
+                    <h2 className="font-semibold">
+                      Artist
+                    </h2>
 
 
-                <p className="text-gray-500">
+                    <Link
 
-                  {event.city}, {event.country}
+                      href={`/artists/${event.artist_slug}`}
 
-                </p>
+                      className="
+                        text-purple-400
+                        hover:text-purple-300
+                      "
+
+                    >
+
+                      {event.artist_slug}
+
+                    </Link>
 
 
-              </div>
+                  </div>
+
+                )
+              }
+
 
 
 
@@ -703,20 +659,18 @@ export default function EventDetailPage() {
 
 
               {
-                event.description && (
+                event.venue_slug && (
 
                   <div>
 
                     <h2 className="font-semibold">
-
-                      Description
-
+                      Venue
                     </h2>
 
 
                     <p className="text-gray-400">
 
-                      {event.description}
+                      {event.venue_slug}
 
                     </p>
 
@@ -729,8 +683,40 @@ export default function EventDetailPage() {
 
 
 
-            </div>
 
+
+
+              {
+                event.ticket_url && (
+
+                  <a
+
+                    href={event.ticket_url}
+
+                    target="_blank"
+
+                    className="
+                      inline-block
+                      mt-4
+                      px-4
+                      py-2
+                      bg-purple-600
+                      rounded-lg
+                    "
+
+                  >
+
+                    Tickets
+
+                  </a>
+
+                )
+              }
+
+
+
+
+            </div>
 
 
           </div>
@@ -742,7 +728,8 @@ export default function EventDetailPage() {
 
 
 
-          <div className="lg:col-span-1">
+
+          <div>
 
 
             <div className="
@@ -754,9 +741,13 @@ export default function EventDetailPage() {
             ">
 
 
-              <h2 className="text-xl font-bold mb-4">
+              <h2 className="
+                text-xl
+                font-bold
+                mb-4
+              ">
 
-                Mark Your Attendance
+                Your attendance
 
               </h2>
 
@@ -769,6 +760,8 @@ export default function EventDetailPage() {
 
                 <button
 
+                  disabled={submitting}
+
                   onClick={() =>
                     handleAttend('going')
                   }
@@ -778,13 +771,11 @@ export default function EventDetailPage() {
                     py-3
                     rounded-lg
                     bg-gray-800
-                    text-white
                   "
 
                 >
 
-                  ✓ Going
-
+                  ✓ I'm going
 
                 </button>
 
@@ -793,6 +784,8 @@ export default function EventDetailPage() {
 
 
                 <button
+
+                  disabled={submitting}
 
                   onClick={() =>
                     handleAttend('maybe')
@@ -803,13 +796,11 @@ export default function EventDetailPage() {
                     py-3
                     rounded-lg
                     bg-gray-800
-                    text-white
                   "
 
                 >
 
                   ? Maybe
-
 
                 </button>
 
@@ -817,7 +808,10 @@ export default function EventDetailPage() {
 
 
 
+
                 <button
+
+                  disabled={submitting}
 
                   onClick={() =>
                     handleAttend('went')
@@ -828,19 +822,19 @@ export default function EventDetailPage() {
                     py-3
                     rounded-lg
                     bg-gray-800
-                    text-white
                   "
 
                 >
 
-                  ✓ Went
-
+                  ✓ I went
 
                 </button>
 
 
-
               </div>
+
+
+
 
 
 
@@ -863,19 +857,13 @@ export default function EventDetailPage() {
 
                   <div>
 
-                    <p className="text-xl font-bold">
-
-                      {event.going_count}
-
-                    </p>
-
+                    <strong>
+                      {event.going_count ?? 0}
+                    </strong>
 
                     <p className="text-gray-400 text-sm">
-
                       Going
-
                     </p>
-
 
                   </div>
 
@@ -883,19 +871,13 @@ export default function EventDetailPage() {
 
                   <div>
 
-                    <p className="text-xl font-bold">
-
-                      {event.maybe_count}
-
-                    </p>
-
+                    <strong>
+                      {event.maybe_count ?? 0}
+                    </strong>
 
                     <p className="text-gray-400 text-sm">
-
                       Maybe
-
                     </p>
-
 
                   </div>
 
@@ -904,22 +886,15 @@ export default function EventDetailPage() {
 
                   <div>
 
-                    <p className="text-xl font-bold">
-
-                      {event.went_count}
-
-                    </p>
-
+                    <strong>
+                      {event.went_count ?? 0}
+                    </strong>
 
                     <p className="text-gray-400 text-sm">
-
                       Went
-
                     </p>
 
-
                   </div>
-
 
 
                 </div>
@@ -941,8 +916,8 @@ export default function EventDetailPage() {
         </div>
 
 
-      </main>
 
+      </main>
 
 
     </div>

@@ -5,6 +5,9 @@ from app.repositories.artist_repository import ArtistRepository
 from app.mappers.event_response_mapper import EventResponseMapper
 
 
+
+
+
 class EventService:
 
 
@@ -16,8 +19,46 @@ class EventService:
     ):
 
         self.event_repository = event_repository
+
         self.venue_repository = venue_repository
+
         self.artist_repository = artist_repository
+
+
+
+
+
+    async def get_event(
+        self,
+        event_id: str,
+    ):
+
+
+        event = await self.event_repository.get_by_id(
+            event_id
+        )
+
+
+        if not event:
+
+            return None
+
+
+
+        venue = await self.venue_repository.get_by_slug(
+            event.venue_slug
+        )
+
+
+
+        return EventResponseMapper.from_domain(
+            event=event,
+            venue=venue,
+        )
+
+
+
+
 
 
 
@@ -25,6 +66,7 @@ class EventService:
         self,
         artist_slug: str,
     ):
+
 
         events = await self.event_repository.get_by_artist_slug(
             artist_slug
@@ -34,11 +76,14 @@ class EventService:
         responses = []
 
 
+
         for event in events:
+
 
             venue = await self.venue_repository.get_by_slug(
                 event.venue_slug
             )
+
 
 
             responses.append(

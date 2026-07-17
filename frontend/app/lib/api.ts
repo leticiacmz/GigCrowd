@@ -45,6 +45,8 @@ api.interceptors.request.use(
 
 
 
+
+
 export const authAPI = {
 
 
@@ -97,6 +99,7 @@ export const authAPI = {
 
 
 
+
   register: async (
     userData: any
   ) => {
@@ -125,6 +128,8 @@ export const authAPI = {
 
 
 
+
+
 export const userAPI = {
 
 
@@ -145,6 +150,7 @@ export const userAPI = {
 
 
 
+
   getMyStats: async () => {
 
 
@@ -159,6 +165,7 @@ export const userAPI = {
     return response.data;
 
   },
+
 
 
 
@@ -183,6 +190,7 @@ export const userAPI = {
 
 
 
+
   getProfileStats: async (
 
     username: string
@@ -201,6 +209,7 @@ export const userAPI = {
     return response.data;
 
   },
+
 
 
 
@@ -265,6 +274,30 @@ export const eventAPI = {
 
 
 
+
+  getArtistEvents: async (
+
+    artistSlug: string
+
+  ) => {
+
+
+    const response =
+      await api.get(
+
+        `/events/artist/${artistSlug}`
+
+      );
+
+
+    return response.data;
+
+
+  },
+
+
+
+
   getEvent: async (
 
     eventId: string
@@ -284,6 +317,7 @@ export const eventAPI = {
 
 
   },
+
 
 
 
@@ -315,84 +349,6 @@ export const eventAPI = {
 
           },
 
-        }
-
-      );
-
-
-    return response.data;
-
-
-  },
-
-
-
-  searchExternal: async (
-
-    query: string,
-
-    eventType?: 'past' | 'future',
-
-    specificDate?: string,
-
-    startDate?: string,
-
-    endDate?: string
-
-  ) => {
-
-
-    const params: any = {
-
-      query,
-
-    };
-
-
-
-    if (eventType) {
-
-      params.event_type =
-        eventType;
-
-    }
-
-
-
-    if (specificDate) {
-
-      params.specific_date =
-        specificDate;
-
-    }
-
-
-
-    if (startDate) {
-
-      params.start_date =
-        startDate;
-
-    }
-
-
-
-    if (endDate) {
-
-      params.end_date =
-        endDate;
-
-    }
-
-
-
-    const response =
-      await api.get(
-
-        '/events/search/external',
-
-        {
-          params,
         }
 
       );
@@ -443,6 +399,7 @@ export const postAPI = {
 
 
 
+
   createPost: async (
 
     postData: any
@@ -464,6 +421,7 @@ export const postAPI = {
 
 
   },
+
 
 
 
@@ -589,6 +547,7 @@ export const followAPI = {
 
 
 
+
   unfollowUser: async (
 
     username: string
@@ -608,6 +567,7 @@ export const followAPI = {
 
 
   },
+
 
 
 
@@ -671,6 +631,7 @@ export const artistAPI = {
 
 
 
+
   searchArtists: async (
 
     query: string
@@ -703,6 +664,7 @@ export const artistAPI = {
 
 
 
+
   getArtist: async (
 
     artistSlug: string
@@ -722,6 +684,7 @@ export const artistAPI = {
 
 
   },
+
 
 
 
@@ -747,6 +710,7 @@ export const artistAPI = {
 
 
 
+
   followArtist: async (
 
     artistSlug: string
@@ -766,6 +730,7 @@ export const artistAPI = {
 
 
   },
+
 
 
 
@@ -821,6 +786,7 @@ export const spotifyAPI = {
 
 
 
+
   connect: async (
 
     tokens: any
@@ -845,6 +811,7 @@ export const spotifyAPI = {
 
 
 
+
   getRecommendations: async () => {
 
 
@@ -860,6 +827,7 @@ export const spotifyAPI = {
 
 
   },
+
 
 
 
@@ -881,6 +849,8 @@ export const spotifyAPI = {
 
 
 };
+
+
 
 
 

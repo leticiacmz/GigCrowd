@@ -18,7 +18,10 @@ import Link from 'next/link';
 
 import {
   artistAPI,
+  eventAPI,
 } from '../../lib/api';
+
+
 
 
 
@@ -57,21 +60,60 @@ interface ArtistProfile {
 
 
 
+interface ArtistEvent {
+
+  id: string;
+
+  title: string;
+
+  starts_at: string;
+
+  ticket_url?: string | null;
+
+  free?: boolean | null;
+
+  sold_out?: boolean | null;
+
+  venue?: {
+
+    id?: string | null;
+
+    slug?: string | null;
+
+    name: string;
+
+    city?: string | null;
+
+    country?: string | null;
+
+  };
+
+}
+
+
+
+
+
+
 
 
 
 export default function ArtistProfilePage() {
 
 
-  const params = useParams();
+  const params =
+    useParams();
 
 
-  const router = useRouter();
+  const router =
+    useRouter();
+
 
 
 
   const artistSlug =
-    params.id as string;
+    params.slug as string;
+
 
 
 
@@ -80,9 +122,16 @@ export default function ArtistProfilePage() {
   const [
     artist,
     setArtist,
-  ] = useState<ArtistProfile | null>(
-    null
-  );
+  ] = useState<ArtistProfile | null>(null);
+
+
+
+
+  const [
+    events,
+    setEvents,
+  ] = useState<ArtistEvent[]>([]);
+
 
 
 
@@ -93,10 +142,12 @@ export default function ArtistProfilePage() {
 
 
 
+
   const [
     error,
     setError,
   ] = useState('');
+
 
 
 
@@ -107,10 +158,12 @@ export default function ArtistProfilePage() {
 
 
 
+
   const [
     followLoading,
     setFollowLoading,
   ] = useState(false);
+
 
 
 
@@ -143,10 +196,15 @@ export default function ArtistProfilePage() {
 
 
 
-    loadArtist();
+    if (artistSlug) {
 
+      loadArtist();
 
-    loadFollowStatus();
+      loadArtistEvents();
+
+      loadFollowStatus();
+
+    }
 
 
 
@@ -167,6 +225,7 @@ export default function ArtistProfilePage() {
 
 
       setLoading(true);
+
 
 
       const data =
@@ -191,9 +250,11 @@ export default function ArtistProfilePage() {
       );
 
 
+
       setError(
         'Could not load artist profile.'
       );
+
 
 
     } finally {
@@ -206,6 +267,48 @@ export default function ArtistProfilePage() {
 
 
   }
+
+
+
+
+
+
+
+
+
+  async function loadArtistEvents() {
+
+
+    try {
+
+
+      const data =
+        await eventAPI.getArtistEvents(
+          artistSlug
+        );
+
+
+
+      setEvents(
+        data
+      );
+
+
+
+    } catch(error) {
+
+
+      console.error(
+        'Failed to load artist events:',
+        error
+      );
+
+
+    }
+
+
+  }
+
 
 
 
@@ -336,7 +439,12 @@ export default function ArtistProfilePage() {
 
     return (
 
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="
+        min-h-screen
+        flex
+        items-center
+        justify-center
+      ">
 
 
         <p className="text-gray-400">
@@ -366,7 +474,14 @@ export default function ArtistProfilePage() {
 
     return (
 
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+      <div className="
+        min-h-screen
+        flex
+        flex-col
+        items-center
+        justify-center
+        gap-4
+      ">
 
 
         <p className="text-red-400">
@@ -392,6 +507,7 @@ export default function ArtistProfilePage() {
         >
 
           Back to artists
+
 
         </Link>
 
@@ -419,7 +535,12 @@ export default function ArtistProfilePage() {
 
 
 
-      <header className="border-b border-gray-800 px-4 py-4">
+      <header className="
+        border-b
+        border-gray-800
+        px-4
+        py-4
+      ">
 
 
         <div className="
@@ -449,6 +570,7 @@ export default function ArtistProfilePage() {
 
             GigCrowd
 
+
           </Link>
 
 
@@ -466,6 +588,7 @@ export default function ArtistProfilePage() {
           >
 
             Back to artists
+
 
           </Link>
 
@@ -485,11 +608,13 @@ export default function ArtistProfilePage() {
 
 
       <main className="
-        max-w-4xl
+        max-w-5xl
         mx-auto
         px-4
         py-10
       ">
+
+
 
 
 
@@ -530,7 +655,6 @@ export default function ArtistProfilePage() {
 
 
 
-
           <div className="p-8">
 
 
@@ -548,7 +672,6 @@ export default function ArtistProfilePage() {
               <h1 className="
                 text-4xl
                 font-bold
-                text-white
               ">
 
                 {artist.name}
@@ -571,8 +694,6 @@ export default function ArtistProfilePage() {
                   rounded-lg
                   bg-purple-600
                   hover:bg-purple-700
-                  text-white
-                  font-semibold
                   disabled:opacity-50
                 "
 
@@ -580,27 +701,18 @@ export default function ArtistProfilePage() {
 
                 {
                   followLoading
-
                   ?
-
                   'Loading...'
-
                   :
-
                   following
-
                   ?
-
                   'Following ✓'
-
                   :
-
                   'Follow'
                 }
 
 
               </button>
-
 
 
             </div>
@@ -612,10 +724,11 @@ export default function ArtistProfilePage() {
 
 
 
-            {
-              artist.genres.length > 0 && (
 
-                <div className="mb-6">
+            {
+              artist.genres?.length > 0 && (
+
+                <div className="mb-8">
 
 
                   <h2 className="
@@ -652,7 +765,6 @@ export default function ArtistProfilePage() {
                               bg-gray-800
                               rounded-full
                               text-sm
-                              text-gray-300
                             "
 
                           >
@@ -687,11 +799,10 @@ export default function ArtistProfilePage() {
 
                 <div className="
                   grid
-                  grid-cols-1
                   md:grid-cols-2
                   gap-4
+                  mb-8
                 ">
-
 
 
                   <div className="
@@ -701,32 +812,21 @@ export default function ArtistProfilePage() {
                   ">
 
 
-                    <p className="
-                      text-gray-400
-                      text-sm
-                    ">
+                    <p className="text-gray-400">
 
                       Upcoming Events
 
                     </p>
 
 
+                    <p className="text-2xl font-bold">
 
-                    <p className="
-                      text-white
-                      text-xl
-                      font-semibold
-                    ">
-
-                      {
-                        artist.events.upcoming
-                      }
+                      {artist.events.upcoming}
 
                     </p>
 
 
                   </div>
-
 
 
 
@@ -738,26 +838,16 @@ export default function ArtistProfilePage() {
                   ">
 
 
-                    <p className="
-                      text-gray-400
-                      text-sm
-                    ">
+                    <p className="text-gray-400">
 
                       Total Events
 
                     </p>
 
 
+                    <p className="text-2xl font-bold">
 
-                    <p className="
-                      text-white
-                      text-xl
-                      font-semibold
-                    ">
-
-                      {
-                        artist.events.total
-                      }
+                      {artist.events.total}
 
                     </p>
 
@@ -765,11 +855,126 @@ export default function ArtistProfilePage() {
                   </div>
 
 
-
                 </div>
 
               )
             }
+
+
+
+
+
+
+
+            <section>
+
+
+              <h2 className="
+                text-2xl
+                font-bold
+                mb-4
+              ">
+
+                Events
+
+              </h2>
+
+
+
+
+
+              {
+                events.length === 0 ? (
+
+
+                  <p className="text-gray-400">
+
+                    No events found.
+
+                  </p>
+
+
+                ) : (
+
+
+                  <div className="
+                    space-y-4
+                  ">
+
+
+                    {
+                      events.map(
+                        event => (
+
+
+                          <Link
+
+                            key={event.id}
+
+                            href={`/events/${event.id}`}
+
+                            className="
+                              block
+                              bg-gray-800
+                              border
+                              border-gray-700
+                              rounded-lg
+                              p-4
+                              hover:border-purple-500
+                              transition
+                            "
+
+                          >
+
+
+                            <h3 className="
+                              font-semibold
+                            ">
+
+                              {event.title}
+
+                            </h3>
+
+
+
+                            <p className="
+                              text-gray-400
+                              mt-2
+                            ">
+
+                              {
+                                new Date(
+                                  event.starts_at
+                                ).toLocaleDateString(
+                                  'en-US',
+                                  {
+                                    year:'numeric',
+                                    month:'long',
+                                    day:'numeric'
+                                  }
+                                )
+                              }
+
+                            </p>
+
+
+
+                          </Link>
+
+
+                        )
+                      )
+                    }
+
+
+                  </div>
+
+
+                )
+              }
+
+
+            </section>
 
 
 
