@@ -60,5 +60,5 @@ class ArtistResponseMapper:
 
             verified=artist.verified,
 
-            is_imported=False,
+            is_imported=artist.is_imported,
         )

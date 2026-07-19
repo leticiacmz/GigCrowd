@@ -9,9 +9,7 @@ from app.repositories.artist_repository import ArtistRepository
 from app.mappers.artist_response_mapper import ArtistResponseMapper
 
 
-
 logger = get_logger("artist_search")
-
 
 
 class ArtistSearchService:
@@ -45,12 +43,36 @@ class ArtistSearchService:
         )
 
 
-        return [
+        results = []
 
-            ArtistResponseMapper.from_search_item(
-                artist
+
+        for artist in spotify_results:
+
+
+            existing = await self.artist_repository.get_by_external_id(
+                artist.provider,
+                artist.provider_artist_id,
             )
 
-            for artist in spotify_results
 
-        ]
+            artist.is_imported = (
+                existing is not None
+            )
+
+
+            if existing:
+
+                artist.slug = existing.slug
+
+                artist.id = existing.id
+
+
+
+            results.append(
+                ArtistResponseMapper.from_search_item(
+                    artist
+                )
+            )
+
+
+        return results
