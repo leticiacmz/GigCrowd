@@ -1,6 +1,7 @@
 from app.repositories.base import BaseRepository
 from app.mappers.event_document_mapper import EventDocumentMapper
-
+from datetime import datetime, UTC
+from app.domain.event import Event
 from bson import ObjectId
 
 
@@ -58,10 +59,17 @@ class EventRepository(BaseRepository):
         external_id: str,
     ):
 
-        return await self.find_one(
+        document = await self.find_one(
             {
                 f"external_ids.{provider}": external_id,
             }
+        )
+
+        if not document:
+            return None
+
+        return EventDocumentMapper.to_domain(
+            document
         )
 
 
@@ -102,3 +110,41 @@ class EventRepository(BaseRepository):
             for document in documents
 
         ]
+    
+    async def insert_event(
+        self,
+        event: Event,
+    ):
+
+        await self.insert_one(
+            event.model_dump(
+                exclude={"id"}
+            )
+        )
+
+
+    async def count_by_artist_slug(
+        self,
+        artist_slug: str,
+    ) -> int:
+
+        return await self.collection.count_documents(
+            {
+                "artist_slug": artist_slug,
+            }
+        )
+
+
+    async def count_upcoming_by_artist_slug(
+        self,
+        artist_slug: str,
+    ) -> int:
+
+        return await self.collection.count_documents(
+            {
+                "artist_slug": artist_slug,
+                "starts_at": {
+                    "$gte": datetime.now(UTC),
+                },
+            }
+        )
