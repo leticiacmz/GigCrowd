@@ -28,6 +28,7 @@ export default function ArtistsPage() {
   const router = useRouter();
 
 
+
   const [
     artists,
     setArtists,
@@ -43,13 +44,6 @@ export default function ArtistsPage() {
 
 
   const [
-    searchQuery,
-    setSearchQuery,
-  ] = useState('');
-
-
-
-  const [
     loading,
     setLoading,
   ] = useState(true);
@@ -57,16 +51,11 @@ export default function ArtistsPage() {
 
 
   const [
-    searching,
-    setSearching,
-  ] = useState(false);
-
-
-
-  const [
     error,
     setError,
   ] = useState('');
+
+
 
 
 
@@ -98,6 +87,8 @@ export default function ArtistsPage() {
 
 
   }, [router]);
+
+
 
 
 
@@ -142,6 +133,7 @@ export default function ArtistsPage() {
 
 
 
+
   async function loadArtists() {
 
 
@@ -159,8 +151,21 @@ export default function ArtistsPage() {
 
 
 
+      const sortedArtists =
+        data.sort(
+          (
+            a: Artist,
+            b: Artist
+          ) =>
+            a.name.localeCompare(
+              b.name
+            )
+        );
+
+
+
       setArtists(
-        data
+        sortedArtists
       );
 
 
@@ -170,13 +175,13 @@ export default function ArtistsPage() {
 
       console.error(
         'Failed to load artists:',
-        error,
+        error
       );
 
 
 
       setError(
-        'Could not load artists.',
+        'Could not load artists.'
       );
 
 
@@ -199,80 +204,69 @@ export default function ArtistsPage() {
 
 
 
-  async function handleSearch(
-    e: React.FormEvent,
+
+  function groupArtistsByLetter(
+    artists: Artist[]
   ) {
 
 
-    e.preventDefault();
+    return artists.reduce(
+      (
+        groups,
+        artist
+      ) => {
+
+
+        const letter =
+          artist.name
+            .charAt(0)
+            .toUpperCase();
 
 
 
+        if (!groups[letter]) {
 
+          groups[letter] = [];
 
-    if (!searchQuery.trim()) {
-
-
-      loadArtists();
-
-      return;
-
-
-    }
+        }
 
 
 
-
-
-
-    try {
-
-
-      setSearching(true);
-
-      setError('');
-
-
-
-      const data =
-        await artistAPI.searchArtists(
-          searchQuery,
+        groups[letter].push(
+          artist
         );
 
 
 
-      setArtists(
-        data
-      );
+        return groups;
 
 
-
-    } catch(error) {
-
-
-      console.error(
-        'Failed to search artists:',
-        error,
-      );
-
-
-
-      setError(
-        'Could not search artists.',
-      );
-
-
-
-    } finally {
-
-
-      setSearching(false);
-
-
-    }
+      },
+      {} as Record<string, Artist[]>
+    );
 
 
   }
+
+
+
+
+
+
+
+  const groupedArtists =
+    groupArtistsByLetter(
+      artists
+    );
+
+
+
+  const letters =
+    Object.keys(
+      groupedArtists
+    ).sort();
+
+
 
 
 
@@ -341,11 +335,14 @@ export default function ArtistsPage() {
 
 
             <Link
+
               href="/feed"
+
               className="
                 text-gray-400
                 hover:text-white
               "
+
             >
 
               Feed
@@ -355,17 +352,22 @@ export default function ArtistsPage() {
 
 
 
+
             <Link
+
               href="/events"
+
               className="
                 text-gray-400
                 hover:text-white
               "
+
             >
 
               Events
 
             </Link>
+
 
 
 
@@ -420,96 +422,21 @@ export default function ArtistsPage() {
 
 
         <h1
+
           className="
             text-3xl
             font-bold
-            mb-6
+            mb-8
           "
+
         >
 
-          Discover Artists
+          Artists
+
 
         </h1>
 
 
-
-
-
-
-
-        <form
-          onSubmit={handleSearch}
-          className="mb-8"
-        >
-
-
-          <div className="flex gap-4">
-
-
-
-            <input
-
-              value={searchQuery}
-
-              onChange={
-                (e) =>
-                  setSearchQuery(
-                    e.target.value,
-                  )
-              }
-
-
-              placeholder="Search artists..."
-
-
-              className="
-                flex-1
-                px-4
-                py-3
-                bg-gray-800
-                border
-                border-gray-700
-                rounded-lg
-                text-white
-              "
-
-            />
-
-
-
-
-
-            <button
-
-              disabled={searching}
-
-              className="
-                px-6
-                py-3
-                bg-purple-600
-                rounded-lg
-                text-white
-              "
-
-            >
-
-
-              {
-                searching
-                  ? 'Searching...'
-                  : 'Search'
-              }
-
-
-            </button>
-
-
-
-
-          </div>
-
-
-        </form>
 
 
 
@@ -520,7 +447,9 @@ export default function ArtistsPage() {
         {
           error && (
 
+
             <div
+
               className="
                 mb-6
                 p-4
@@ -528,14 +457,18 @@ export default function ArtistsPage() {
                 bg-red-900
                 text-red-200
               "
+
             >
 
               {error}
 
+
             </div>
+
 
           )
         }
+
 
 
 
@@ -549,12 +482,14 @@ export default function ArtistsPage() {
 
 
             <div
+
               className="
                 grid
                 grid-cols-1
                 md:grid-cols-3
                 gap-6
               "
+
             >
 
 
@@ -564,7 +499,11 @@ export default function ArtistsPage() {
                     length: 6,
                   }
                 ).map(
-                  (_, index) => (
+                  (
+                    _,
+                    index
+                  ) => (
+
 
                     <div
 
@@ -579,11 +518,28 @@ export default function ArtistsPage() {
 
                     >
 
-                      <div className="h-48 bg-gray-800 rounded mb-4" />
+                      <div
+                        className="
+                          h-48
+                          bg-gray-800
+                          rounded
+                          mb-4
+                        "
+                      />
 
-                      <div className="h-5 bg-gray-800 rounded w-3/4" />
+
+                      <div
+                        className="
+                          h-5
+                          bg-gray-800
+                          rounded
+                          w-3/4
+                        "
+                      />
+
 
                     </div>
+
 
                   )
                 )
@@ -601,6 +557,7 @@ export default function ArtistsPage() {
 
               No artists found.
 
+
             </div>
 
 
@@ -608,135 +565,207 @@ export default function ArtistsPage() {
           ) : (
 
 
-
-            <div
-              className="
-                grid
-                grid-cols-1
-                md:grid-cols-2
-                lg:grid-cols-3
-                gap-6
-              "
-            >
+            <div className="space-y-10">
 
 
 
               {
-                artists.map(
-                  (artist) => (
+                letters.map(
+                  (
+                    letter
+                  ) => (
 
 
-                    <Link
+                    <section
 
-
-                      key={
-                        artist.slug ||
-                        artist.provider_artist_id
-                      }
-
-
-                      href={
-                        `/artists/${artist.slug}`
-                      }
-
-
-
-                      className="
-                        bg-gray-900
-                        border
-                        border-gray-800
-                        rounded-lg
-                        overflow-hidden
-                        hover:border-purple-500
-                        transition
-                      "
-
-
+                      key={letter}
 
                     >
 
 
+                      <h2
+
+                        className="
+                          text-2xl
+                          font-bold
+                          mb-4
+                          text-purple-400
+                        "
+
+                      >
+
+                        {letter}
 
 
-                      {
-                        artist.image ? (
-
-
-                          <img
-
-                            src={artist.image}
-
-                            alt={artist.name}
-
-                            className="
-                              w-full
-                              h-48
-                              object-cover
-                            "
-
-                          />
-
-
-                        ) : (
-
-
-                          <div
-                            className="
-                              h-48
-                              flex
-                              items-center
-                              justify-center
-                              bg-gray-800
-                              text-5xl
-                            "
-                          >
-
-                            🎵
-
-                          </div>
-
-
-                        )
-
-                      }
+                      </h2>
 
 
 
 
 
+                      <div
 
+                        className="
+                          grid
+                          grid-cols-1
+                          md:grid-cols-2
+                          lg:grid-cols-3
+                          gap-6
+                        "
 
-
-
-                      <div className="p-4">
-
-
-
-                        <h3 className="text-white font-semibold">
-
-                          {artist.name}
-
-                        </h3>
-
-
-
+                      >
 
 
                         {
-                          artist.genres?.length > 0 && (
+                          groupedArtists[letter]
+                            .map(
+                              (
+                                artist
+                              ) => (
 
 
-                            <p className="text-sm text-gray-400 mt-2">
-
-                              {
-                                artist.genres.join(', ')
-                              }
+                                <Link
 
 
-                            </p>
+                                  key={
+                                    artist.slug ||
+                                    artist.provider_artist_id
+                                  }
 
 
-                          )
+                                  href={
+                                    `/artists/${artist.slug}`
+                                  }
+
+
+                                  className="
+                                    bg-gray-900
+                                    border
+                                    border-gray-800
+                                    rounded-lg
+                                    overflow-hidden
+                                    hover:border-purple-500
+                                    transition
+                                  "
+
+
+                                >
+
+
+
+
+                                  {
+                                    artist.image ? (
+
+
+                                      <img
+
+                                        src={
+                                          artist.image
+                                        }
+
+                                        alt={
+                                          artist.name
+                                        }
+
+                                        className="
+                                          w-full
+                                          h-48
+                                          object-cover
+                                        "
+
+                                      />
+
+
+                                    ) : (
+
+
+                                      <div
+
+                                        className="
+                                          h-48
+                                          flex
+                                          items-center
+                                          justify-center
+                                          bg-gray-800
+                                          text-5xl
+                                        "
+
+                                      >
+
+                                        🎵
+
+
+                                      </div>
+
+
+                                    )
+
+                                  }
+
+
+
+
+
+                                  <div className="p-4">
+
+
+                                    <h3
+
+                                      className="
+                                        text-white
+                                        font-semibold
+                                      "
+
+                                    >
+
+                                      {artist.name}
+
+
+                                    </h3>
+
+
+
+
+
+                                    {
+                                      artist.genres?.length > 0 && (
+
+
+                                        <p
+
+                                          className="
+                                            text-sm
+                                            text-gray-400
+                                            mt-2
+                                          "
+
+                                        >
+
+                                          {
+                                            artist.genres.join(
+                                              ', '
+                                            )
+                                          }
+
+
+                                        </p>
+
+
+                                      )
+                                    }
+
+
+
+                                  </div>
+
+
+
+                                </Link>
+
+
+                              )
+                            )
                         }
 
 
@@ -745,9 +774,7 @@ export default function ArtistsPage() {
 
 
 
-
-                    </Link>
-
+                    </section>
 
 
                   )
@@ -757,7 +784,6 @@ export default function ArtistsPage() {
 
 
             </div>
-
 
 
           )
@@ -771,7 +797,6 @@ export default function ArtistsPage() {
 
 
     </div>
-
 
 
   );
