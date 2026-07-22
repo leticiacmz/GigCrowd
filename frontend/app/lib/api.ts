@@ -604,163 +604,116 @@ export const followAPI = {
 
 export const artistAPI = {
 
-
   getArtists: async (
-
     params?: any
-
   ) => {
-
 
     const response =
       await api.get(
-
         '/artists',
-
         {
           params,
         }
-
       );
-
 
     return response.data;
 
-
   },
-
-
-
 
   searchArtists: async (
-
     query: string
-
   ) => {
-
 
     const response =
       await api.get(
-
         '/artists/search',
-
         {
-
           params: {
-
             q: query,
-
           },
-
         }
-
       );
-
 
     return response.data;
 
-
   },
 
-
-
-
-  getArtist: async (
-
-    artistSlug: string
-
+  importArtist: async (
+    providerArtistId: string,
   ) => {
-
-
-    const response =
-      await api.get(
-
-        `/artists/${artistSlug}`
-
-      );
-
-
-    return response.data;
-
-
-  },
-
-
-
-
-  getFollowStatus: async (
-
-    artistSlug: string
-
-  ) => {
-
-
-    const response =
-      await api.get(
-
-        `/artists/${artistSlug}/follow`
-
-      );
-
-
-    return response.data;
-
-
-  },
-
-
-
-
-  followArtist: async (
-
-    artistSlug: string
-
-  ) => {
-
 
     const response =
       await api.post(
 
-        `/artists/${artistSlug}/follow`
+        '/artists/import',
+
+        {
+
+          provider: 'spotify',
+
+          provider_artist_id: providerArtistId,
+
+        }
 
       );
 
-
     return response.data;
-
 
   },
 
-
-
-
-  unfollowArtist: async (
-
+  getArtist: async (
     artistSlug: string
-
   ) => {
 
+    const response =
+      await api.get(
+        `/artists/${artistSlug}`
+      );
+
+    return response.data;
+
+  },
+
+  getFollowStatus: async (
+    artistSlug: string
+  ) => {
+
+    const response =
+      await api.get(
+        `/artists/${artistSlug}/follow`
+      );
+
+    return response.data;
+
+  },
+
+  followArtist: async (
+    artistSlug: string
+  ) => {
+
+    const response =
+      await api.post(
+        `/artists/${artistSlug}/follow`
+      );
+
+    return response.data;
+
+  },
+
+  unfollowArtist: async (
+    artistSlug: string
+  ) => {
 
     const response =
       await api.delete(
-
         `/artists/${artistSlug}/follow`
-
       );
-
 
     return response.data;
 
-
   },
 
-
 };
-
-
-
-
-
 
 
 
