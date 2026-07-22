@@ -1,9 +1,10 @@
+from pymongo import ASCENDING
+
 from app.domain.artist import Artist
-
-from app.mappers.artist_document_mapper import ArtistDocumentMapper
-
+from app.mappers.artist_document_mapper import (
+    ArtistDocumentMapper,
+)
 from app.repositories.base import BaseRepository
-
 from app.utils.slug import generate_slug
 from app.utils.text import normalize_text
 
@@ -40,7 +41,9 @@ class ArtistRepository(BaseRepository):
         name: str,
     ) -> Artist | None:
 
-        normalized = normalize_text(name)
+        normalized = normalize_text(
+            name
+        )
 
         document = await self.find_one(
             {
@@ -79,15 +82,21 @@ class ArtistRepository(BaseRepository):
         name: str,
     ) -> str:
 
-        base_slug = generate_slug(name)
+        base_slug = generate_slug(
+            name
+        )
 
         slug = base_slug
 
         counter = 2
 
-        while await self.get_by_slug(slug):
+        while await self.get_by_slug(
+            slug
+        ):
 
-            slug = f"{base_slug}-{counter}"
+            slug = (
+                f"{base_slug}-{counter}"
+            )
 
             counter += 1
 
@@ -109,16 +118,23 @@ class ArtistRepository(BaseRepository):
     ) -> list[Artist]:
 
         documents = await self.find_many(
-            {}
+            {},
+            sort=[
+                (
+                    "normalized_name",
+                    ASCENDING,
+                )
+            ],
+            skip=skip,
+            limit=limit,
         )
 
-        documents = documents[
-            skip : skip + limit
-        ]
-
         return [
+
             ArtistDocumentMapper.to_domain(
                 document
             )
+
             for document in documents
+
         ]
