@@ -42,7 +42,7 @@ export default function LoginPage() {
 
       saveAuth(response);
 
-      router.push('/feed');
+      window.location.href = '/feed';
     } catch (err: any) {
       setError(
         err.response?.data?.detail ??
