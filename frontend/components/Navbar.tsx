@@ -126,11 +126,26 @@ export default function Navbar() {
             <Link
               key={link.href}
               href={link.href}
-              className={
-                pathname === link.href
-                  ? 'font-medium text-accent'
-                  : 'text-gray-400 transition-colors hover:text-white'
-              }
+              className={`
+                transition-all
+                duration-300
+                focus-visible:outline-none
+                ${
+                  pathname === link.href
+                    ? `
+                      font-medium
+                      bg-gradient-to-r
+                      from-accent
+                      to-secondary
+                      bg-clip-text
+                      text-transparent
+                    `
+                    : `
+                      text-gray-400
+                      hover:text-white
+                    `
+                }
+              `}
             >
               {link.label}
             </Link>
