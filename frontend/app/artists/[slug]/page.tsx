@@ -20,6 +20,10 @@ import {
   artistAPI,
   eventAPI,
 } from '../../lib/api';
+import Button from '../../../components/ui/Button';
+import Card from '../../../components/ui/Card';
+import Badge from '../../../components/ui/Badge';
+import LoadingState from '../../../components/LoadingState';
 
 
 
@@ -447,11 +451,7 @@ export default function ArtistProfilePage() {
       ">
 
 
-        <p className="text-gray-400">
-
-          Loading artist...
-
-        </p>
+        <LoadingState message="Loading artist..." />
 
 
       </div>
@@ -500,8 +500,8 @@ export default function ArtistProfilePage() {
           href="/artists"
 
           className="
-            text-purple-400
-            hover:text-purple-300
+            text-accent
+            hover:text-accent/80
           "
 
         >
@@ -535,74 +535,6 @@ export default function ArtistProfilePage() {
 
 
 
-      <header className="
-        border-b
-        border-gray-800
-        px-4
-        py-4
-      ">
-
-
-        <div className="
-          max-w-6xl
-          mx-auto
-          flex
-          justify-between
-          items-center
-        ">
-
-
-          <Link
-
-            href="/feed"
-
-            className="
-              text-2xl
-              font-bold
-              bg-gradient-to-r
-              from-purple-500
-              to-pink-500
-              bg-clip-text
-              text-transparent
-            "
-
-          >
-
-            GigCrowd
-
-
-          </Link>
-
-
-
-
-          <Link
-
-            href="/artists"
-
-            className="
-              text-gray-400
-              hover:text-white
-            "
-
-          >
-
-            Back to artists
-
-
-          </Link>
-
-
-
-        </div>
-
-
-      </header>
-
-
-
-
-
 
 
 
@@ -618,13 +550,7 @@ export default function ArtistProfilePage() {
 
 
 
-        <div className="
-          bg-gray-900
-          border
-          border-gray-800
-          rounded-xl
-          overflow-hidden
-        ">
+        <Card className="overflow-hidden p-0">
 
 
 
@@ -670,7 +596,7 @@ export default function ArtistProfilePage() {
 
 
               <h1 className="
-                text-4xl
+                text-[36px]
                 font-bold
               ">
 
@@ -682,21 +608,10 @@ export default function ArtistProfilePage() {
 
 
 
-              <button
-
+              <Button
                 onClick={handleFollow}
-
                 disabled={followLoading}
-
-                className="
-                  px-5
-                  py-2
-                  rounded-lg
-                  bg-purple-600
-                  hover:bg-purple-700
-                  disabled:opacity-50
-                "
-
+                variant={following ? 'outline' : 'primary'}
               >
 
                 {
@@ -712,7 +627,7 @@ export default function ArtistProfilePage() {
                 }
 
 
-              </button>
+              </Button>
 
 
             </div>
@@ -732,7 +647,7 @@ export default function ArtistProfilePage() {
 
 
                   <h2 className="
-                    text-sm
+                    text-[14px]
                     text-gray-400
                     mb-2
                   ">
@@ -755,23 +670,9 @@ export default function ArtistProfilePage() {
                       artist.genres.map(
                         genre => (
 
-                          <span
-
-                            key={genre}
-
-                            className="
-                              px-3
-                              py-1
-                              bg-gray-800
-                              rounded-full
-                              text-sm
-                            "
-
-                          >
-
+                          <Badge key={genre} variant="outline">
                             {genre}
-
-                          </span>
+                          </Badge>
 
                         )
                       )
@@ -806,7 +707,7 @@ export default function ArtistProfilePage() {
 
 
                   <div className="
-                    bg-gray-800
+                    bg-card-hover
                     rounded-lg
                     p-4
                   ">
@@ -819,7 +720,7 @@ export default function ArtistProfilePage() {
                     </p>
 
 
-                    <p className="text-2xl font-bold">
+                    <p className="text-[24px] font-bold">
 
                       {artist.events.upcoming}
 
@@ -832,7 +733,7 @@ export default function ArtistProfilePage() {
 
 
                   <div className="
-                    bg-gray-800
+                    bg-card-hover
                     rounded-lg
                     p-4
                   ">
@@ -845,7 +746,7 @@ export default function ArtistProfilePage() {
                     </p>
 
 
-                    <p className="text-2xl font-bold">
+                    <p className="text-[24px] font-bold">
 
                       {artist.events.total}
 
@@ -870,7 +771,7 @@ export default function ArtistProfilePage() {
 
 
               <h2 className="
-                text-2xl
+                text-[24px]
                 font-bold
                 mb-4
               ">
@@ -915,12 +816,12 @@ export default function ArtistProfilePage() {
 
                             className="
                               block
-                              bg-gray-800
+                              bg-card-hover
                               border
-                              border-gray-700
+                              border-border
                               rounded-lg
                               p-4
-                              hover:border-purple-500
+                              hover:border-accent
                               transition
                             "
 
@@ -983,7 +884,7 @@ export default function ArtistProfilePage() {
           </div>
 
 
-        </div>
+        </Card>
 
 
       </main>

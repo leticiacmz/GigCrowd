@@ -16,6 +16,10 @@ import {
   eventAPI,
   userAPI,
 } from '../../lib/api';
+import Button from '../../../components/ui/Button';
+import Card from '../../../components/ui/Card';
+import Input from '../../../components/ui/Input';
+import LoadingState from '../../../components/LoadingState';
 
 import {
   format,
@@ -354,9 +358,7 @@ export default function EventDetailPage(){
         justify-center
       ">
 
-        <p className="text-gray-400">
-          Loading event...
-        </p>
+        <LoadingState message="Loading event..." />
 
       </div>
 
@@ -409,92 +411,6 @@ export default function EventDetailPage(){
     <div className="min-h-screen">
 
 
-      <header className="
-        border-b
-        border-gray-800
-        px-4
-        py-4
-      ">
-
-
-        <div className="
-          max-w-6xl
-          mx-auto
-          flex
-          justify-between
-          items-center
-        ">
-
-
-          <Link
-
-            href="/events"
-
-            className="
-              text-2xl
-              font-bold
-              bg-gradient-to-r
-              from-purple-500
-              to-pink-500
-              bg-clip-text
-              text-transparent
-            "
-
-          >
-
-            GigCrowd
-
-
-          </Link>
-
-
-
-          <nav className="flex gap-4">
-
-
-            <Link
-              href="/artists"
-              className="text-gray-400 hover:text-white"
-            >
-              Artists
-            </Link>
-
-
-            <Link
-              href="/events"
-              className="text-gray-400 hover:text-white"
-            >
-              Events
-            </Link>
-
-
-
-            <Link
-
-              href={
-                currentUser
-                  ? `/profile/${currentUser.username}`
-                  : '/login'
-              }
-
-              className="text-gray-400 hover:text-white"
-
-            >
-
-              Profile
-
-            </Link>
-
-
-          </nav>
-
-
-        </div>
-
-
-      </header>
-
-
 
 
 
@@ -516,8 +432,8 @@ export default function EventDetailPage(){
           href="/events"
 
           className="
-            text-purple-400
-            hover:text-purple-300
+            text-accent
+            hover:text-accent/80
           "
 
         >
@@ -578,7 +494,7 @@ export default function EventDetailPage(){
 
 
             <h1 className="
-              text-4xl
+              text-[36px]
               font-bold
               mb-6
             ">
@@ -636,8 +552,8 @@ export default function EventDetailPage(){
                       href={`/artists/${event.artist_slug}`}
 
                       className="
-                        text-purple-400
-                        hover:text-purple-300
+                        text-accent
+                        hover:text-accent/80
                       "
 
                     >
@@ -698,16 +614,13 @@ export default function EventDetailPage(){
                     className="
                       inline-block
                       mt-4
-                      px-4
-                      py-2
-                      bg-purple-600
-                      rounded-lg
                     "
 
                   >
 
+                    <Button variant="primary">
                     Tickets
-
+                  </Button>
                   </a>
 
                 )
@@ -732,17 +645,11 @@ export default function EventDetailPage(){
           <div>
 
 
-            <div className="
-              bg-gray-900
-              border
-              border-gray-800
-              rounded-lg
-              p-6
-            ">
+            <Card className="p-6">
 
 
               <h2 className="
-                text-xl
+                text-[18px]
                 font-bold
                 mb-4
               ">
@@ -758,77 +665,41 @@ export default function EventDetailPage(){
               <div className="space-y-3">
 
 
-                <button
-
+                <Button
                   disabled={submitting}
-
-                  onClick={() =>
-                    handleAttend('going')
-                  }
-
-                  className="
-                    w-full
-                    py-3
-                    rounded-lg
-                    bg-gray-800
-                  "
-
+                  onClick={() => handleAttend('going')}
+                  variant="outline"
+                  className="w-full"
                 >
-
                   ✓ I'm going
-
-                </button>
-
+                </Button>
 
 
 
 
-                <button
 
+                <Button
                   disabled={submitting}
-
-                  onClick={() =>
-                    handleAttend('maybe')
-                  }
-
-                  className="
-                    w-full
-                    py-3
-                    rounded-lg
-                    bg-gray-800
-                  "
-
+                  onClick={() => handleAttend('maybe')}
+                  variant="outline"
+                  className="w-full"
                 >
-
                   ? Maybe
-
-                </button>
-
+                </Button>
 
 
 
 
 
-                <button
 
+                <Button
                   disabled={submitting}
-
-                  onClick={() =>
-                    handleAttend('went')
-                  }
-
-                  className="
-                    w-full
-                    py-3
-                    rounded-lg
-                    bg-gray-800
-                  "
-
+                  onClick={() => handleAttend('went')}
+                  variant="outline"
+                  className="w-full"
                 >
-
                   ✓ I went
-
-                </button>
+                </Button>
 
 
               </div>
@@ -842,7 +713,7 @@ export default function EventDetailPage(){
 
               <div className="
                 border-t
-                border-gray-700
+                border-border
                 mt-6
                 pt-4
               ">
@@ -904,7 +775,7 @@ export default function EventDetailPage(){
 
 
 
-            </div>
+            </Card>
 
 
           </div>

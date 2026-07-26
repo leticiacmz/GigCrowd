@@ -11,6 +11,14 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
+        accent: "var(--accent)",
+        secondary: "var(--secondary)",
+        border: "var(--border)",
+        "card-bg": "var(--card-bg)",
+        "card-hover": "var(--card-hover)",
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
       },
     },
   },

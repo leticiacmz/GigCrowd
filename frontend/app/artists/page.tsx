@@ -20,6 +20,11 @@ import {
   Artist,
 } from '../types/artist';
 
+import ArtistCard from '../../components/ArtistCard';
+import LoadingState from '../../components/LoadingState';
+import EmptyState from '../../components/EmptyState';
+import Card from '../../components/ui/Card';
+
 
 
 export default function ArtistsPage() {
@@ -281,135 +286,6 @@ export default function ArtistsPage() {
 
 
 
-      <header
-        className="
-          border-b
-          border-gray-800
-          px-4
-          py-4
-        "
-      >
-
-
-        <div
-          className="
-            max-w-6xl
-            mx-auto
-            flex
-            items-center
-            justify-between
-          "
-        >
-
-
-          <Link
-
-            href="/feed"
-
-            className="
-              text-2xl
-              font-bold
-              bg-gradient-to-r
-              from-purple-500
-              to-pink-500
-              bg-clip-text
-              text-transparent
-            "
-
-          >
-
-            GigCrowd
-
-          </Link>
-
-
-
-
-
-          <nav
-            className="
-              flex
-              gap-4
-            "
-          >
-
-
-            <Link
-
-              href="/feed"
-
-              className="
-                text-gray-400
-                hover:text-white
-              "
-
-            >
-
-              Feed
-
-            </Link>
-
-
-
-
-
-            <Link
-
-              href="/events"
-
-              className="
-                text-gray-400
-                hover:text-white
-              "
-
-            >
-
-              Events
-
-            </Link>
-
-
-
-
-
-            <Link
-
-              href={
-                currentUser
-                  ? `/profile/${currentUser.username}`
-                  : '/login'
-              }
-
-              className="
-                text-gray-400
-                hover:text-white
-              "
-
-            >
-
-              Profile
-
-            </Link>
-
-
-
-          </nav>
-
-
-
-        </div>
-
-
-      </header>
-
-
-
-
-
-
-
-
-
       <main
         className="
           max-w-6xl
@@ -424,7 +300,7 @@ export default function ArtistsPage() {
         <h1
 
           className="
-            text-3xl
+            text-[28px]
             font-bold
             mb-8
           "
@@ -448,22 +324,11 @@ export default function ArtistsPage() {
           error && (
 
 
-            <div
-
-              className="
-                mb-6
-                p-4
-                rounded
-                bg-red-900
-                text-red-200
-              "
-
-            >
+            <Card className="mb-6 p-4 bg-red-900/20 border-red-500 text-red-300">
 
               {error}
 
-
-            </div>
+            </Card>
 
 
           )
@@ -479,86 +344,13 @@ export default function ArtistsPage() {
 
         {
           loading ? (
-
-
-            <div
-
-              className="
-                grid
-                grid-cols-1
-                md:grid-cols-3
-                gap-6
-              "
-
-            >
-
-
-              {
-                Array.from(
-                  {
-                    length: 6,
-                  }
-                ).map(
-                  (
-                    _,
-                    index
-                  ) => (
-
-
-                    <div
-
-                      key={index}
-
-                      className="
-                        bg-gray-900
-                        rounded-lg
-                        p-4
-                        animate-pulse
-                      "
-
-                    >
-
-                      <div
-                        className="
-                          h-48
-                          bg-gray-800
-                          rounded
-                          mb-4
-                        "
-                      />
-
-
-                      <div
-                        className="
-                          h-5
-                          bg-gray-800
-                          rounded
-                          w-3/4
-                        "
-                      />
-
-
-                    </div>
-
-
-                  )
-                )
-              }
-
-
-            </div>
-
-
-
+            <LoadingState message="Loading artists..." />
           ) : artists.length === 0 ? (
-
-
-            <div className="text-gray-400">
-
-              No artists found.
-
-
-            </div>
+            <EmptyState
+              icon="🎵"
+              title="No artists found"
+              description="Start following artists to see them here!"
+            />
 
 
 
@@ -586,10 +378,10 @@ export default function ArtistsPage() {
                       <h2
 
                         className="
-                          text-2xl
+                          text-[24px]
                           font-bold
                           mb-4
-                          text-purple-400
+                          text-secondary
                         "
 
                       >
@@ -616,157 +408,13 @@ export default function ArtistsPage() {
                       >
 
 
-                        {
-                          groupedArtists[letter]
-                            .map(
-                              (
-                                artist
-                              ) => (
+                        {groupedArtists[letter].map((artist) => (
+                          <ArtistCard
+                            key={artist.slug || artist.provider_artist_id}
+                            artist={artist}
+                          />
+                        ))}
 
-
-                                <Link
-
-
-                                  key={
-                                    artist.slug ||
-                                    artist.provider_artist_id
-                                  }
-
-
-                                  href={
-                                    `/artists/${artist.slug}`
-                                  }
-
-
-                                  className="
-                                    bg-gray-900
-                                    border
-                                    border-gray-800
-                                    rounded-lg
-                                    overflow-hidden
-                                    hover:border-purple-500
-                                    transition
-                                  "
-
-
-                                >
-
-
-
-
-                                  {
-                                    artist.image ? (
-
-
-                                      <img
-
-                                        src={
-                                          artist.image
-                                        }
-
-                                        alt={
-                                          artist.name
-                                        }
-
-                                        className="
-                                          w-full
-                                          h-48
-                                          object-cover
-                                        "
-
-                                      />
-
-
-                                    ) : (
-
-
-                                      <div
-
-                                        className="
-                                          h-48
-                                          flex
-                                          items-center
-                                          justify-center
-                                          bg-gray-800
-                                          text-5xl
-                                        "
-
-                                      >
-
-                                        🎵
-
-
-                                      </div>
-
-
-                                    )
-
-                                  }
-
-
-
-
-
-                                  <div className="p-4">
-
-
-                                    <h3
-
-                                      className="
-                                        text-white
-                                        font-semibold
-                                      "
-
-                                    >
-
-                                      {artist.name}
-
-
-                                    </h3>
-
-
-
-
-
-                                    {
-                                      artist.genres?.length > 0 && (
-
-
-                                        <p
-
-                                          className="
-                                            text-sm
-                                            text-gray-400
-                                            mt-2
-                                          "
-
-                                        >
-
-                                          {
-                                            artist.genres.join(
-                                              ', '
-                                            )
-                                          }
-
-
-                                        </p>
-
-
-                                      )
-                                    }
-
-
-
-                                  </div>
-
-
-
-                                </Link>
-
-
-                              )
-                            )
-                        }
 
 
 

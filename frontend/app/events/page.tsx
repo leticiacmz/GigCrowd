@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 import { artistAPI } from '../lib/api';
+import Input from '../../components/ui/Input';
+import Button from '../../components/ui/Button';
+import ArtistCard from '../../components/ArtistCard';
 
 interface ArtistSearchResult {
   provider: string;
@@ -58,68 +61,30 @@ export default function EventsPage() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-gray-800 px-4 py-4">
-        <div className="max-w-6xl mx-auto flex justify-between">
-          <Link href="/feed" className="text-2xl font-bold">
-            GigCrowd
-          </Link>
-        </div>
-      </header>
-
       <main className="max-w-4xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-6">
+        <h1 className="text-[28px] font-bold mb-6">
           Search artists
         </h1>
 
         <form onSubmit={searchArtists} className="mb-8">
           <div className="flex gap-3">
-            <input
+            <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search on Spotify..."
-              className="flex-1 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700"
+              className="flex-1"
             />
-
-            <button className="px-6 rounded-lg bg-purple-600">
+            <Button type="submit" disabled={loading}>
               {loading ? 'Searching...' : 'Search'}
-            </button>
+            </Button>
           </div>
         </form>
 
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {artists.map((artist) => (
-            <button
-              key={artist.provider_artist_id}
-              onClick={() => selectArtist(artist)}
-              className="w-full text-left bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-purple-500"
-            >
-              <div className="flex gap-4 items-center">
-                {artist.image && (
-                  <img
-                    src={artist.image}
-                    alt={artist.name}
-                    className="w-16 h-16 rounded-full object-cover"
-                  />
-                )}
-
-                <div>
-                  <h2 className="text-xl font-semibold">
-                    {artist.name}
-                  </h2>
-
-                  <p className="text-gray-400">
-                    {artist.genres?.join(' • ')}
-                  </p>
-
-                  {artist.followers && (
-                    <p className="text-gray-400">
-                      {artist.followers.toLocaleString()} followers
-                    </p>
-
-                  )}
-                </div>
-              </div>
-            </button>
+            <div key={artist.provider_artist_id} onClick={() => selectArtist(artist)}>
+              <ArtistCard artist={artist} />
+            </div>
           ))}
         </div>
       </main>

@@ -7,6 +7,11 @@ import Link from 'next/link';
 import { userAPI } from '@/app/lib/api';
 import FollowButton from '@/components/profile/FollowButton';
 import ProfileStats from '@/components/profile/ProfileStats';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Card from '@/components/ui/Card';
+import Avatar from '@/components/ui/Avatar';
+import LoadingState from '@/components/LoadingState';
 
 import { format } from 'date-fns';
 
@@ -156,9 +161,7 @@ export default function ProfilePage() {
 
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-400">
-          Loading profile...
-        </p>
+        <LoadingState message="Loading profile..." />
       </div>
     );
 
@@ -193,53 +196,11 @@ export default function ProfilePage() {
     <div className="min-h-screen">
 
 
-      <header className="border-b border-gray-800 px-4 py-4">
-
-        <div className="max-w-5xl mx-auto flex justify-between items-center">
-
-
-          <Link
-            href="/feed"
-            className="text-2xl font-bold bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent"
-          >
-            GigCrowd
-          </Link>
-
-
-
-          <nav className="flex gap-4">
-
-            <Link
-              href="/feed"
-              className="text-gray-400 hover:text-white"
-            >
-              Feed
-            </Link>
-
-
-            <Link
-              href="/events"
-              className="text-gray-400 hover:text-white"
-            >
-              Events
-            </Link>
-
-          </nav>
-
-
-        </div>
-
-      </header>
-
-
-
-
-
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
 
 
 
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+        <Card className="p-6">
 
 
 
@@ -249,15 +210,17 @@ export default function ProfilePage() {
             <div className="flex gap-4">
 
 
-              <div className="w-20 h-20 rounded-full bg-gray-800 flex items-center justify-center text-3xl font-bold">
-                {user.username.charAt(0).toUpperCase()}
-              </div>
+              <Avatar
+                src={undefined}
+                fallback={user.username.charAt(0).toUpperCase()}
+                size="lg"
+              />
 
 
 
               <div>
 
-                <h1 className="text-3xl font-bold">
+                <h1 className="text-[28px] font-bold">
                   {user.username}
                 </h1>
 
@@ -282,31 +245,31 @@ export default function ProfilePage() {
 
                   <div className="flex gap-2">
 
-                    <button
+                    <Button
                       onClick={handleSave}
-                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg"
+                      variant="primary"
                     >
                       Save
-                    </button>
+                    </Button>
 
 
-                    <button
+                    <Button
                       onClick={handleCancel}
-                      className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg"
+                      variant="outline"
                     >
                       Cancel
-                    </button>
+                    </Button>
 
                   </div>
 
                 ) : (
 
-                  <button
+                  <Button
                     onClick={() => setEditing(true)}
-                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg"
+                    variant="outline"
                   >
                     Edit Profile
-                  </button>
+                  </Button>
 
                 )
 
@@ -331,7 +294,7 @@ export default function ProfilePage() {
 
 
             <div>
-              <p className="text-2xl font-bold">
+              <p className="text-[24px] font-bold">
                 {stats?.followers_count ?? 0}
               </p>
 
@@ -345,7 +308,7 @@ export default function ProfilePage() {
 
             <div>
 
-              <p className="text-2xl font-bold">
+              <p className="text-[24px] font-bold">
                 {stats?.following_count ?? 0}
               </p>
 
@@ -372,7 +335,7 @@ export default function ProfilePage() {
                 <>
 
 
-                  <input
+                  <Input
                     value={form.full_name}
                     onChange={(e)=>
                       setForm({
@@ -381,7 +344,6 @@ export default function ProfilePage() {
                       })
                     }
                     placeholder="Full name"
-                    className="w-full bg-gray-800 rounded p-2"
                   />
 
 
@@ -395,12 +357,13 @@ export default function ProfilePage() {
                       })
                     }
                     placeholder="Bio"
-                    className="w-full bg-gray-800 rounded p-2"
+                    className="w-full bg-card-bg border border-border rounded-lg p-3 text-foreground"
+                    rows={3}
                   />
 
 
 
-                  <input
+                  <Input
                     value={form.location}
                     onChange={(e)=>
                       setForm({
@@ -409,7 +372,6 @@ export default function ProfilePage() {
                       })
                     }
                     placeholder="Location"
-                    className="w-full bg-gray-800 rounded p-2"
                   />
 
 
@@ -469,7 +431,7 @@ export default function ProfilePage() {
           </div>
 
 
-        </div>
+        </Card>
 
 
 

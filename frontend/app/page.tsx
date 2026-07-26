@@ -5,6 +5,8 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { isAuthenticated } from './lib/auth';
+import Button from '../components/ui/Button';
+import Card from '../components/ui/Card';
 
 export default function Home() {
 
@@ -24,15 +26,15 @@ export default function Home() {
 
     <div className="min-h-screen flex flex-col items-center justify-center px-4">
 
-      <div className="max-w-3xl text-center">
+      <Card className="max-w-3xl text-center p-8">
 
-        <h1 className="text-6xl font-bold mb-6 bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent">
+        <h1 className="text-[36px] font-bold mb-6 bg-gradient-to-r from-accent to-secondary bg-clip-text text-transparent">
 
           GigCrowd
 
         </h1>
 
-        <p className="text-xl text-gray-400 mb-8">
+        <p className="text-[18px] text-gray-400 mb-8">
 
           Track your concerts, discover live events, and connect with music lovers worldwide.
 
@@ -42,25 +44,25 @@ export default function Home() {
 
           <Link
             href="/login"
-            className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition-colors"
+            className="w-full"
           >
-
-            Login
-
+            <Button variant="primary" size="lg" className="w-full">
+              Login
+            </Button>
           </Link>
 
           <Link
             href="/register"
-            className="px-8 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-semibold transition-colors"
+            className="w-full"
           >
-
-            Register
-
+            <Button variant="outline" size="lg" className="w-full">
+              Register
+            </Button>
           </Link>
 
         </div>
 
-      </div>
+      </Card>
 
     </div>
 

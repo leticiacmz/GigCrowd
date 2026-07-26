@@ -6,6 +6,9 @@ import Link from 'next/link';
 
 import { authAPI } from '../lib/api';
 import { saveAuth } from '../lib/auth';
+import Input from '../../components/ui/Input';
+import Button from '../../components/ui/Button';
+import Card from '../../components/ui/Card';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -68,20 +71,19 @@ export default function RegisterPage() {
   }
 
   return (
+    <div className="min-h-screen flex items-center justify-center px-4 bg-background">
 
-    <div className="min-h-screen flex items-center justify-center px-4">
-
-      <div className="max-w-md w-full">
+      <Card className="max-w-md w-full p-8">
 
         <div className="text-center mb-8">
 
-          <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent">
+          <h1 className="text-[36px] font-bold mb-2 bg-gradient-to-r from-accent to-secondary bg-clip-text text-transparent">
 
             GigCrowd
 
           </h1>
 
-          <p className="text-gray-400">
+          <p className="text-[18px] text-gray-400">
 
             Create your account
 
@@ -94,120 +96,63 @@ export default function RegisterPage() {
           className="space-y-4"
         >
 
-          <div>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            label="Email"
+            value={formData.email}
+            onChange={handleChange}
+            required
+          />
 
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium mb-2"
-            >
+          <Input
+            id="username"
+            name="username"
+            type="text"
+            label="Username"
+            value={formData.username}
+            onChange={handleChange}
+            required
+            minLength={3}
+          />
 
-              Email
+          <Input
+            id="full_name"
+            name="full_name"
+            type="text"
+            label="Full Name"
+            value={formData.full_name}
+            onChange={handleChange}
+          />
 
-            </label>
-
-            <input
-              id="email"
-              name="email"
-              type="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-purple-500 transition-colors"
-              required
-            />
-
-          </div>
-
-          <div>
-
-            <label
-              htmlFor="username"
-              className="block text-sm font-medium mb-2"
-            >
-
-              Username
-
-            </label>
-
-            <input
-              id="username"
-              name="username"
-              type="text"
-              value={formData.username}
-              onChange={handleChange}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-purple-500 transition-colors"
-              required
-              minLength={3}
-            />
-
-          </div>
-
-          <div>
-
-            <label
-              htmlFor="full_name"
-              className="block text-sm font-medium mb-2"
-            >
-
-              Full Name
-
-            </label>
-
-            <input
-              id="full_name"
-              name="full_name"
-              type="text"
-              value={formData.full_name}
-              onChange={handleChange}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-purple-500 transition-colors"
-            />
-
-          </div>
-
-          <div>
-
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium mb-2"
-            >
-
-              Password
-
-            </label>
-
-            <input
-              id="password"
-              name="password"
-              type="password"
-              value={formData.password}
-              onChange={handleChange}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-purple-500 transition-colors"
-              required
-              minLength={8}
-            />
-
-          </div>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            label="Password"
+            value={formData.password}
+            onChange={handleChange}
+            required
+            minLength={8}
+          />
 
           {error && (
-
             <div className="text-red-500 text-sm">
-
               {error}
-
             </div>
-
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={loading}
-            className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 text-white rounded-lg font-semibold transition-colors"
+            className="w-full"
+            size="lg"
           >
-
             {loading
               ? 'Creating account...'
               : 'Register'}
-
-          </button>
+          </Button>
 
         </form>
 
@@ -217,16 +162,14 @@ export default function RegisterPage() {
 
           <Link
             href="/login"
-            className="text-purple-500 hover:text-purple-400"
+            className="text-accent hover:text-accent/80 transition-colors"
           >
-
             Login
-
           </Link>
 
         </p>
 
-      </div>
+      </Card>
 
     </div>
 

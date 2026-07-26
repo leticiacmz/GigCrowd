@@ -20,6 +20,11 @@ import {
   format,
 } from 'date-fns';
 
+import LoadingState from '../../components/LoadingState';
+import EmptyState from '../../components/EmptyState';
+import Avatar from '../../components/ui/Avatar';
+import Card from '../../components/ui/Card';
+
 
 
 interface Activity {
@@ -303,129 +308,6 @@ export default function FeedPage() {
     <div className="min-h-screen">
 
 
-      <header
-        className="
-          border-b
-          border-gray-800
-          px-4
-          py-4
-        "
-      >
-
-
-        <div
-          className="
-            max-w-4xl
-            mx-auto
-            flex
-            items-center
-            justify-between
-          "
-        >
-
-
-          <Link
-
-            href="/"
-
-            className="
-              text-2xl
-              font-bold
-              bg-gradient-to-r
-              from-purple-500
-              to-pink-500
-              bg-clip-text
-              text-transparent
-            "
-
-          >
-
-            GigCrowd
-
-          </Link>
-
-
-
-
-
-          <nav
-            className="
-              flex
-              items-center
-              gap-4
-            "
-          >
-
-
-            <Link
-
-              href="/events"
-
-              className="
-                text-gray-400
-                hover:text-white
-              "
-
-            >
-
-              Events
-
-            </Link>
-
-
-
-
-
-            <Link
-              href={
-                currentUser
-                  ? `/profile/${currentUser.username}`
-                  : '/login'
-              }
-              className="text-gray-400 hover:text-white transition-colors"
-            >
-              Profile
-            </Link>
-
-
-
-
-
-            <button
-
-              onClick={
-                handleLogout
-              }
-
-              className="
-                text-gray-400
-                hover:text-white
-              "
-
-            >
-
-              Logout
-
-            </button>
-
-
-
-          </nav>
-
-
-        </div>
-
-
-      </header>
-
-
-
-
-
-
-
-
-
       <main
         className="
           max-w-4xl
@@ -438,7 +320,7 @@ export default function FeedPage() {
 
         <h1
           className="
-            text-3xl
+            text-[28px]
             font-bold
             mb-6
           "
@@ -458,21 +340,7 @@ export default function FeedPage() {
           loading ? (
 
 
-            <div
-              className="
-                text-center
-                py-12
-              "
-            >
-
-              <p className="text-gray-400">
-
-                Loading feed...
-
-              </p>
-
-
-            </div>
+            <LoadingState message="Loading feed..." />
 
 
 
@@ -480,40 +348,11 @@ export default function FeedPage() {
 
 
 
-            <div
-              className="
-                text-center
-                py-12
-              "
-            >
-
-
-              <p
-                className="
-                  text-gray-400
-                  mb-4
-                "
-              >
-
-                No activity yet.
-
-              </p>
-
-
-
-              <p
-                className="
-                  text-gray-500
-                "
-              >
-
-                Follow some users to see their activity here!
-
-              </p>
-
-
-
-            </div>
+            <EmptyState
+              icon="🎵"
+              title="No activity yet"
+              description="Follow some users to see their activity here!"
+            />
 
 
 
@@ -535,20 +374,8 @@ export default function FeedPage() {
                   ) => (
 
 
-                    <div
-
-                      key={
-                        activity.id
-                      }
-
-                      className="
-                        bg-gray-900
-                        border
-                        border-gray-800
-                        rounded-lg
-                        p-4
-                      "
-
+                    <Card
+                      key={activity.id}
                     >
 
 
@@ -563,39 +390,13 @@ export default function FeedPage() {
 
 
                         <Link
-
-                          href={
-                            `/profile/${activity.user.username}`
-                          }
-
+                          href={`/profile/${activity.user.username}`}
                         >
-
-                          <div
-                            className="
-                              w-10
-                              h-10
-                              bg-gradient-to-br
-                              from-purple-500
-                              to-pink-500
-                              rounded-full
-                              flex
-                              items-center
-                              justify-center
-                              text-white
-                              font-bold
-                            "
-                          >
-
-                            {
-                              activity.user.username
-                                .charAt(0)
-                                .toUpperCase()
-                            }
-
-
-                          </div>
-
-
+                          <Avatar
+                            src={activity.user.avatar_url}
+                            fallback={activity.user.username.charAt(0).toUpperCase()}
+                            size="md"
+                          />
                         </Link>
 
 
@@ -626,7 +427,7 @@ export default function FeedPage() {
 
                               className="
                                 font-semibold
-                                hover:text-purple-400
+                                hover:text-accent
                               "
 
                             >
@@ -663,7 +464,7 @@ export default function FeedPage() {
 
                               <div
                                 className="
-                                  bg-gray-800
+                                  bg-card-hover
                                   rounded-lg
                                   p-3
                                 "
@@ -727,7 +528,7 @@ export default function FeedPage() {
 
                               <div
                                 className="
-                                  bg-gray-800
+                                  bg-card-hover
                                   rounded-lg
                                   p-3
                                 "
@@ -825,7 +626,7 @@ export default function FeedPage() {
                       </div>
 
 
-                    </div>
+                    </Card>
 
 
                   )
