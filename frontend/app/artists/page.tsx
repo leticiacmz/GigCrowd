@@ -61,33 +61,17 @@ export default function ArtistsPage() {
   ] = useState('');
 
 
-
-
-
-
-
-
   useEffect(() => {
-
-
-    const token =
-      localStorage.getItem('token');
-
-
-
-    if (!token) {
-
-      router.push('/login');
-
-      return;
-
-    }
-
 
 
     loadArtists();
 
-    loadCurrentUser();
+    const token =
+    localStorage.getItem('token');
+
+    if(token){
+      loadCurrentUser();
+    }
 
 
 

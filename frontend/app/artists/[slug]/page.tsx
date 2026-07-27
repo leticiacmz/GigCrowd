@@ -178,38 +178,19 @@ export default function ArtistProfilePage() {
 
   useEffect(() => {
 
-
-    const token =
-      localStorage.getItem(
-        'token'
-      );
-
-
-
-    if (!token) {
-
-
-      router.push(
-        '/login'
-      );
-
-
-      return;
-
-    }
-
-
-
     if (artistSlug) {
 
       loadArtist();
 
       loadArtistEvents();
 
-      loadFollowStatus();
-
     }
 
+    const token = localStorage.getItem('token');
+
+    if (token) {
+      loadFollowStatus();
+    }
 
 
   }, [artistSlug]);
@@ -609,9 +590,19 @@ export default function ArtistProfilePage() {
 
 
               <Button
-                onClick={handleFollow}
+                onClick={() => {
+
+                  const token = localStorage.getItem('token');
+
+                  if (!token) {
+                    router.push('/login');
+                    return;
+                  }
+
+                  handleFollow();
+
+                }}
                 disabled={followLoading}
-                variant={following ? 'outline' : 'primary'}
               >
 
                 {

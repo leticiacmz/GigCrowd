@@ -16,9 +16,9 @@ import {
   eventAPI,
   userAPI,
 } from '../../lib/api';
+
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
-import Input from '../../../components/ui/Input';
 import LoadingState from '../../../components/LoadingState';
 
 import {
@@ -26,56 +26,35 @@ import {
 } from 'date-fns';
 
 
-
 interface Event {
-
 
   _id: string;
 
-
   title: string;
-
 
   artist_slug?: string;
 
-
   venue_slug?: string;
-
 
   starts_at: string;
 
-
   ticket_url?: string | null;
-
 
   sold_out?: boolean;
 
-
   free?: boolean;
-
-
 
   going_count?: number;
 
-
   maybe_count?: number;
-
 
   went_count?: number;
 
-
   description?: string;
-
 
   image_url?: string;
 
-
 }
-
-
-
-
-
 
 
 
@@ -84,7 +63,6 @@ export default function EventDetailPage(){
 
 
   const router = useRouter();
-
 
   const params = useParams();
 
@@ -96,13 +74,10 @@ export default function EventDetailPage(){
 
 
 
-
   const [
     event,
     setEvent,
   ] = useState<Event | null>(null);
-
-
 
 
 
@@ -113,8 +88,6 @@ export default function EventDetailPage(){
 
 
 
-
-
   const [
     loading,
     setLoading,
@@ -122,25 +95,10 @@ export default function EventDetailPage(){
 
 
 
-
-
   const [
     submitting,
     setSubmitting,
   ] = useState(false);
-
-
-
-
-
-  const [
-    attendStatus,
-    setAttendStatus,
-  ] = useState<
-    'going' | 'maybe' | 'went' | null
-  >(null);
-
-
 
 
 
@@ -155,35 +113,24 @@ export default function EventDetailPage(){
 
 
 
-
-
   useEffect(()=>{
+
+
+    loadEvent();
 
 
     const token =
       localStorage.getItem('token');
 
 
+    if(token){
 
-    if(!token){
-
-      router.push('/login');
-
-      return;
+      loadCurrentUser();
 
     }
 
 
-
-    loadEvent();
-
-    loadCurrentUser();
-
-
-
   },[eventId]);
-
-
 
 
 
@@ -201,9 +148,7 @@ export default function EventDetailPage(){
         await userAPI.getMe();
 
 
-
       setCurrentUser(user);
-
 
 
     }catch(error){
@@ -226,10 +171,6 @@ export default function EventDetailPage(){
 
 
 
-
-
-
-
   async function loadEvent(){
 
 
@@ -244,7 +185,6 @@ export default function EventDetailPage(){
         await eventAPI.getEvent(
           eventId
         );
-
 
 
       setEvent(data);
@@ -274,6 +214,30 @@ export default function EventDetailPage(){
 
 
 
+
+
+
+  function requireLogin(
+    callback: () => void
+  ){
+
+
+    const token =
+      localStorage.getItem('token');
+
+
+    if(!token){
+
+      router.push('/login');
+
+      return;
+
+    }
+
+
+    callback();
+
+  }
 
 
 
@@ -310,10 +274,6 @@ export default function EventDetailPage(){
 
 
 
-      setAttendStatus(status);
-
-
-
       await loadEvent();
 
 
@@ -344,8 +304,6 @@ export default function EventDetailPage(){
 
 
 
-
-
   if(loading){
 
 
@@ -366,8 +324,6 @@ export default function EventDetailPage(){
 
 
   }
-
-
 
 
 
@@ -404,18 +360,9 @@ export default function EventDetailPage(){
 
 
 
-
-
   return (
 
     <div className="min-h-screen">
-
-
-
-
-
-
-
 
 
       <main className="
@@ -426,24 +373,17 @@ export default function EventDetailPage(){
       ">
 
 
-
         <Link
-
           href="/events"
-
           className="
             text-accent
             hover:text-accent/80
           "
-
         >
 
           ← Back to events
 
         </Link>
-
-
-
 
 
 
@@ -464,6 +404,7 @@ export default function EventDetailPage(){
           <div className="
             lg:col-span-2
           ">
+
 
 
             {
@@ -572,8 +513,6 @@ export default function EventDetailPage(){
 
 
 
-
-
               {
                 event.venue_slug && (
 
@@ -600,8 +539,6 @@ export default function EventDetailPage(){
 
 
 
-
-
               {
                 event.ticket_url && (
 
@@ -619,8 +556,9 @@ export default function EventDetailPage(){
                   >
 
                     <Button variant="primary">
-                    Tickets
-                  </Button>
+                      Tickets
+                    </Button>
+
                   </a>
 
                 )
@@ -629,11 +567,11 @@ export default function EventDetailPage(){
 
 
 
+
             </div>
 
 
           </div>
-
 
 
 
@@ -665,13 +603,25 @@ export default function EventDetailPage(){
               <div className="space-y-3">
 
 
+
                 <Button
+
                   disabled={submitting}
-                  onClick={() => handleAttend('going')}
+
+                  onClick={() =>
+                    requireLogin(() =>
+                      handleAttend('going')
+                    )
+                  }
+
                   variant="outline"
+
                   className="w-full"
+
                 >
+
                   ✓ I'm going
+
                 </Button>
 
 
@@ -679,33 +629,52 @@ export default function EventDetailPage(){
 
 
                 <Button
+
                   disabled={submitting}
-                  onClick={() => handleAttend('maybe')}
+
+                  onClick={() =>
+                    requireLogin(() =>
+                      handleAttend('maybe')
+                    )
+                  }
+
                   variant="outline"
+
                   className="w-full"
+
                 >
+
                   ? Maybe
-                </Button>
 
+                </Button>
 
 
 
 
 
                 <Button
+
                   disabled={submitting}
-                  onClick={() => handleAttend('went')}
+
+                  onClick={() =>
+                    requireLogin(() =>
+                      handleAttend('went')
+                    )
+                  }
+
                   variant="outline"
+
                   className="w-full"
+
                 >
+
                   ✓ I went
+
                 </Button>
+
 
 
               </div>
-
-
-
 
 
 
@@ -793,8 +762,6 @@ export default function EventDetailPage(){
 
     </div>
 
-
   );
-
 
 }
