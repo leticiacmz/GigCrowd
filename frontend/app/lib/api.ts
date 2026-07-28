@@ -322,10 +322,7 @@ export const eventAPI = {
 
 
 
-
-
 export const showLogAPI = {
-
 
   create: async (
     data: any
@@ -337,11 +334,22 @@ export const showLogAPI = {
         data
       );
 
+    return response.data;
+  },
+
+
+  get: async (
+    eventId: string
+  ) => {
+
+    const response =
+      await api.get(
+        `/show-logs/${eventId}`
+      );
 
     return response.data;
 
   },
-
 
 
   update: async (
@@ -355,29 +363,12 @@ export const showLogAPI = {
         data
       );
 
-
-    return response.data;
-
-  },
-
-
-  get: async (
-    eventId: string
-  ) => {
-
-    const response =
-      await api.get(
-        `/show-logs/${eventId}`
-      );
-
-
     return response.data;
 
   },
 
 
 };
-
 
 export const postAPI = {
 

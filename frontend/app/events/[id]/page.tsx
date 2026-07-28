@@ -71,6 +71,7 @@ export default function EventDetailPage(){
 
   const eventId =
     params.id as string;
+    
 
 
 
@@ -87,7 +88,10 @@ export default function EventDetailPage(){
     setCurrentUser,
   ] = useState<any>(null);
 
-
+const [
+ showLog,
+ setShowLog,
+] = useState<any>(null);
 
   const [
     loading,
@@ -129,7 +133,7 @@ export default function EventDetailPage(){
     if(token){
 
       loadCurrentUser();
-
+      loadShowLog();
     }
 
 
@@ -170,7 +174,28 @@ export default function EventDetailPage(){
 
 
 
+async function loadShowLog(){
 
+  try{
+
+    const data =
+      await showLogAPI.get(
+        eventId
+      );
+
+    setShowLog(data);
+
+
+  }catch(error){
+
+    console.error(
+      'No show log found',
+      error
+    );
+
+  }
+
+}
 
 
 
@@ -332,7 +357,9 @@ export default function EventDetailPage(){
 
 
 
-
+  const isEventPast = event
+  ? new Date(event.starts_at) < new Date()
+  : false;
 
 
 
@@ -607,79 +634,60 @@ export default function EventDetailPage(){
 
               <div className="space-y-3">
 
+                {
+                  isEventPast ? (
+
+                    <Button
+                      disabled={submitting}
+                      onClick={() =>
+                        requireLogin(() =>
+                          handleShowLog('went')
+                        )
+                      }
+                      variant="outline"
+                      className="w-full"
+                    >
+                      ✓ I went
+                    </Button>
+
+                  ) : (
+
+                    <>
+
+                      <Button
+                        disabled={submitting}
+                        onClick={() =>
+                          requireLogin(() =>
+                            handleShowLog('going')
+                          )
+                        }
+                        variant="outline"
+                        className="w-full"
+                      >
+                        ✓ I'm going
+                      </Button>
 
 
-                <Button
+                      <Button
+                        disabled={submitting}
+                        onClick={() =>
+                          requireLogin(() =>
+                            handleShowLog('maybe')
+                          )
+                        }
+                        variant="outline"
+                        className="w-full"
+                      >
+                        ? Maybe
+                      </Button>
 
-                  disabled={submitting}
+                    </>
 
-                  onClick={() =>
-                    requireLogin(() =>
-                      handleShowLog('going')
-                    )
-                  }
+                  )
 
-                  variant="outline"
+                }
 
-                  className="w-full"
-
-                >
-
-                  ✓ I'm going
-
-                </Button>
-
-
-
-
-
-                <Button
-
-                  disabled={submitting}
-
-                  onClick={() =>
-                    requireLogin(() =>
-                      handleShowLog('maybe')
-                    )
-                  }
-
-                  variant="outline"
-
-                  className="w-full"
-
-                >
-
-                  ? Maybe
-
-                </Button>
-
-
-
-
-
-                <Button
-
-                  disabled={submitting}
-
-                  onClick={() =>
-                    requireLogin(() =>
-                      handleShowLog('went')
-                    )
-                  }
-
-                  variant="outline"
-
-                  className="w-full"
-
-                >
-
-                  ✓ I went
-
-                </Button>
-
-
-
-              </div>
+                </div>
 
 
 
