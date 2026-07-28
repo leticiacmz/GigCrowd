@@ -1,300 +1,663 @@
 'use client';
 
-import Button from '@/components/ui/Button'
+import Button from '@/components/ui/Button';
+import { logout } from '@/app/lib/auth';
+
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import router from 'next/router';
-import { useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import {
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
 
 interface CurrentUser {
   username: string;
 }
 
+
+
 export default function Navbar() {
+
+
   const pathname = usePathname();
 
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const router = useRouter();
 
-  const userMenuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const userStr = localStorage.getItem('user');
 
-    if (userStr) {
-      try {
-        setCurrentUser(JSON.parse(userStr));
-      } catch {
-        localStorage.removeItem('user');
-        setCurrentUser(null);
+  const [currentUser, setCurrentUser] =
+    useState<CurrentUser | null>(() => {
+
+      if (
+        typeof window === 'undefined'
+      ) {
+        return null;
       }
+
+
+      const user =
+        localStorage.getItem('user');
+
+
+      return user
+        ? JSON.parse(user)
+        : null;
+
+    });
+
+
+
+  const [
+    mobileMenuOpen,
+    setMobileMenuOpen,
+  ] = useState(false);
+
+
+
+  const [
+    userMenuOpen,
+    setUserMenuOpen,
+  ] = useState(false);
+
+
+
+  const userMenuRef =
+    useRef<HTMLDivElement>(null);
+
+
+
+
+  function loadCurrentUser() {
+
+    const userStr =
+      localStorage.getItem('user');
+
+
+    if (!userStr) {
+
+      setCurrentUser(null);
+
+      return;
+
     }
 
-    setIsLoaded(true);
+
+    try {
+
+      setCurrentUser(
+        JSON.parse(userStr)
+      );
+
+
+    } catch {
+
+      localStorage.removeItem('user');
+
+      setCurrentUser(null);
+
+    }
+
+  }
+
+
+
+
+
+  useEffect(() => {
+
+
+    window.addEventListener(
+      'auth-changed',
+      loadCurrentUser
+    );
+
+
+    return () => {
+
+      window.removeEventListener(
+        'auth-changed',
+        loadCurrentUser
+      );
+
+    };
+
+
   }, []);
 
 
+
+
+
+
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+
+
+    function handleClickOutside(
+      event: MouseEvent
+    ) {
+
+
       if (
+
         userMenuRef.current &&
-        !userMenuRef.current.contains(event.target as Node)
+
+        !userMenuRef.current.contains(
+          event.target as Node
+        )
+
       ) {
+
         setUserMenuOpen(false);
+
       }
+
     }
+
+
 
     document.addEventListener(
       'mousedown',
       handleClickOutside
     );
 
+
+
     return () => {
+
       document.removeEventListener(
         'mousedown',
         handleClickOutside
       );
+
     };
+
+
   }, []);
 
 
-  const isLoggedIn = !!currentUser;
 
-  const isLoginPage = pathname === '/login';
-  const isRegisterPage = pathname === '/register';
 
-  const logoHref = isLoggedIn ? '/feed' : '/';
 
-  const isHomePage = pathname === '/';
+  const isLoggedIn =
+    !!currentUser;
 
-  const navLinks = isLoggedIn
-  ? [
-      {
-        href: '/feed',
-        label: 'Feed',
-      },
-      {
-        href: '/artists',
-        label: 'Artists',
-      },
-      {
-        href: '/events',
-        label: 'Events',
-      },
-    ]
-  : isHomePage
-    ? []
-    : [
-        {
-          href: '/artists',
-          label: 'Artists',
-        },
-        {
-          href: '/events',
-          label: 'Events',
-        },
-      ];
+
+
+  const isLoginPage =
+    pathname === '/login';
+
+
+
+  const isRegisterPage =
+    pathname === '/register';
+
+
+
+  const isHomePage =
+    pathname === '/';
+
+
+
+  const logoHref =
+    isLoggedIn
+      ? '/feed'
+      : '/';
+
+
+
+
+
+  const navLinks =
+    isLoggedIn
+
+      ? [
+
+          {
+            href: '/feed',
+            label: 'Feed',
+          },
+
+          {
+            href: '/artists',
+            label: 'Artists',
+          },
+
+          {
+            href: '/events',
+            label: 'Events',
+          },
+
+        ]
+
+
+      : isHomePage
+
+        ? []
+
+
+        : [
+
+            {
+              href: '/artists',
+              label: 'Artists',
+            },
+
+            {
+              href: '/events',
+              label: 'Events',
+            },
+
+          ];
+
+
+
+
+
+
 
   function handleLogout() {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+
+
+    logout();
 
     router.replace('/login');
+
+
   }
 
 
+
+
+
+
+
   return (
-    <nav className="sticky top-0 z-50 border-b border-border bg-background">
 
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+    <nav className="
+      sticky
+      top-0
+      z-50
+      border-b
+      border-border
+      bg-background
+    ">
 
 
-        {/* Logo */}
+
+      <div className="
+        mx-auto
+        flex
+        h-16
+        max-w-7xl
+        items-center
+        justify-between
+        px-4
+        sm:px-6
+        lg:px-8
+      ">
+
+
 
         <Link href={logoHref}>
-          <span className="bg-gradient-to-r from-accent to-secondary bg-clip-text text-2xl font-bold text-transparent">
+
+          <span className="
+            bg-gradient-to-r
+            from-accent
+            to-secondary
+            bg-clip-text
+            text-2xl
+            font-bold
+            text-transparent
+          ">
+
             GigCrowd
+
           </span>
+
         </Link>
 
 
 
-        {/* Desktop Navigation */}
 
-        <div className="hidden items-center gap-8 md:flex">
+
+
+
+        <div className="
+          hidden
+          items-center
+          gap-8
+          md:flex
+        ">
+
 
           {navLinks.map((link) => (
 
             <Link
+
               key={link.href}
+
               href={link.href}
+
               className={`
+
                 transition-all
                 duration-300
+
                 focus-visible:outline-none
+
+
                 ${
                   pathname === link.href
-                    ? `
-                      font-medium
-                      bg-gradient-to-r
-                      from-accent
-                      to-secondary
-                      bg-clip-text
-                      text-transparent
+
+                  ?
+
                     `
-                    : `
-                      text-gray-400
-                      hover:text-white
+                    font-medium
+                    bg-gradient-to-r
+                    from-accent
+                    to-secondary
+                    bg-clip-text
+                    text-transparent
                     `
+
+
+                  :
+
+                    `
+                    text-gray-400
+                    hover:text-white
+                    `
+
                 }
+
               `}
+
             >
+
               {link.label}
+
             </Link>
 
           ))}
 
+
         </div>
 
 
 
 
-        {/* Desktop Actions */}
 
-        <div className="hidden items-center md:flex">
 
-          {isLoaded && (
 
-            isLoggedIn ? (
 
-              <div
-                ref={userMenuRef}
-                className="relative"
+        <div className="
+          hidden
+          items-center
+          md:flex
+        ">
+
+
+
+          {
+
+          isLoggedIn ? (
+
+            <div
+              ref={userMenuRef}
+              className="relative"
+            >
+
+
+              <button
+
+                onClick={() =>
+                  setUserMenuOpen(
+                    !userMenuOpen
+                  )
+                }
+
+                className="
+                  flex
+                  items-center
+                  gap-1
+                  text-gray-300
+                  transition-colors
+                  hover:text-white
+                "
+
               >
 
-                <button
-                  onClick={() =>
-                    setUserMenuOpen(!userMenuOpen)
-                  }
-                  className="flex items-center gap-1 text-gray-300 transition-colors hover:text-white"
-                >
+                @{currentUser.username}
 
-                  @{currentUser.username}
 
-                  <span className="text-xs">
-                    ▾
-                  </span>
+                <span className="text-xs">
+                  ▾
+                </span>
 
-                </button>
+
+              </button>
 
 
 
-                {userMenuOpen && (
-
-                  <div className="absolute right-0 mt-3 w-48 rounded-xl border border-border bg-card-bg p-2 shadow-xl">
-
-
-                    <Link
-                      href={`/profile/${currentUser.username}`}
-                      onClick={() =>
-                        setUserMenuOpen(false)
-                      }
-                      className="block rounded-lg px-3 py-2 text-sm text-gray-300 transition hover:bg-card-hover hover:text-white"
-                    >
-                      My Profile
-                    </Link>
 
 
 
-                    <Link
-                      href="/settings"
-                      onClick={() =>
-                        setUserMenuOpen(false)
-                      }
-                      className="block rounded-lg px-3 py-2 text-sm text-gray-300 transition hover:bg-card-hover hover:text-white"
-                    >
-                      Settings
-                    </Link>
+              {
+              userMenuOpen && (
+
+                <div className="
+                  absolute
+                  right-0
+                  mt-3
+                  w-48
+                  rounded-xl
+                  border
+                  border-border
+                  bg-card-bg
+                  p-2
+                  shadow-xl
+                ">
 
 
+                  <Link
 
-                    <div className="my-2 border-t border-border" />
+                    href={`/profile/${currentUser.username}`}
 
+                    onClick={() =>
+                      setUserMenuOpen(false)
+                    }
 
+                    className="
+                      block
+                      rounded-lg
+                      px-3
+                      py-2
+                      text-sm
+                      text-gray-300
+                      transition
+                      hover:bg-card-hover
+                      hover:text-white
+                    "
 
-                    <button
-                      onClick={handleLogout}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-sm text-gray-300 transition hover:bg-card-hover hover:text-white"
-                    >
-                      Logout
-                    </button>
+                  >
 
+                    My Profile
 
-                  </div>
-
-                )}
-
-              </div>
-
-
-            ) : (
-
-              <div className="flex items-center gap-3">
-
-
-                {!isLoginPage && (
-
-                   <Link href="/login">
-                    <Button
-                      variant="outlineGradient"
-                      size="sm"
-                    >
-                      Sign In
-                    </Button>
                   </Link>
 
 
-                )}
 
 
 
-                {!isRegisterPage && (
+                  <Link
 
-                 <Link href="/register">
+                    href="/settings"
+
+                    onClick={() =>
+                      setUserMenuOpen(false)
+                    }
+
+                    className="
+                      block
+                      rounded-lg
+                      px-3
+                      py-2
+                      text-sm
+                      text-gray-300
+                      transition
+                      hover:bg-card-hover
+                      hover:text-white
+                    "
+
+                  >
+
+                    Settings
+
+                  </Link>
+
+
+
+
+
+                  <div className="
+                    my-2
+                    border-t
+                    border-border
+                  " />
+
+
+
+
+
+                  <button
+
+                    onClick={handleLogout}
+
+                    className="
+                      block
+                      w-full
+                      rounded-lg
+                      px-3
+                      py-2
+                      text-left
+                      text-sm
+                      text-gray-300
+                      transition
+                      hover:bg-card-hover
+                      hover:text-white
+                    "
+
+                  >
+
+                    Logout
+
+                  </button>
+
+
+                </div>
+
+              )
+
+              }
+
+
+            </div>
+
+
+          )
+
+
+
+          :
+
+
+          (
+
+            <div className="
+              flex
+              items-center
+              gap-3
+            ">
+
+
+              {!isLoginPage && (
+
+                <Link href="/login">
+
+                  <Button
+                    variant="outlineGradient"
+                    size="sm"
+                  >
+
+                    Sign In
+
+                  </Button>
+
+                </Link>
+
+              )}
+
+
+
+
+
+
+              {!isRegisterPage && (
+
+                <Link href="/register">
+
                   <Button
                     variant="neon"
                     size="sm"
                   >
+
                     Create Account
+
                   </Button>
+
                 </Link>
 
-                )}
+              )}
 
 
-              </div>
+            </div>
 
-            )
+          )
 
-          )}
+          }
+
 
         </div>
 
 
 
 
-        {/* Mobile Menu Button */}
+
+
+
 
         <button
+
           onClick={() =>
-            setMobileMenuOpen(!mobileMenuOpen)
+            setMobileMenuOpen(
+              !mobileMenuOpen
+            )
           }
-          className="text-gray-400 hover:text-white md:hidden"
+
+          className="
+            text-gray-400
+            hover:text-white
+            md:hidden
+          "
+
         >
+
           ☰
+
         </button>
+
 
 
       </div>
@@ -303,109 +666,185 @@ export default function Navbar() {
 
 
 
-      {/* Mobile Menu */}
 
-      {mobileMenuOpen && (
 
-        <div className="border-t border-border bg-card-bg md:hidden">
 
-          <div className="flex flex-col gap-4 p-4">
+
+      {
+      mobileMenuOpen && (
+
+        <div className="
+          border-t
+          border-border
+          bg-card-bg
+          md:hidden
+        ">
+
+
+          <div className="
+            flex
+            flex-col
+            gap-4
+            p-4
+          ">
+
 
 
             {navLinks.map((link) => (
 
               <Link
+
                 key={link.href}
+
                 href={link.href}
+
                 onClick={() =>
                   setMobileMenuOpen(false)
                 }
-                className="text-gray-300"
+
+                className="
+                  text-gray-300
+                "
+
               >
+
                 {link.label}
+
               </Link>
 
             ))}
 
 
 
-            {isLoggedIn ? (
+
+
+
+            {
+            isLoggedIn ? (
 
               <>
 
                 <Link
+
                   href={`/profile/${currentUser.username}`}
-                  className="text-gray-300"
+
+                  className="
+                    text-gray-300
+                  "
+
                 >
+
                   @{currentUser.username}
+
                 </Link>
+
+
 
 
                 <Link
+
                   href="/settings"
-                  className="text-gray-300"
+
+                  className="
+                    text-gray-300
+                  "
+
                 >
+
                   Settings
+
                 </Link>
 
 
+
+
+
                 <button
+
                   onClick={handleLogout}
-                  className="text-left text-gray-300"
+
+                  className="
+                    text-left
+                    text-gray-300
+                  "
+
                 >
+
                   Logout
+
                 </button>
 
 
               </>
 
-            ) : (
+
+            )
+
+
+            :
+
+
+            (
 
               <>
 
                 {!isLoginPage && (
 
-                   <Link href="/login">
+                  <Link href="/login">
 
                     <Button
                       variant="outlineGradient"
                       size="sm"
                     >
+
                       Sign In
+
                     </Button>
 
                   </Link>
 
-
                 )}
+
 
 
 
                 {!isRegisterPage && (
 
                   <Link href="/register">
+
                     <Button
                       variant="neon"
                       size="sm"
                     >
+
                       Create Account
+
                     </Button>
+
                   </Link>
 
                 )}
 
-
               </>
 
-            )}
+            )
+
+            }
 
 
           </div>
 
+
         </div>
 
-      )}
+      )
+
+      }
+
 
     </nav>
+
   );
+
+
 }
