@@ -270,67 +270,63 @@ async function loadShowLog(){
 
 
 
-
-
-
-  async function handleShowLog(
-
+ async function handleShowLog(
   status:
     'going'
     | 'maybe'
     | 'went'
-
 ){
 
+try{
 
-    try{
-
-
-      setSubmitting(true);
+setSubmitting(true);
 
 
+if(showLog?.status === status){
 
-     await showLogAPI.create({
-
-        event_id: eventId,
-
-        status,
-
-        rating: rating ?? undefined,
-
-        review: review || undefined,
-
-      });
+  await showLogAPI.delete(
+    eventId
+  );
 
 
-
-      await loadEvent();
-
-      await loadShowLog()
-
-    }catch(error){
+  setShowLog(null);
 
 
-      console.error(
-        'Failed creating show log',
-        error
-      );
+  await loadEvent();
+
+  return;
+
+}else{
+
+  await showLogAPI.create({
+
+    event_id:eventId,
+
+    status,
+
+  });
+
+}
 
 
-    }finally{
+await loadShowLog();
+
+await loadEvent();
 
 
-      setSubmitting(false);
+}catch(error){
 
+console.error(
+ error
+);
 
-    }
+}finally{
 
+setSubmitting(false);
 
-  }
+}
 
-
-
-
+}
 
 
 
@@ -638,33 +634,39 @@ async function loadShowLog(){
                   isEventPast ? (
 
                     <Button
-                      disabled={submitting}
-                      variant="outlineGradient"
-                      size="md"
-                      className="w-full"
-                      onClick={() =>
-                        requireLogin(() =>
-                          handleShowLog('went')
-                        )
-                      }
-                    >
-                      ✓ I went
-                    </Button>
+                        disabled={submitting}
+                        onClick={() =>
+                          requireLogin(() =>
+                            handleShowLog('went')
+                          )
+                        }
+                        variant={
+                          showLog?.status === 'went'
+                            ? 'neon'
+                            : 'outlineGradient'
+                        }
+                        className="w-full"
+                      >
+                        ✓ I Went
+                      </Button>
 
                   ) : (
 
                     <>
 
-                      <Button
+                     <Button
                         disabled={submitting}
-                        variant="outlineGradient"
-                        size="md"
-                        className="w-full"
                         onClick={() =>
                           requireLogin(() =>
                             handleShowLog('going')
                           )
                         }
+                        variant={
+                          showLog?.status === 'going'
+                            ? 'neon'
+                            : 'outlineGradient'
+                        }
+                        className="w-full"
                       >
                         ✓ I'm going
                       </Button>
@@ -672,17 +674,21 @@ async function loadShowLog(){
 
                       <Button
                         disabled={submitting}
-                        variant="outlineGradient"
-                        size="md"
-                        className="w-full"
                         onClick={() =>
                           requireLogin(() =>
                             handleShowLog('maybe')
                           )
                         }
+                        variant={
+                          showLog?.status === 'maybe'
+                            ? 'neon'
+                            : 'outlineGradient'
+                        }
+                        className="w-full"
                       >
                         ? Maybe
                       </Button>
+                    
 
                     </>
 

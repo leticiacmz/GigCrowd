@@ -25,3 +25,5 @@ class Event(BaseModel):
     free: bool = False
 
     ticket_url: Optional[str] = None
+
+    

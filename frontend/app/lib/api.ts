@@ -367,6 +367,19 @@ export const showLogAPI = {
 
   },
 
+  delete: async (
+    eventId: string
+  ) => {
+
+    const response =
+      await api.delete(
+        `/show-logs/${eventId}`
+      );
+
+    return response.data;
+
+  },
+
 
 };
 

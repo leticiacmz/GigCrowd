@@ -40,3 +40,18 @@ class ShowLogRepository(BaseRepository):
                 "event_id": event_id,
             }
         )
+    
+    async def delete_by_user_and_event(
+    self,
+    user_id: str,
+        event_id: str,
+    ):
+
+        result = await self.collection.delete_one(
+            {
+                "user_id": user_id,
+                "event_id": event_id,
+            }
+        )
+
+        return result.deleted_count > 0

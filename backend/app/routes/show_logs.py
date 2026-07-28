@@ -265,3 +265,37 @@ async def update_show_log(
     return ShowLogResponse(
         **show_log.model_dump()
     )
+
+@router.delete(
+    "/{event_id}"
+)
+async def delete_show_log(
+
+    event_id: str,
+
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+
+):
+
+    show_log_service = get_show_log_service()
+
+
+    deleted = await show_log_service.delete_show_log(
+        current_user["_id"],
+        event_id,
+    )
+
+
+    if not deleted:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Show log not found",
+        )
+
+
+    return {
+        "message": "Show log deleted"
+    }

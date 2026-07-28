@@ -193,3 +193,18 @@ class ShowLogService:
         return ShowLogInDB(
             **self._normalize_id(updated)
         )
+
+    async def delete_show_log(
+        self,
+        user_id: str,
+        event_id: str,
+    ):
+        print(
+            "DELETE SHOW LOG",
+            user_id,
+            event_id
+        )
+        return await self.show_log_repository.delete_by_user_and_event(
+            user_id,
+            event_id,
+        )
