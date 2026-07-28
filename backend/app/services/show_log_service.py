@@ -115,6 +115,9 @@ class ShowLogService:
             result.inserted_id
         )
 
+        await self._refresh_event_counts(
+            show_log_data.event_id
+        )
 
         return ShowLogInDB(
             **self._normalize_id(show_log)
@@ -189,6 +192,9 @@ class ShowLogService:
         if not updated:
             return None
 
+        await self._refresh_event_counts(
+            show_log_data.event_id
+        )
 
         return ShowLogInDB(
             **self._normalize_id(updated)
@@ -199,12 +205,49 @@ class ShowLogService:
         user_id: str,
         event_id: str,
     ):
-        print(
-            "DELETE SHOW LOG",
-            user_id,
-            event_id
-        )
-        return await self.show_log_repository.delete_by_user_and_event(
+
+        deleted = await self.show_log_repository.delete_by_user_and_event(
             user_id,
             event_id,
+        )
+
+
+        if deleted:
+
+            await self._refresh_event_counts(
+                event_id
+            )
+
+
+        return deleted
+
+        
+    async def _refresh_event_counts(
+        self,
+        event_id: str,
+    ):
+
+        going = await self.show_log_repository.count_by_status(
+            event_id,
+            AttendanceStatus.GOING.value,
+        )
+
+
+        maybe = await self.show_log_repository.count_by_status(
+            event_id,
+            AttendanceStatus.MAYBE.value,
+        )
+
+
+        went = await self.show_log_repository.count_by_status(
+            event_id,
+            AttendanceStatus.WENT.value,
+        )
+
+
+        await self.event_repository.update_attendance_counts(
+            event_id,
+            going,
+            maybe,
+            went,
         )

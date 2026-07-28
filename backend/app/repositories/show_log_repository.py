@@ -55,3 +55,16 @@ class ShowLogRepository(BaseRepository):
         )
 
         return result.deleted_count > 0
+    
+    async def count_by_status(
+        self,
+        event_id: str,
+        status: str,
+    ):
+
+        return await self.collection.count_documents(
+            {
+                "event_id": event_id,
+                "status": status,
+            }
+        )

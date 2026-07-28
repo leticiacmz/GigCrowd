@@ -148,3 +148,24 @@ class EventRepository(BaseRepository):
                 },
             }
         )
+    
+    async def update_attendance_counts(
+        self,
+        event_id: str,
+        going_count: int,
+        maybe_count: int,
+        went_count: int,
+    ):
+
+        await self.collection.update_one(
+            {
+                "_id": ObjectId(event_id)
+            },
+            {
+                "$set": {
+                    "going_count": going_count,
+                    "maybe_count": maybe_count,
+                    "went_count": went_count,
+                }
+            }
+        )
