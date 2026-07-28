@@ -32,17 +32,24 @@ class EventResponseMapper:
                 longitude=venue.get("longitude"),
             )
 
+
         return EventResponse(
 
-            id=event.id,
+                id=event.id,
 
-            title=event.title,
+                title=event.title,
 
-            starts_at=event.starts_at,
+                starts_at=event.starts_at,
 
-            ticket_url=event.ticket_url,
+                ticket_url=event.ticket_url,
 
-            venue_slug=event.venue_slug,
+                venue_slug=event.venue_slug,
 
-            venue=venue_response,
-        )
+                venue=venue_response,
+
+                going_count=event.going_count,
+
+                maybe_count=event.maybe_count,
+
+                went_count=event.went_count,
+            )

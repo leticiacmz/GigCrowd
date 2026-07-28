@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.schemas.venue_response import VenueResponse
 
+
 class EventResponse(BaseModel):
 
     id: Optional[str] = None
@@ -22,3 +23,9 @@ class EventResponse(BaseModel):
     venue_slug: str
 
     venue: VenueResponse
+
+    going_count: int = 0
+
+    maybe_count: int = 0
+
+    went_count: int = 0

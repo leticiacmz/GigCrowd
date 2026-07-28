@@ -5,6 +5,7 @@ import { logout } from '@/app/lib/auth';
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+
 import {
   useEffect,
   useRef,
@@ -27,25 +28,10 @@ export default function Navbar() {
 
 
 
-  const [currentUser, setCurrentUser] =
-    useState<CurrentUser | null>(() => {
-
-      if (
-        typeof window === 'undefined'
-      ) {
-        return null;
-      }
-
-
-      const user =
-        localStorage.getItem('user');
-
-
-      return user
-        ? JSON.parse(user)
-        : null;
-
-    });
+  const [
+    currentUser,
+    setCurrentUser,
+  ] = useState<CurrentUser | null>(null);
 
 
 
@@ -65,6 +51,7 @@ export default function Navbar() {
 
   const userMenuRef =
     useRef<HTMLDivElement>(null);
+
 
 
 
@@ -105,7 +92,12 @@ export default function Navbar() {
 
 
 
+
   useEffect(() => {
+
+
+    loadCurrentUser();
+
 
 
     window.addEventListener(
@@ -125,6 +117,7 @@ export default function Navbar() {
 
 
   }, []);
+
 
 
 
@@ -153,6 +146,7 @@ export default function Navbar() {
 
       }
 
+
     }
 
 
@@ -180,6 +174,8 @@ export default function Navbar() {
 
 
 
+
+
   const isLoggedIn =
     !!currentUser;
 
@@ -200,10 +196,14 @@ export default function Navbar() {
 
 
 
+
+
   const logoHref =
     isLoggedIn
       ? '/feed'
       : '/';
+
+
 
 
 
@@ -215,38 +215,36 @@ export default function Navbar() {
       ? [
 
           {
-            href: '/feed',
-            label: 'Feed',
+            href:'/feed',
+            label:'Feed',
           },
 
           {
-            href: '/artists',
-            label: 'Artists',
+            href:'/artists',
+            label:'Artists',
           },
 
           {
-            href: '/events',
-            label: 'Events',
+            href:'/events',
+            label:'Events',
           },
 
         ]
-
 
       : isHomePage
 
         ? []
 
-
         : [
 
             {
-              href: '/artists',
-              label: 'Artists',
+              href:'/artists',
+              label:'Artists',
             },
 
             {
-              href: '/events',
-              label: 'Events',
+              href:'/events',
+              label:'Events',
             },
 
           ];
@@ -262,6 +260,10 @@ export default function Navbar() {
 
     logout();
 
+    setCurrentUser(null);
+
+    setUserMenuOpen(false);
+
     router.replace('/login');
 
 
@@ -273,47 +275,67 @@ export default function Navbar() {
 
 
 
+  function handleNavigation() {
+
+    setMobileMenuOpen(false);
+
+    setUserMenuOpen(false);
+
+  }
+
+
+
+
+
+
+
   return (
 
-    <nav className="
-      sticky
-      top-0
-      z-50
-      border-b
-      border-border
-      bg-background
-    ">
+    <nav
+      className="
+        sticky
+        top-0
+        z-50
+        border-b
+        border-border
+        bg-background
+      "
+    >
+
+
+      <div
+        className="
+          mx-auto
+          flex
+          h-16
+          max-w-7xl
+          items-center
+          justify-between
+          px-4
+          sm:px-6
+          lg:px-8
+        "
+      >
 
 
 
-      <div className="
-        mx-auto
-        flex
-        h-16
-        max-w-7xl
-        items-center
-        justify-between
-        px-4
-        sm:px-6
-        lg:px-8
-      ">
+        <Link
+          href={logoHref}
+          onClick={handleNavigation}
+        >
 
-
-
-        <Link href={logoHref}>
-
-          <span className="
-            bg-gradient-to-r
-            from-accent
-            to-secondary
-            bg-clip-text
-            text-2xl
-            font-bold
-            text-transparent
-          ">
-
+          <span
+            className="
+              bg-gradient-to-r
+              from-accent
+              to-secondary
+              bg-clip-text
+              text-2xl
+              font-bold
+              text-transparent
+            "
+          >
             GigCrowd
-
           </span>
 
         </Link>
@@ -324,15 +346,16 @@ export default function Navbar() {
 
 
 
-        <div className="
-          hidden
-          items-center
-          gap-8
-          md:flex
-        ">
+        <div
+          className="
+            hidden
+            items-center
+            gap-8
+            md:flex
+          "
+        >
 
-
-          {navLinks.map((link) => (
+          {navLinks.map((link)=>(
 
             <Link
 
@@ -341,37 +364,29 @@ export default function Navbar() {
               href={link.href}
 
               className={`
-
                 transition-all
                 duration-300
-
-                focus-visible:outline-none
-
 
                 ${
                   pathname === link.href
 
                   ?
-
-                    `
-                    font-medium
-                    bg-gradient-to-r
-                    from-accent
-                    to-secondary
-                    bg-clip-text
-                    text-transparent
-                    `
-
+                  `
+                  font-medium
+                  bg-gradient-to-r
+                  from-accent
+                  to-secondary
+                  bg-clip-text
+                  text-transparent
+                  `
 
                   :
 
-                    `
-                    text-gray-400
-                    hover:text-white
-                    `
-
+                  `
+                  text-gray-400
+                  hover:text-white
+                  `
                 }
-
               `}
 
             >
@@ -382,7 +397,6 @@ export default function Navbar() {
 
           ))}
 
-
         </div>
 
 
@@ -392,245 +406,220 @@ export default function Navbar() {
 
 
 
-        <div className="
-          hidden
-          items-center
-          md:flex
-        ">
-
+        <div
+          className="
+            hidden
+            items-center
+            md:flex
+          "
+        >
 
 
           {
+            isLoggedIn && currentUser
 
-          isLoggedIn ? (
+            ?
 
-            <div
-              ref={userMenuRef}
-              className="relative"
-            >
+            (
+
+              <div
+                ref={userMenuRef}
+                className="relative"
+              >
+
+                <button
+
+                  onClick={() =>
+                    setUserMenuOpen(
+                      !userMenuOpen
+                    )
+                  }
+
+                  className="
+                    flex
+                    items-center
+                    gap-1
+                    text-gray-300
+                    hover:text-white
+                  "
+                >
+
+                  @{currentUser.username}
+
+                  <span className="text-xs">
+                    ▾
+                  </span>
+
+                </button>
 
 
-              <button
 
-                onClick={() =>
-                  setUserMenuOpen(
-                    !userMenuOpen
+
+                {
+                  userMenuOpen && (
+
+                    <div
+                      className="
+                        absolute
+                        right-0
+                        mt-3
+                        w-48
+                        rounded-xl
+                        border
+                        border-border
+                        bg-card-bg
+                        p-2
+                        shadow-xl
+                      "
+                    >
+
+                      <Link
+
+                        href={`/profile/${currentUser.username}`}
+
+                        onClick={handleNavigation}
+
+                        className="
+                          block
+                          rounded-lg
+                          px-3
+                          py-2
+                          text-sm
+                          text-gray-300
+                          hover:bg-card-hover
+                          hover:text-white
+                        "
+                      >
+
+                        My Profile
+
+                      </Link>
+
+
+
+                      <Link
+
+                        href="/settings"
+
+                        onClick={handleNavigation}
+
+                        className="
+                          block
+                          rounded-lg
+                          px-3
+                          py-2
+                          text-sm
+                          text-gray-300
+                          hover:bg-card-hover
+                          hover:text-white
+                        "
+                      >
+
+                        Settings
+
+                      </Link>
+
+
+
+
+                      <div
+                        className="
+                          my-2
+                          border-t
+                          border-border
+                        "
+                      />
+
+
+
+                      <button
+
+                        onClick={handleLogout}
+
+                        className="
+                          w-full
+                          rounded-lg
+                          px-3
+                          py-2
+                          text-left
+                          text-sm
+                          text-gray-300
+                          hover:bg-card-hover
+                          hover:text-white
+                        "
+                      >
+
+                        Logout
+
+                      </button>
+
+
+                    </div>
+
                   )
                 }
 
+
+              </div>
+
+            )
+
+
+            :
+
+            (
+
+              <div
                 className="
                   flex
                   items-center
-                  gap-1
-                  text-gray-300
-                  transition-colors
-                  hover:text-white
+                  gap-3
                 "
-
               >
 
-                @{currentUser.username}
 
+                {!isLoginPage && (
 
-                <span className="text-xs">
-                  ▾
-                </span>
+                  <Link href="/login">
 
-
-              </button>
-
-
-
-
-
-
-              {
-              userMenuOpen && (
-
-                <div className="
-                  absolute
-                  right-0
-                  mt-3
-                  w-48
-                  rounded-xl
-                  border
-                  border-border
-                  bg-card-bg
-                  p-2
-                  shadow-xl
-                ">
-
-
-                  <Link
-
-                    href={`/profile/${currentUser.username}`}
-
-                    onClick={() =>
-                      setUserMenuOpen(false)
-                    }
-
-                    className="
-                      block
-                      rounded-lg
-                      px-3
-                      py-2
-                      text-sm
-                      text-gray-300
-                      transition
-                      hover:bg-card-hover
-                      hover:text-white
-                    "
-
-                  >
-
-                    My Profile
+                    <Button
+                      variant="outlineGradient"
+                      size="sm"
+                    >
+                      Sign In
+                    </Button>
 
                   </Link>
 
+                )}
 
 
 
 
-                  <Link
+                {!isRegisterPage && (
 
-                    href="/settings"
+                  <Link href="/register">
 
-                    onClick={() =>
-                      setUserMenuOpen(false)
-                    }
-
-                    className="
-                      block
-                      rounded-lg
-                      px-3
-                      py-2
-                      text-sm
-                      text-gray-300
-                      transition
-                      hover:bg-card-hover
-                      hover:text-white
-                    "
-
-                  >
-
-                    Settings
+                    <Button
+                      variant="neon"
+                      size="sm"
+                    >
+                      Create Account
+                    </Button>
 
                   </Link>
 
+                )}
 
 
+              </div>
 
-
-                  <div className="
-                    my-2
-                    border-t
-                    border-border
-                  " />
-
-
-
-
-
-                  <button
-
-                    onClick={handleLogout}
-
-                    className="
-                      block
-                      w-full
-                      rounded-lg
-                      px-3
-                      py-2
-                      text-left
-                      text-sm
-                      text-gray-300
-                      transition
-                      hover:bg-card-hover
-                      hover:text-white
-                    "
-
-                  >
-
-                    Logout
-
-                  </button>
-
-
-                </div>
-
-              )
-
-              }
-
-
-            </div>
-
-
-          )
-
-
-
-          :
-
-
-          (
-
-            <div className="
-              flex
-              items-center
-              gap-3
-            ">
-
-
-              {!isLoginPage && (
-
-                <Link href="/login">
-
-                  <Button
-                    variant="outlineGradient"
-                    size="sm"
-                  >
-
-                    Sign In
-
-                  </Button>
-
-                </Link>
-
-              )}
-
-
-
-
-
-
-              {!isRegisterPage && (
-
-                <Link href="/register">
-
-                  <Button
-                    variant="neon"
-                    size="sm"
-                  >
-
-                    Create Account
-
-                  </Button>
-
-                </Link>
-
-              )}
-
-
-            </div>
-
-          )
+            )
 
           }
 
 
         </div>
-
 
 
 
@@ -651,7 +640,6 @@ export default function Navbar() {
             hover:text-white
             md:hidden
           "
-
         >
 
           ☰
@@ -669,182 +657,139 @@ export default function Navbar() {
 
 
 
-
       {
-      mobileMenuOpen && (
+        mobileMenuOpen && (
 
-        <div className="
-          border-t
-          border-border
-          bg-card-bg
-          md:hidden
-        ">
+          <div
+            className="
+              border-t
+              border-border
+              bg-card-bg
+              md:hidden
+            "
+          >
 
+            <div
+              className="
+                flex
+                flex-col
+                gap-4
+                p-4
+              "
+            >
 
-          <div className="
-            flex
-            flex-col
-            gap-4
-            p-4
-          ">
-
-
-
-            {navLinks.map((link) => (
-
-              <Link
-
-                key={link.href}
-
-                href={link.href}
-
-                onClick={() =>
-                  setMobileMenuOpen(false)
-                }
-
-                className="
-                  text-gray-300
-                "
-
-              >
-
-                {link.label}
-
-              </Link>
-
-            ))}
-
-
-
-
-
-
-            {
-            isLoggedIn ? (
-
-              <>
+              {navLinks.map((link)=>(
 
                 <Link
 
-                  href={`/profile/${currentUser.username}`}
+                  key={link.href}
 
-                  className="
-                    text-gray-300
-                  "
+                  href={link.href}
+
+                  onClick={handleNavigation}
+
+                  className="text-gray-300"
 
                 >
 
-                  @{currentUser.username}
+                  {link.label}
 
                 </Link>
 
-
-
-
-                <Link
-
-                  href="/settings"
-
-                  className="
-                    text-gray-300
-                  "
-
-                >
-
-                  Settings
-
-                </Link>
+              ))}
 
 
 
 
 
-                <button
+              {
+                isLoggedIn && currentUser
 
-                  onClick={handleLogout}
+                ?
 
-                  className="
-                    text-left
-                    text-gray-300
-                  "
+                <>
 
-                >
-
-                  Logout
-
-                </button>
-
-
-              </>
-
-
-            )
-
-
-            :
-
-
-            (
-
-              <>
-
-                {!isLoginPage && (
-
-                  <Link href="/login">
-
-                    <Button
-                      variant="outlineGradient"
-                      size="sm"
-                    >
-
-                      Sign In
-
-                    </Button>
-
+                  <Link
+                    href={`/profile/${currentUser.username}`}
+                    className="text-gray-300"
+                  >
+                    @{currentUser.username}
                   </Link>
 
-                )}
 
-
-
-
-                {!isRegisterPage && (
-
-                  <Link href="/register">
-
-                    <Button
-                      variant="neon"
-                      size="sm"
-                    >
-
-                      Create Account
-
-                    </Button>
-
+                  <Link
+                    href="/settings"
+                    className="text-gray-300"
+                  >
+                    Settings
                   </Link>
 
-                )}
 
-              </>
+                  <button
+                    onClick={handleLogout}
+                    className="
+                      text-left
+                      text-gray-300
+                    "
+                  >
+                    Logout
+                  </button>
 
-            )
+                </>
 
-            }
+
+                :
+
+                <>
+
+                  {!isLoginPage && (
+
+                    <Link href="/login">
+
+                      <Button
+                        variant="outlineGradient"
+                        size="sm"
+                      >
+                        Sign In
+                      </Button>
+
+                    </Link>
+
+                  )}
+
+
+
+                  {!isRegisterPage && (
+
+                    <Link href="/register">
+
+                      <Button
+                        variant="neon"
+                        size="sm"
+                      >
+                        Create Account
+                      </Button>
+
+                    </Link>
+
+                  )}
+
+                </>
+
+              }
+
+
+            </div>
 
 
           </div>
 
-
-        </div>
-
-      )
-
+        )
       }
 
 
     </nav>
 
   );
-
 
 }

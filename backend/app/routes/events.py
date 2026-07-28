@@ -3,12 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.services.event_service import EventService
 
-
+from app.repositories.show_log_repository import ShowLogRepository
+from app.services.attendance_service import AttendanceService
 from app.repositories.event_repository import EventRepository
 from app.repositories.venue_repository import VenueRepository
 from app.repositories.artist_repository import ArtistRepository
 
-
+from app.auth.dependencies import get_current_active_user
 from app.database.connection import get_database
 
 
@@ -55,7 +56,13 @@ def get_event_service() -> EventService:
     )
 
 
+def get_attendance_service():
 
+    db = get_database()
+
+    return AttendanceService(
+        ShowLogRepository(db)
+    )
 
 
 
@@ -110,3 +117,25 @@ async def get_event(
 
 
     return event
+
+@router.get(
+    "/{event_id}/attendance"
+)
+async def get_event_attendance(
+
+    event_id: str,
+
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+
+    attendance_service: AttendanceService = Depends(
+        get_attendance_service
+    ),
+
+):
+
+    return await attendance_service.get_event_attendance(
+        event_id,
+        current_user["_id"]
+    )

@@ -318,6 +318,20 @@ export const eventAPI = {
 
   },
 
+  getAttendance: async (
+    eventId: string
+  ) => {
+
+    const response =
+      await api.get(
+        `/events/${eventId}/attendance`
+      );
+
+    return response.data;
+
+  },
+  
+
 };
 
 

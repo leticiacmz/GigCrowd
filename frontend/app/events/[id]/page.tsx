@@ -27,6 +27,7 @@ import {
 } from 'date-fns';
 
 
+
 interface Event {
 
   _id: string;
@@ -68,11 +69,8 @@ export default function EventDetailPage(){
   const params = useParams();
 
 
-
   const eventId =
     params.id as string;
-    
-
 
 
 
@@ -88,10 +86,14 @@ export default function EventDetailPage(){
     setCurrentUser,
   ] = useState<any>(null);
 
-const [
- showLog,
- setShowLog,
-] = useState<any>(null);
+
+
+  const [
+    showLog,
+    setShowLog,
+  ] = useState<any>(null);
+
+
 
   const [
     loading,
@@ -108,20 +110,14 @@ const [
 
 
   const [
-  review,
-  setReview,
-  ] = useState('');
+    isEventPast,
+    setIsEventPast,
+  ] = useState(false);
 
-
-  const [
-  rating,
-  setRating,
-  ] = useState<number | null>(null);
 
 
 
   useEffect(()=>{
-
 
     loadEvent();
 
@@ -133,7 +129,9 @@ const [
     if(token){
 
       loadCurrentUser();
+
       loadShowLog();
+
     }
 
 
@@ -147,9 +145,7 @@ const [
 
   async function loadCurrentUser(){
 
-
     try{
-
 
       const user =
         await userAPI.getMe();
@@ -160,84 +156,84 @@ const [
 
     }catch(error){
 
-
       console.error(
         'Failed loading user',
         error
       );
 
+    }
+
+  }
+
+
+
+
+
+
+
+  async function loadShowLog(){
+
+    try{
+
+      const data =
+        await showLogAPI.get(
+          eventId
+        );
+
+
+      setShowLog(data);
+
+
+    }catch(error){
+
+      setShowLog(null);
+
+      console.error(
+        'No show log found',
+        error
+      );
 
     }
 
-
   }
 
 
 
-async function loadShowLog(){
 
-  try{
-
-    const data =
-      await showLogAPI.get(
-        eventId
-      );
-
-    setShowLog(data);
-
-
-  }catch(error){
-
-    console.error(
-      'No show log found',
-      error
-    );
-
-  }
-
-}
 
 
 
   async function loadEvent(){
 
+  try{
 
-    try{
+    setLoading(true);
 
-
-      setLoading(true);
-
-
-
-      const data =
-        await eventAPI.getEvent(
-          eventId
-        );
-
-
-      setEvent(data);
-
-
-
-    }catch(error){
-
-
-      console.error(
-        'Failed loading event',
-        error
+    const data =
+      await eventAPI.getEvent(
+        eventId
       );
 
+    console.log("EVENT UPDATED:", data);
 
-    }finally{
-
-
-      setLoading(false);
+    setEvent(data);
 
 
-    }
+  }catch(error){
 
+    console.error(
+      'Failed loading event',
+      error
+    );
+
+  }finally{
+
+    setLoading(false);
 
   }
+
+}
+
 
 
 
@@ -270,63 +266,86 @@ async function loadShowLog(){
 
 
 
+
+
+
+
+
  async function handleShowLog(
   status:
     'going'
     | 'maybe'
     | 'went'
-){
-
-try{
-
-setSubmitting(true);
+ ){
 
 
-if(showLog?.status === status){
-
-  await showLogAPI.delete(
-    eventId
-  );
+  try{
 
 
-  setShowLog(null);
+    setSubmitting(true);
 
 
-  await loadEvent();
 
-  return;
-
-}else{
-
-  await showLogAPI.create({
-
-    event_id:eventId,
-
-    status,
-
-  });
-
-}
+    if(showLog?.status === status){
 
 
-await loadShowLog();
+      await showLogAPI.delete(
+        eventId
+      );
 
-await loadEvent();
+
+      setShowLog(null);
 
 
-}catch(error){
+      await loadEvent();
 
-console.error(
- error
-);
 
-}finally{
+      return;
 
-setSubmitting(false);
 
-}
+    }else{
 
-}
+
+      await showLogAPI.create({
+
+        event_id:eventId,
+
+        status,
+
+      });
+
+
+    }
+
+
+
+    await loadShowLog();
+
+    await loadEvent();
+
+
+
+  }catch(error){
+
+
+    console.error(
+      error
+    );
+
+
+  }finally{
+
+
+    setSubmitting(false);
+
+
+  }
+
+
+ }
+
+
+
 
 
 
@@ -353,9 +372,6 @@ setSubmitting(false);
 
 
 
-  const isEventPast = event
-  ? new Date(event.starts_at) < new Date()
-  : false;
 
 
 
@@ -388,6 +404,8 @@ setSubmitting(false);
 
 
 
+
+
   return (
 
     <div className="min-h-screen">
@@ -399,6 +417,7 @@ setSubmitting(false);
         px-4
         py-8
       ">
+
 
 
         <Link
@@ -462,6 +481,7 @@ setSubmitting(false);
 
 
 
+
             <h1 className="
               text-[36px]
               font-bold
@@ -471,6 +491,7 @@ setSubmitting(false);
               {event.title}
 
             </h1>
+
 
 
 
@@ -608,6 +629,7 @@ setSubmitting(false);
 
 
 
+
           <div>
 
 
@@ -630,73 +652,108 @@ setSubmitting(false);
 
               <div className="space-y-3">
 
+
                 {
                   isEventPast ? (
 
+
                     <Button
-                        disabled={submitting}
-                        onClick={() =>
-                          requireLogin(() =>
-                            handleShowLog('went')
-                          )
-                        }
-                        variant={
-                          showLog?.status === 'went'
-                            ? 'neon'
-                            : 'outlineGradient'
-                        }
-                        className="w-full"
-                      >
-                        ✓ I Went
-                      </Button>
+
+                      disabled={submitting}
+
+                      onClick={() =>
+                        requireLogin(() =>
+                          handleShowLog('went')
+                        )
+                      }
+
+                      variant={
+                        showLog?.status === 'went'
+                          ? 'neon'
+                          : 'outlineGradient'
+                      }
+
+                      className="w-full"
+
+                    >
+
+                      ✓ I Went
+
+                    </Button>
+
 
                   ) : (
 
+
                     <>
 
-                     <Button
+
+                      <Button
+
                         disabled={submitting}
+
                         onClick={() =>
                           requireLogin(() =>
                             handleShowLog('going')
                           )
                         }
+
                         variant={
                           showLog?.status === 'going'
                             ? 'neon'
                             : 'outlineGradient'
                         }
+
                         className="w-full"
+
                       >
+
                         ✓ I'm going
+
                       </Button>
 
 
+
+
+
                       <Button
+
                         disabled={submitting}
+
                         onClick={() =>
                           requireLogin(() =>
                             handleShowLog('maybe')
                           )
                         }
+
                         variant={
                           showLog?.status === 'maybe'
                             ? 'neon'
                             : 'outlineGradient'
                         }
+
                         className="w-full"
+
                       >
+
                         ? Maybe
+
                       </Button>
-                    
+
+
 
                     </>
+
 
                   )
 
                 }
 
-                </div>
+
+              </div>
+
+
+
 
 
 
@@ -717,11 +774,13 @@ setSubmitting(false);
                 ">
 
 
+
                   <div>
 
                     <strong>
                       {event.going_count ?? 0}
                     </strong>
+
 
                     <p className="text-gray-400 text-sm">
                       Going
@@ -731,11 +790,14 @@ setSubmitting(false);
 
 
 
+
+
                   <div>
 
                     <strong>
                       {event.maybe_count ?? 0}
                     </strong>
+
 
                     <p className="text-gray-400 text-sm">
                       Maybe
@@ -746,17 +808,21 @@ setSubmitting(false);
 
 
 
+
                   <div>
 
                     <strong>
                       {event.went_count ?? 0}
                     </strong>
 
+
                     <p className="text-gray-400 text-sm">
                       Went
                     </p>
 
                   </div>
+
+
 
 
                 </div>

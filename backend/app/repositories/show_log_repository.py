@@ -68,3 +68,55 @@ class ShowLogRepository(BaseRepository):
                 "status": status,
             }
         )
+    
+    async def get_user_status(
+        self,
+        user_id: str,
+        event_id: str,
+        ):
+
+        log = await self.collection.find_one(
+            {
+                "user_id": user_id,
+                "event_id": event_id,
+            }
+        )
+
+        if not log:
+            return None
+
+        return log["status"]
+
+
+
+    async def get_attendance_summary(
+        self,
+        event_id: str,
+    ):
+
+        pipeline = [
+            {
+                "$match": {
+                    "event_id": event_id
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$status",
+                    "count": {
+                        "$sum": 1
+                    }
+                }
+            }
+        ]
+
+        cursor = self.collection.aggregate(
+            pipeline
+        )
+
+        result = {}
+
+        async for item in cursor:
+            result[item["_id"]] = item["count"]
+
+        return result

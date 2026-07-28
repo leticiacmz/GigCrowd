@@ -40,4 +40,19 @@ class EventDocumentMapper:
             ticket_url=document.get(
                 "ticket_url"
             ),
+
+            going_count=document.get(
+                "going_count",
+                0,
+            ),
+
+            maybe_count=document.get(
+                "maybe_count",
+                0,
+            ),
+
+            went_count=document.get(
+                "went_count",
+                0,
+            ),
         )

@@ -1,7 +1,6 @@
-from datetime import datetime
-from typing import Optional
-
 from pydantic import BaseModel, Field
+from typing import Optional
+from datetime import datetime
 
 
 class Event(BaseModel):
@@ -26,4 +25,8 @@ class Event(BaseModel):
 
     ticket_url: Optional[str] = None
 
-    
+    going_count: int = 0
+
+    maybe_count: int = 0
+
+    went_count: int = 0
