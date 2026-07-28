@@ -5,12 +5,15 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { isAuthenticated } from './lib/auth';
+
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
+
 
 export default function Home() {
 
   const router = useRouter();
+
 
   useEffect(() => {
 
@@ -22,47 +25,275 @@ export default function Home() {
 
   }, [router]);
 
+
+
   return (
 
-    <div className="min-h-screen flex flex-col items-center justify-center px-4">
+    <div className="
+      min-h-[calc(100vh-4rem)]
+      flex
+      flex-col
+      items-center
+      px-4
+      pt-2
+      pb-8
+    ">
 
-      <Card className="max-w-3xl text-center p-8">
 
-        <h1 className="text-[36px] font-bold mb-6 bg-gradient-to-r from-accent to-secondary bg-clip-text text-transparent">
+      <section className="
+        max-w-4xl
+        text-center
+      ">
+
+
+        <h1 className="
+          text-[72px]
+          sm:text-[96px]
+          font-black
+          tracking-tight
+          bg-gradient-to-r
+          from-accent
+          via-secondary
+          to-accent
+          bg-clip-text
+          text-transparent
+          drop-shadow-[0_0_6px_rgba(255,0,255,0.12)]
+          mb-6
+        ">
 
           GigCrowd
 
         </h1>
 
-        <p className="text-[18px] text-gray-400 mb-8">
 
-          Track your concerts, discover live events, and connect with music lovers worldwide.
+
+        <h2 className="
+          text-3xl
+          sm:text-4xl
+          font-bold
+          mb-5
+        ">
+
+          Every concert tells a story.
+
+        </h2>
+
+
+
+        <p className="
+          text-gray-400
+          text-lg
+          max-w-xl
+          mx-auto
+          mb-10
+        ">
+
+          Discover artists, track live events,
+          and share the concerts that become
+          unforgettable memories.
 
         </p>
 
-        <div className="flex gap-4 justify-center">
 
-          <Link
-            href="/login"
-            className="w-full"
+       <div
+        className="
+          flex
+          justify-center
+          gap-4
+          flex-wrap
+        "
+      >
+
+        <Link
+          href="/events"
+          className="
+            rounded-md
+            bg-gradient-to-r
+            from-accent
+            to-secondary
+            px-8
+            py-3
+            text-sm
+            font-medium
+            text-white
+            transition-all
+            duration-300
+            hover:opacity-95
+            hover:scale-[1.02]
+            hover:shadow-[0_0_18px_rgba(255,0,255,.25)]
+          "
+        >
+          Explore Events
+        </Link>
+
+        <Link
+          href="/register"
+          className="
+            relative
+            rounded-md
+            p-[1px]
+            bg-gradient-to-r
+            from-accent
+            to-secondary
+            transition-all
+            duration-300
+            hover:scale-[1.02]
+            hover:shadow-[0_0_18px_rgba(255,0,255,.18)]
+          "
+        >
+          <span
+            className="
+              block
+              rounded-md
+              bg-background
+              px-8
+              py-3
+              text-sm
+              font-medium
+              text-white
+              transition-colors
+              hover:bg-card-hover
+            "
           >
-            <Button variant="primary" size="lg" className="w-full">
-              Login
-            </Button>
-          </Link>
+            Join GigCrowd
+          </span>
+        </Link>
 
-          <Link
-            href="/register"
-            className="w-full"
-          >
-            <Button variant="outline" size="lg" className="w-full">
-              Register
-            </Button>
-          </Link>
+      </div>
 
-        </div>
 
-      </Card>
+      </section>
+
+
+
+
+
+
+      <section className="
+        grid
+        md:grid-cols-3
+        gap-6
+        max-w-5xl
+        w-full
+        mt-10
+      ">
+
+
+
+        <Card className="
+          p-5
+          text-center
+          transition-all
+          hover:border-accent
+          hover:shadow-[0_0_20px_rgba(255,0,255,0.15)]
+        ">
+
+
+          <h3 className="
+            text-lg
+            font-bold
+            mb-3
+          ">
+
+            Discover Artists
+
+          </h3>
+
+
+          <p className="
+            text-sm
+            leading-relaxed
+            text-gray-400
+          ">
+
+            Find artists and explore
+            upcoming live events.
+
+          </p>
+
+
+        </Card>
+
+
+
+
+
+        <Card className="
+          p-5
+          text-center
+          transition-all
+          hover:border-secondary
+          hover:shadow-[0_0_20px_rgba(0,255,255,0.15)]
+        ">
+
+
+          <h3 className="
+            text-lg
+            font-bold
+            mb-3
+          ">
+
+            Track Shows
+
+          </h3>
+
+
+          <p className="
+            text-sm
+            leading-relaxed
+            text-gray-400
+          ">
+
+            Save concerts you attended
+            or want to experience.
+
+          </p>
+
+
+        </Card>
+
+
+
+
+
+        <Card className="
+          p-5
+          text-center
+          transition-all
+          hover:border-accent
+          hover:shadow-[0_0_20px_rgba(255,0,255,0.15)]
+        ">
+
+
+          <h3 className="
+            text-lg
+            font-bold
+            mb-3
+          ">
+
+            Share Stories
+
+          </h3>
+
+
+          <p className="
+            text-sm
+            leading-relaxed
+            text-gray-400
+          ">
+
+            Turn every concert into
+            a memory worth sharing.
+
+          </p>
+
+
+        </Card>
+
+
+      </section>
+
+
 
     </div>
 

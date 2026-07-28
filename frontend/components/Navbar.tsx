@@ -65,22 +65,25 @@ export default function Navbar() {
 
   const logoHref = isLoggedIn ? '/feed' : '/';
 
+  const isHomePage = pathname === '/';
 
   const navLinks = isLoggedIn
-    ? [
-        {
-          href: '/feed',
-          label: 'Feed',
-        },
-        {
-          href: '/artists',
-          label: 'Artists',
-        },
-        {
-          href: '/events',
-          label: 'Events',
-        },
-      ]
+  ? [
+      {
+        href: '/feed',
+        label: 'Feed',
+      },
+      {
+        href: '/artists',
+        label: 'Artists',
+      },
+      {
+        href: '/events',
+        label: 'Events',
+      },
+    ]
+  : isHomePage
+    ? []
     : [
         {
           href: '/artists',
@@ -91,7 +94,6 @@ export default function Navbar() {
           label: 'Events',
         },
       ];
-
 
   function handleLogout() {
     localStorage.removeItem('token');
