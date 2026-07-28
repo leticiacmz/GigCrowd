@@ -14,8 +14,14 @@ class AttendanceStatus(str, Enum):
 class ShowLogBase(BaseModel):
     event_id: str
     status: AttendanceStatus
-    notes: Optional[str] = None
 
+    rating: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=5
+    )
+
+    review: Optional[str] = None
 
 class ShowLogCreate(ShowLogBase):
     pass
@@ -23,8 +29,14 @@ class ShowLogCreate(ShowLogBase):
 
 class ShowLogUpdate(BaseModel):
     status: Optional[AttendanceStatus] = None
-    notes: Optional[str] = None
 
+    rating: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=5
+    )
+
+    review: Optional[str] = None
 
 class ShowLogInDB(ShowLogBase):
     id: str = Field(alias="_id")
