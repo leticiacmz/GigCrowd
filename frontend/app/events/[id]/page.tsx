@@ -248,7 +248,7 @@ export default function EventDetailPage(){
 
 
 
-  async function handleAttend(
+  async function handleShowLog(
 
   status:
     'going'
@@ -287,7 +287,7 @@ export default function EventDetailPage(){
 
 
       console.error(
-        'Failed updating attendance',
+        'Failed creating show log',
         error
       );
 
@@ -615,7 +615,7 @@ export default function EventDetailPage(){
 
                   onClick={() =>
                     requireLogin(() =>
-                      handleAttend('going')
+                      handleShowLog('going')
                     )
                   }
 
@@ -639,7 +639,7 @@ export default function EventDetailPage(){
 
                   onClick={() =>
                     requireLogin(() =>
-                      handleAttend('maybe')
+                      handleShowLog('maybe')
                     )
                   }
 
@@ -663,7 +663,7 @@ export default function EventDetailPage(){
 
                   onClick={() =>
                     requireLogin(() =>
-                      handleAttend('went')
+                      handleShowLog('went')
                     )
                   }
 
