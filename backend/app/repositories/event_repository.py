@@ -87,17 +87,20 @@ class EventRepository(BaseRepository):
             .find(
                 {
                     "artist_slug": artist_slug,
+                    "starts_at": {
+                        "$gte": datetime.now(UTC),
+                    },
                 }
             )
             .sort(
                 "starts_at",
-                -1,
+                1,
             )
         )
 
 
         documents = await cursor.to_list(
-            length=1000,
+            length=6,
         )
 
 
@@ -169,3 +172,78 @@ class EventRepository(BaseRepository):
                 }
             }
         )
+
+    async def get_upcoming_by_artist_slug(
+        self,
+        artist_slug: str,
+        limit: int = 6,
+    ):
+
+        cursor = (
+            self.collection
+            .find(
+                {
+                    "artist_slug": artist_slug,
+                    "starts_at": {
+                        "$gte": datetime.now(UTC),
+                    },
+                }
+            )
+            .sort(
+                "starts_at",
+                1,
+            )
+            .limit(limit)
+        )
+
+
+        documents = await cursor.to_list(
+            length=limit,
+        )
+
+
+        return [
+
+            EventDocumentMapper.to_domain(
+                document
+            )
+
+            for document in documents
+
+        ]
+
+
+
+    async def get_all_by_artist_slug(
+        self,
+        artist_slug: str,
+    ):
+
+        cursor = (
+            self.collection
+            .find(
+                {
+                    "artist_slug": artist_slug,
+                }
+            )
+            .sort(
+                "starts_at",
+                -1,
+            )
+        )
+
+
+        documents = await cursor.to_list(
+            length=1000,
+        )
+
+
+        return [
+
+            EventDocumentMapper.to_domain(
+                document
+            )
+
+            for document in documents
+
+        ]

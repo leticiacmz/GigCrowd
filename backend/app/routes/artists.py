@@ -18,6 +18,8 @@ from app.services.artist_service import ArtistService
 from app.schemas.artist_profile_response import (
     ArtistProfileResponse,
 )
+
+from app.database.connection import get_database
 from app.schemas.artist_list_response import (
     ArtistListResponse,
 )
@@ -202,3 +204,15 @@ async def get_artist(
         artist_slug
     )
 
+@router.get(
+    "/{artist_slug}/events/all",
+)
+async def get_all_artist_events(
+
+    artist_slug: str,
+
+):
+
+    return await event_service.get_all_artist_events(
+        artist_slug
+    )

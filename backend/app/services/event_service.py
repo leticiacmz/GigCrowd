@@ -57,12 +57,7 @@ class EventService:
         )
 
 
-
-
-
-
-
-    async def get_artist_events(
+    async def get_upcoming_artist_events(
         self,
         artist_slug: str,
     ):
@@ -70,6 +65,43 @@ class EventService:
 
         events = await self.event_repository.get_by_artist_slug(
             artist_slug
+        )
+
+
+        responses = []
+
+
+    
+        for event in events:
+
+
+            venue = await self.venue_repository.get_by_slug(
+                event.venue_slug
+            )
+
+
+
+            responses.append(
+
+                EventResponseMapper.from_domain(
+                    event=event,
+                    venue=venue,
+                )
+
+            )
+
+
+        return responses
+
+    async def get_artist_events(
+        self,
+        artist_slug: str,
+    ):
+
+
+        events = await self.event_repository.get_upcoming_by_artist_slug(
+            artist_slug,
+            limit=6,
         )
 
 
@@ -84,6 +116,44 @@ class EventService:
                 event.venue_slug
             )
 
+
+            responses.append(
+
+                EventResponseMapper.from_domain(
+                    event=event,
+                    venue=venue,
+                )
+
+            )
+
+
+        return responses
+
+
+
+
+
+    async def get_all_artist_events(
+        self,
+        artist_slug: str,
+    ):
+
+
+        events = await self.event_repository.get_all_by_artist_slug(
+            artist_slug
+        )
+
+
+        responses = []
+
+
+
+        for event in events:
+
+
+            venue = await self.venue_repository.get_by_slug(
+                event.venue_slug
+            )
 
 
             responses.append(

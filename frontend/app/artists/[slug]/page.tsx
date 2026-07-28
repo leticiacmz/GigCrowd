@@ -1,53 +1,41 @@
 'use client';
 
-
 import {
   useEffect,
   useState,
 } from 'react';
-
 
 import {
   useParams,
   useRouter,
 } from 'next/navigation';
 
-
 import Link from 'next/link';
-
 
 import {
   artistAPI,
   eventAPI,
 } from '../../lib/api';
+
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
 import Badge from '../../../components/ui/Badge';
 import LoadingState from '../../../components/LoadingState';
-
-
-
-
+import EventCard from '../../../components/EventCard';
 
 
 
 interface ArtistProfile {
 
-
   id?: string;
-
 
   slug?: string;
 
-
   name: string;
-
 
   image?: string;
 
-
   genres: string[];
-
 
   events?: {
 
@@ -56,7 +44,6 @@ interface ArtistProfile {
     total: number;
 
   };
-
 
 }
 
@@ -78,6 +65,7 @@ interface ArtistEvent {
 
   sold_out?: boolean | null;
 
+
   venue?: {
 
     id?: string | null;
@@ -92,9 +80,14 @@ interface ArtistEvent {
 
   };
 
+
+  going_count?: number;
+
+  maybe_count?: number;
+
+  went_count?: number;
+
 }
-
-
 
 
 
@@ -122,11 +115,11 @@ export default function ArtistProfilePage() {
 
 
 
-
   const [
     artist,
     setArtist,
   ] = useState<ArtistProfile | null>(null);
+
 
 
 
@@ -139,10 +132,12 @@ export default function ArtistProfilePage() {
 
 
 
+
   const [
     loading,
     setLoading,
   ] = useState(true);
+
 
 
 
@@ -155,10 +150,12 @@ export default function ArtistProfilePage() {
 
 
 
+
   const [
     following,
     setFollowing,
   ] = useState(false);
+
 
 
 
@@ -174,26 +171,33 @@ export default function ArtistProfilePage() {
 
 
 
-
-
   useEffect(() => {
 
+
     if (artistSlug) {
+
 
       loadArtist();
 
       loadArtistEvents();
 
+
     }
 
-    const token = localStorage.getItem('token');
 
-    if (token) {
+    const token =
+      localStorage.getItem('token');
+
+
+    if(token){
+
       loadFollowStatus();
+
     }
 
 
-  }, [artistSlug]);
+
+  },[artistSlug]);
 
 
 
@@ -202,11 +206,10 @@ export default function ArtistProfilePage() {
 
 
 
+  async function loadArtist(){
 
-  async function loadArtist() {
 
-
-    try {
+    try{
 
 
       setLoading(true);
@@ -226,7 +229,7 @@ export default function ArtistProfilePage() {
 
 
 
-    } catch(error) {
+    }catch(error){
 
 
       console.error(
@@ -242,7 +245,7 @@ export default function ArtistProfilePage() {
 
 
 
-    } finally {
+    }finally{
 
 
       setLoading(false);
@@ -260,11 +263,10 @@ export default function ArtistProfilePage() {
 
 
 
+  async function loadArtistEvents(){
 
-  async function loadArtistEvents() {
 
-
-    try {
+    try{
 
 
       const data =
@@ -274,13 +276,26 @@ export default function ArtistProfilePage() {
 
 
 
+      const sortedEvents =
+        [...data].sort(
+          (
+            a,
+            b
+          ) =>
+            new Date(a.starts_at).getTime()
+            -
+            new Date(b.starts_at).getTime()
+        );
+
+
+
       setEvents(
-        data
+        sortedEvents
       );
 
 
 
-    } catch(error) {
+    }catch(error){
 
 
       console.error(
@@ -302,10 +317,10 @@ export default function ArtistProfilePage() {
 
 
 
-  async function loadFollowStatus() {
+  async function loadFollowStatus(){
 
 
-    try {
+    try{
 
 
       const data =
@@ -321,7 +336,7 @@ export default function ArtistProfilePage() {
 
 
 
-    } catch(error) {
+    }catch(error){
 
 
       console.error(
@@ -343,10 +358,10 @@ export default function ArtistProfilePage() {
 
 
 
-  async function handleFollow() {
+  async function handleFollow(){
 
 
-    try {
+    try{
 
 
       setFollowLoading(
@@ -355,7 +370,7 @@ export default function ArtistProfilePage() {
 
 
 
-      if (following) {
+      if(following){
 
 
         await artistAPI.unfollowArtist(
@@ -370,7 +385,7 @@ export default function ArtistProfilePage() {
 
 
 
-      } else {
+      }else{
 
 
         await artistAPI.followArtist(
@@ -388,7 +403,7 @@ export default function ArtistProfilePage() {
 
 
 
-    } catch(error) {
+    }catch(error){
 
 
       console.error(
@@ -398,7 +413,7 @@ export default function ArtistProfilePage() {
 
 
 
-    } finally {
+    }finally{
 
 
       setFollowLoading(
@@ -419,7 +434,7 @@ export default function ArtistProfilePage() {
 
 
 
-  if (loading) {
+  if(loading){
 
 
     return (
@@ -450,7 +465,7 @@ export default function ArtistProfilePage() {
 
 
 
-  if (error || !artist) {
+  if(error || !artist){
 
 
     return (
@@ -473,6 +488,7 @@ export default function ArtistProfilePage() {
           }
 
         </p>
+
 
 
 
@@ -507,17 +523,29 @@ export default function ArtistProfilePage() {
 
 
 
+  const upcomingEvents =
+
+    events
+
+      .filter(
+        event =>
+          new Date(event.starts_at) >= new Date()
+      )
+
+      .slice(
+        0,
+        6
+      );
+
+
+
+
+
+
 
   return (
 
     <div className="min-h-screen">
-
-
-
-
-
-
-
 
 
       <main className="
@@ -531,8 +559,10 @@ export default function ArtistProfilePage() {
 
 
 
-        <Card className="overflow-hidden p-0">
-
+        <Card className="
+          overflow-hidden
+          p-0
+        ">
 
 
 
@@ -561,8 +591,8 @@ export default function ArtistProfilePage() {
 
 
 
-
           <div className="p-8">
+
 
 
 
@@ -574,6 +604,7 @@ export default function ArtistProfilePage() {
               justify-between
               mb-6
             ">
+
 
 
               <h1 className="
@@ -590,19 +621,31 @@ export default function ArtistProfilePage() {
 
 
               <Button
+
                 onClick={() => {
 
-                  const token = localStorage.getItem('token');
+                  const token =
+                    localStorage.getItem(
+                      'token'
+                    );
 
-                  if (!token) {
+
+                  if(!token){
+
                     router.push('/login');
+
                     return;
+
                   }
+
 
                   handleFollow();
 
+
                 }}
+
                 disabled={followLoading}
+
               >
 
                 {
@@ -621,8 +664,8 @@ export default function ArtistProfilePage() {
               </Button>
 
 
-            </div>
 
+            </div>
 
 
 
@@ -661,8 +704,13 @@ export default function ArtistProfilePage() {
                       artist.genres.map(
                         genre => (
 
-                          <Badge key={genre} variant="outline">
+                          <Badge
+                            key={genre}
+                            variant="outline"
+                          >
+
                             {genre}
+
                           </Badge>
 
                         )
@@ -686,102 +734,69 @@ export default function ArtistProfilePage() {
 
 
 
-            {
-              artist.events && (
-
-                <div className="
-                  grid
-                  md:grid-cols-2
-                  gap-4
-                  mb-8
-                ">
+            <section className="mt-8">
 
 
-                  <div className="
-                    bg-card-hover
-                    rounded-lg
-                    p-4
-                  ">
-
-
-                    <p className="text-gray-400">
-
-                      Upcoming Events
-
-                    </p>
-
-
-                    <p className="text-[24px] font-bold">
-
-                      {artist.events.upcoming}
-
-                    </p>
-
-
-                  </div>
-
-
-
-
-                  <div className="
-                    bg-card-hover
-                    rounded-lg
-                    p-4
-                  ">
-
-
-                    <p className="text-gray-400">
-
-                      Total Events
-
-                    </p>
-
-
-                    <p className="text-[24px] font-bold">
-
-                      {artist.events.total}
-
-                    </p>
-
-
-                  </div>
-
-
-                </div>
-
-              )
-            }
-
-
-
-
-
-
-
-            <section>
-
-
-              <h2 className="
-                text-[24px]
-                font-bold
-                mb-4
+              <div className="
+                flex
+                items-center
+                justify-between
+                mb-5
               ">
 
-                Events
 
-              </h2>
+                <h2 className="
+                  text-[24px]
+                  font-bold
+                ">
+
+                  Upcoming Events
+
+                </h2>
+
+
+
+
+                {
+                  artist.events &&
+                  artist.events.total > 6 && (
+
+                    <Link
+
+                      href={`/artists/${artistSlug}/events`}
+
+                      className="
+                        text-sm
+                        text-accent
+                        hover:text-accent/80
+                      "
+
+                    >
+
+                      See all events →
+
+                    </Link>
+
+                  )
+                }
+
+
+              </div>
+
+
+
 
 
 
 
 
               {
-                events.length === 0 ? (
+                upcomingEvents.length === 0 ? (
 
 
                   <p className="text-gray-400">
 
-                    No events found.
+                    No upcoming events.
 
                   </p>
 
@@ -789,70 +804,63 @@ export default function ArtistProfilePage() {
                 ) : (
 
 
-                  <div className="
-                    space-y-4
-                  ">
+
+                  <div
+
+                    className={`
+
+                      ${
+                        upcomingEvents.length <= 3
+
+                        ?
+
+                        'grid grid-cols-1 md:grid-cols-3 gap-4'
+
+                        :
+
+                        upcomingEvents.length === 4
+
+                        ?
+
+                        'grid grid-cols-1 md:grid-cols-4 gap-4'
+
+                        :
+
+                        'flex gap-4 overflow-x-auto pb-3 snap-x'
+
+                      }
+
+                    `}
+
+                  >
 
 
                     {
-                      events.map(
+                      upcomingEvents.map(
                         event => (
 
-
-                          <Link
+                          <div
 
                             key={event.id}
 
-                            href={`/events/${event.id}`}
-
-                            className="
-                              block
-                              bg-card-hover
-                              border
-                              border-border
-                              rounded-lg
-                              p-4
-                              hover:border-accent
-                              transition
-                            "
+                            className={`
+                              ${
+                                upcomingEvents.length > 4
+                                ?
+                                'min-w-[280px] snap-start'
+                                :
+                                ''
+                              }
+                            `}
 
                           >
 
-
-                            <h3 className="
-                              font-semibold
-                            ">
-
-                              {event.title}
-
-                            </h3>
+                            <EventCard
+                              event={event}
+                            />
 
 
-
-                            <p className="
-                              text-gray-400
-                              mt-2
-                            ">
-
-                              {
-                                new Date(
-                                  event.starts_at
-                                ).toLocaleDateString(
-                                  'en-US',
-                                  {
-                                    year:'numeric',
-                                    month:'long',
-                                    day:'numeric'
-                                  }
-                                )
-                              }
-
-                            </p>
-
-
-
-                          </Link>
-
+                          </div>
 
                         )
                       )
@@ -863,10 +871,13 @@ export default function ArtistProfilePage() {
 
 
                 )
+
               }
 
 
+
             </section>
+
 
 
 

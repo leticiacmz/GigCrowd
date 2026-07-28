@@ -247,79 +247,62 @@ export const userAPI = {
 
 export const eventAPI = {
 
-
-  getEvents: async (
-
-    params?: any
-
-  ) => {
-
+  getEvents: async(params?: any) => {
 
     const response =
-      await api.get(
-
-        '/events',
-
-        {
-          params,
-        }
-
-      );
-
+      await api.get('/events', {
+        params,
+      });
 
     return response.data;
-
 
   },
 
 
-
-
-  getArtistEvents: async (
-
-    artistSlug: string
-
+  getArtistEvents: async(
+    artistSlug:string
   ) => {
-
 
     const response =
       await api.get(
-
         `/events/artist/${artistSlug}`
-
       );
 
-
     return response.data;
-
 
   },
 
 
-
-
-  getEvent: async (
-
-    eventId: string
-
+  getAllArtistEvents: async(
+    artistSlug:string
   ) => {
-
 
     const response =
       await api.get(
-
-        `/events/${eventId}`
-
+        `/artists/${artistSlug}/events/all`
       );
-
 
     return response.data;
 
+  },
+
+
+  getEvent: async(
+    eventId:string
+  ) => {
+
+    const response =
+      await api.get(
+        `/events/${eventId}`
+      );
+
+    return response.data;
 
   },
 
-  getAttendance: async (
-    eventId: string
+
+  getAttendance: async(
+    eventId:string
   ) => {
 
     const response =
@@ -330,7 +313,6 @@ export const eventAPI = {
     return response.data;
 
   },
-  
 
 };
 
