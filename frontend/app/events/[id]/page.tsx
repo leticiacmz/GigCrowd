@@ -108,15 +108,6 @@ export default function EventDetailPage(){
   ] = useState(false);
 
 
-
-  const [
-    isEventPast,
-    setIsEventPast,
-  ] = useState(false);
-
-
-
-
   useEffect(()=>{
 
     loadEvent();
@@ -397,6 +388,9 @@ export default function EventDetailPage(){
 
 
   }
+  
+  const isEventPast =
+  new Date(event.starts_at).getTime() < Date.now();
 
 
 
