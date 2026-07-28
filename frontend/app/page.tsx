@@ -104,60 +104,29 @@ export default function Home() {
         "
       >
 
-        <Link
-          href="/events"
-          className="
-            rounded-md
-            bg-gradient-to-r
-            from-accent
-            to-secondary
-            px-8
-            py-3
-            text-sm
-            font-medium
-            text-white
-            transition-all
-            duration-300
-            hover:opacity-95
-            hover:scale-[1.02]
-            hover:shadow-[0_0_18px_rgba(255,0,255,.25)]
-          "
+        <Link href="/events">
+
+        <Button
+          variant="neon"
+          size="md"
+          animated
         >
           Explore Events
-        </Link>
+        </Button>
 
-        <Link
-          href="/register"
-          className="
-            relative
-            rounded-md
-            p-[1px]
-            bg-gradient-to-r
-            from-accent
-            to-secondary
-            transition-all
-            duration-300
-            hover:scale-[1.02]
-            hover:shadow-[0_0_18px_rgba(255,0,255,.18)]
-          "
+      </Link>
+
+        <Link href="/register">
+
+        <Button
+          variant="outlineGradient"
+          size="md"
+          animated
         >
-          <span
-            className="
-              block
-              rounded-md
-              bg-background
-              px-8
-              py-3
-              text-sm
-              font-medium
-              text-white
-              transition-colors
-              hover:bg-card-hover
-            "
-          >
-            Join GigCrowd
-          </span>
-        </Link>
+          Join GigCrowd
+        </Button>
+
+      </Link>
 
       </div>
 

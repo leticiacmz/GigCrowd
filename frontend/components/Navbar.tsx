@@ -1,5 +1,6 @@
 'use client';
 
+import Button from '@/components/ui/Button'
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -244,34 +245,15 @@ export default function Navbar() {
 
                 {!isLoginPage && (
 
-                  <Link
-                    href="/login"
-                    className="
-                      relative
-                      rounded-md
-                      p-[1px]
-                      bg-gradient-to-r
-                      from-accent
-                      to-secondary
-                      transition
-                      hover:opacity-90
-                    "
-                  >
-                    <span
-                      className="
-                        block
-                        rounded-md
-                        bg-background
-                        px-4
-                        py-2
-                        text-sm
-                        font-medium
-                        text-white
-                      "
+                   <Link href="/login">
+                    <Button
+                      variant="outlineGradient"
+                      size="sm"
                     >
                       Sign In
-                    </span>
+                    </Button>
                   </Link>
+
 
                 )}
 
@@ -279,24 +261,14 @@ export default function Navbar() {
 
                 {!isRegisterPage && (
 
-                  <Link
-                    href="/register"
-                    className="
-                      rounded-md
-                      bg-gradient-to-r
-                      from-accent
-                      to-secondary
-                      px-4
-                      py-2
-                      text-sm
-                      font-medium
-                      text-white
-                      transition
-                      hover:opacity-90
-                    "
+                 <Link href="/register">
+                  <Button
+                    variant="neon"
+                    size="sm"
                   >
                     Create Account
-                  </Link>
+                  </Button>
+                </Link>
 
                 )}
 
@@ -392,34 +364,17 @@ export default function Navbar() {
 
                 {!isLoginPage && (
 
-                  <Link
-                    href="/login"
-                    className="
-                      relative
-                      rounded-md
-                      p-[1px]
-                      bg-gradient-to-r
-                      from-accent
-                      to-secondary
-                      transition
-                      hover:opacity-90
-                    "
-                  >
-                    <span
-                      className="
-                        block
-                        rounded-md
-                        bg-background
-                        px-4
-                        py-2
-                        text-sm
-                        font-medium
-                        text-white
-                      "
+                   <Link href="/login">
+
+                    <Button
+                      variant="outlineGradient"
+                      size="sm"
                     >
                       Sign In
-                    </span>
+                    </Button>
+
                   </Link>
+
 
                 )}
 
@@ -427,26 +382,17 @@ export default function Navbar() {
 
                 {!isRegisterPage && (
 
-                  <Link
-                    href="/register"
-                    className="
-                      rounded-md
-                      bg-gradient-to-r
-                      from-accent
-                      to-secondary
-                      px-4
-                      py-2
-                      text-sm
-                      font-medium
-                      text-white
-                      transition
-                      hover:opacity-90
-                    "
-                  >
-                    Create Account
+                  <Link href="/register">
+                    <Button
+                      variant="neon"
+                      size="sm"
+                    >
+                      Create Account
+                    </Button>
                   </Link>
 
                 )}
+
 
               </>
 

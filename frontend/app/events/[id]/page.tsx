@@ -306,7 +306,7 @@ async function loadShowLog(){
 
       await loadEvent();
 
-
+      await loadShowLog()
 
     }catch(error){
 
@@ -639,13 +639,14 @@ async function loadShowLog(){
 
                     <Button
                       disabled={submitting}
+                      variant="outlineGradient"
+                      size="md"
+                      className="w-full"
                       onClick={() =>
                         requireLogin(() =>
                           handleShowLog('went')
                         )
                       }
-                      variant="outline"
-                      className="w-full"
                     >
                       ✓ I went
                     </Button>
@@ -656,13 +657,14 @@ async function loadShowLog(){
 
                       <Button
                         disabled={submitting}
+                        variant="outlineGradient"
+                        size="md"
+                        className="w-full"
                         onClick={() =>
                           requireLogin(() =>
                             handleShowLog('going')
                           )
                         }
-                        variant="outline"
-                        className="w-full"
                       >
                         ✓ I'm going
                       </Button>
@@ -670,13 +672,14 @@ async function loadShowLog(){
 
                       <Button
                         disabled={submitting}
+                        variant="outlineGradient"
+                        size="md"
+                        className="w-full"
                         onClick={() =>
                           requireLogin(() =>
                             handleShowLog('maybe')
                           )
                         }
-                        variant="outline"
-                        className="w-full"
                       >
                         ? Maybe
                       </Button>
