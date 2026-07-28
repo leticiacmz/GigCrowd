@@ -3,6 +3,7 @@
 import Button from '@/components/ui/Button'
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import router from 'next/router';
 import { useEffect, useRef, useState } from 'react';
 
 interface CurrentUser {
@@ -100,7 +101,7 @@ export default function Navbar() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
 
-    window.location.href = '/login';
+    router.replace('/login');
   }
 
 

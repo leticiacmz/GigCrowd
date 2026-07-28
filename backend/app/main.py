@@ -17,6 +17,7 @@ from app.routes import (
     spotify_auth,
     user_stats
 )
+from app.config import settings
 
 from app.providers.registry import registry
 from app.providers.spotify.provider import SpotifyProvider
@@ -67,10 +68,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
 
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=settings.CORS_ORIGINS,
 
     allow_credentials=True,
 
