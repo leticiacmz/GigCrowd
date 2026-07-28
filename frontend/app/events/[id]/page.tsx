@@ -14,6 +14,7 @@ import Link from 'next/link';
 
 import {
   eventAPI,
+  showLogAPI,
   userAPI,
 } from '../../lib/api';
 
@@ -103,13 +104,15 @@ export default function EventDetailPage(){
 
 
   const [
-    notes,
-    setNotes,
+  review,
+  setReview,
   ] = useState('');
 
 
-
-
+  const [
+  rating,
+  setRating,
+  ] = useState<number | null>(null);
 
 
 
@@ -247,12 +250,12 @@ export default function EventDetailPage(){
 
   async function handleAttend(
 
-    status:
-      'going'
-      | 'maybe'
-      | 'went'
+  status:
+    'going'
+    | 'maybe'
+    | 'went'
 
-  ){
+){
 
 
     try{
@@ -262,15 +265,17 @@ export default function EventDetailPage(){
 
 
 
-      await eventAPI.attendEvent(
+     await showLogAPI.create({
 
-        eventId,
+        event_id: eventId,
 
         status,
 
-        notes || undefined
+        rating: rating ?? undefined,
 
-      );
+        review: review || undefined,
+
+      });
 
 
 

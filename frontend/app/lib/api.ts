@@ -318,56 +318,65 @@ export const eventAPI = {
 
   },
 
-
-
-
-  attendEvent: async (
-
-    eventId: string,
-
-    status: string,
-
-    notes?: string
-
-  ) => {
-
-
-    const response =
-      await api.post(
-
-        `/events/${eventId}/attend`,
-
-        null,
-
-        {
-
-          params: {
-
-            status,
-
-            notes,
-
-          },
-
-        }
-
-      );
-
-
-    return response.data;
-
-
-  },
-
-
 };
 
 
 
 
 
+export const showLogAPI = {
 
 
+  create: async (
+    data: any
+  ) => {
+
+    const response =
+      await api.post(
+        '/show-logs',
+        data
+      );
+
+
+    return response.data;
+
+  },
+
+
+
+  update: async (
+    eventId: string,
+    data: any
+  ) => {
+
+    const response =
+      await api.put(
+        `/show-logs/${eventId}`,
+        data
+      );
+
+
+    return response.data;
+
+  },
+
+
+  get: async (
+    eventId: string
+  ) => {
+
+    const response =
+      await api.get(
+        `/show-logs/${eventId}`
+      );
+
+
+    return response.data;
+
+  },
+
+
+};
 
 
 export const postAPI = {
