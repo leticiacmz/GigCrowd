@@ -21,12 +21,12 @@ import {
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
 import LoadingState from '../../../components/LoadingState';
+import ReviewEditor from '../../../components/ReviewEditor';
+import ReviewCard from '../../../components/ReviewCard';
 
 import {
   format,
 } from 'date-fns';
-
-
 
 interface Event {
 
@@ -58,64 +58,71 @@ interface Event {
 
 }
 
-
-
-
 export default function EventDetailPage(){
-
 
   const router = useRouter();
 
   const params = useParams();
 
-
   const eventId =
     params.id as string;
-
-
 
   const [
     event,
     setEvent,
   ] = useState<Event | null>(null);
 
-
+  const [
+    editingReview,
+    setEditingReview,
+  ] = useState(false);
 
   const [
     currentUser,
     setCurrentUser,
   ] = useState<any>(null);
 
-
-
   const [
     showLog,
     setShowLog,
   ] = useState<any>(null);
-
-
 
   const [
     loading,
     setLoading,
   ] = useState(true);
 
-
-
   const [
     submitting,
     setSubmitting,
   ] = useState(false);
 
+  const [
+    savingReview,
+    setSavingReview,
+  ] = useState(false);
+
+  const [
+    rating,
+    setRating,
+  ] = useState(0);
+
+  const [
+    review,
+    setReview,
+  ] = useState('');
+
+  const [
+    isEventPast,
+    setIsEventPast,
+  ] = useState(false);
 
   useEffect(()=>{
 
     loadEvent();
 
-
     const token =
       localStorage.getItem('token');
-
 
     if(token){
 
@@ -125,14 +132,7 @@ export default function EventDetailPage(){
 
     }
 
-
   },[eventId]);
-
-
-
-
-
-
 
   async function loadCurrentUser(){
 
@@ -141,9 +141,7 @@ export default function EventDetailPage(){
       const user =
         await userAPI.getMe();
 
-
       setCurrentUser(user);
-
 
     }catch(error){
 
@@ -156,12 +154,6 @@ export default function EventDetailPage(){
 
   }
 
-
-
-
-
-
-
   async function loadShowLog(){
 
     try{
@@ -171,13 +163,23 @@ export default function EventDetailPage(){
           eventId
         );
 
-
       setShowLog(data);
 
+      setRating(
+        data.rating ?? 0
+      );
+
+      setReview(
+        data.review ?? ''
+      );
 
     }catch(error){
 
       setShowLog(null);
+
+      setRating(0);
+
+      setReview('');
 
       console.error(
         'No show log found',
@@ -188,58 +190,44 @@ export default function EventDetailPage(){
 
   }
 
-
-
-
-
-
-
   async function loadEvent(){
 
-  try{
+    try{
 
-    setLoading(true);
+      setLoading(true);
 
-    const data =
-      await eventAPI.getEvent(
-        eventId
+      const data =
+        await eventAPI.getEvent(
+          eventId
+        );
+
+      setEvent(data);
+
+      setIsEventPast(
+        new Date(data.starts_at) < new Date()
       );
 
-    console.log("EVENT UPDATED:", data);
+    }catch(error){
 
-    setEvent(data);
+      console.error(
+        'Failed loading event',
+        error
+      );
 
+    }finally{
 
-  }catch(error){
+      setLoading(false);
 
-    console.error(
-      'Failed loading event',
-      error
-    );
-
-  }finally{
-
-    setLoading(false);
+    }
 
   }
-
-}
-
-
-
-
-
-
-
 
   function requireLogin(
     callback: () => void
   ){
 
-
     const token =
       localStorage.getItem('token');
-
 
     if(!token){
 
@@ -249,53 +237,38 @@ export default function EventDetailPage(){
 
     }
 
-
     callback();
 
   }
 
+  async function handleShowLog(
+    status:
+      | 'going'
+      | 'maybe'
+      | 'went'
+  ){
 
+    try{
 
+      setSubmitting(true);
 
+      if(showLog?.status === status){
 
+        await showLogAPI.delete(
+          eventId
+        );
 
+        setShowLog(null);
 
+        setRating(0);
 
+        setReview('');
 
- async function handleShowLog(
-  status:
-    'going'
-    | 'maybe'
-    | 'went'
- ){
+        await loadEvent();
 
+        return;
 
-  try{
-
-
-    setSubmitting(true);
-
-
-
-    if(showLog?.status === status){
-
-
-      await showLogAPI.delete(
-        eventId
-      );
-
-
-      setShowLog(null);
-
-
-      await loadEvent();
-
-
-      return;
-
-
-    }else{
-
+      }
 
       await showLogAPI.create({
 
@@ -305,78 +278,116 @@ export default function EventDetailPage(){
 
       });
 
+      await loadShowLog();
+
+      await loadEvent();
+
+    }catch(error){
+
+      console.error(error);
+
+    }finally{
+
+      setSubmitting(false);
 
     }
 
+  }
+
+  async function handleSaveReview(data:{
+    rating:number;
+    review:string;
+  }){
+
+    try{
+
+      setSavingReview(true);
+
+      await showLogAPI.update(
+        eventId,
+        {
+          rating:data.rating,
+          review:data.review,
+        }
+      );
+
+      await loadShowLog();
+
+    }catch(error){
+
+      console.error(error);
+
+    }finally{
+
+      setSavingReview(false);
+
+    }
+
+  }
+
+async function handleDeleteReview(){
+
+  try{
+
+    setSavingReview(true);
+
+
+    await showLogAPI.deleteReview(
+      eventId
+    );
 
 
     await loadShowLog();
 
-    await loadEvent();
-
-
 
   }catch(error){
 
-
-    console.error(
-      error
-    );
+    console.error(error);
 
 
   }finally{
 
-
-    setSubmitting(false);
-
+    setSavingReview(false);
 
   }
 
-
- }
-
-
-
-
-
+}
 
   if(loading){
 
+    return(
 
-    return (
+      <div
+        className="
+          min-h-screen
+          flex
+          items-center
+          justify-center
+        "
+      >
 
-      <div className="
-        min-h-screen
-        flex
-        items-center
-        justify-center
-      ">
-
-        <LoadingState message="Loading event..." />
+        <LoadingState
+          message="Loading event..."
+        />
 
       </div>
 
     );
 
-
   }
-
-
-
-
-
 
   if(!event){
 
+    return(
 
-    return (
-
-      <div className="
-        min-h-screen
-        flex
-        items-center
-        justify-center
-      ">
+      <div
+        className="
+          min-h-screen
+          flex
+          items-center
+          justify-center
+        "
+      >
 
         <p className="text-gray-400">
           Event not found.
@@ -386,33 +397,19 @@ export default function EventDetailPage(){
 
     );
 
-
   }
-  
-  const isEventPast =
-  new Date(event.starts_at).getTime() < Date.now();
-
-
-
-
-
-
-
-
-
-  return (
+    return (
 
     <div className="min-h-screen">
 
-
-      <main className="
-        max-w-5xl
-        mx-auto
-        px-4
-        py-8
-      ">
-
-
+      <main
+        className="
+          max-w-5xl
+          mx-auto
+          px-4
+          py-8
+        "
+      >
 
         <Link
           href="/events"
@@ -421,79 +418,46 @@ export default function EventDetailPage(){
             hover:text-accent/80
           "
         >
-
           ← Back to events
-
         </Link>
 
+        <div
+          className="
+            mt-6
+            grid
+            grid-cols-1
+            lg:grid-cols-3
+            gap-8
+          "
+        >
 
+          <div className="lg:col-span-2">
 
+            {event.image_url && (
+              <img
+                src={event.image_url}
+                alt={event.title}
+                className="
+                  w-full
+                  h-72
+                  object-cover
+                  rounded-lg
+                  mb-6
+                "
+              />
+            )}
 
-
-        <div className="
-          mt-6
-          grid
-          grid-cols-1
-          lg:grid-cols-3
-          gap-8
-        ">
-
-
-
-
-
-          <div className="
-            lg:col-span-2
-          ">
-
-
-
-            {
-              event.image_url && (
-
-                <img
-
-                  src={event.image_url}
-
-                  alt={event.title}
-
-                  className="
-                    w-full
-                    h-72
-                    object-cover
-                    rounded-lg
-                    mb-6
-                  "
-
-                />
-
-              )
-            }
-
-
-
-
-
-
-
-            <h1 className="
-              text-[36px]
-              font-bold
-              mb-6
-            ">
-
+            <h1
+              className="
+                text-[36px]
+                font-bold
+                mb-6
+              "
+            >
               {event.title}
-
             </h1>
 
-
-
-
-
-
-
             <div className="space-y-4">
-
 
               <div>
 
@@ -501,273 +465,203 @@ export default function EventDetailPage(){
                   Date
                 </h2>
 
-
                 <p className="text-gray-400">
-
-                  {
-                    format(
-                      new Date(event.starts_at),
-                      'MMMM d, yyyy • h:mm a'
-                    )
-                  }
-
+                  {format(
+                    new Date(event.starts_at),
+                    'MMMM d, yyyy • h:mm a'
+                  )}
                 </p>
-
 
               </div>
 
+              {event.artist_slug && (
 
+                <div>
 
+                  <h2 className="font-semibold">
+                    Artist
+                  </h2>
 
-
-
-              {
-                event.artist_slug && (
-
-                  <div>
-
-                    <h2 className="font-semibold">
-                      Artist
-                    </h2>
-
-
-                    <Link
-
-                      href={`/artists/${event.artist_slug}`}
-
-                      className="
-                        text-accent
-                        hover:text-accent/80
-                      "
-
-                    >
-
-                      {event.artist_slug}
-
-                    </Link>
-
-
-                  </div>
-
-                )
-              }
-
-
-
-
-
-              {
-                event.venue_slug && (
-
-                  <div>
-
-                    <h2 className="font-semibold">
-                      Venue
-                    </h2>
-
-
-                    <p className="text-gray-400">
-
-                      {event.venue_slug}
-
-                    </p>
-
-
-                  </div>
-
-                )
-              }
-
-
-
-
-
-              {
-                event.ticket_url && (
-
-                  <a
-
-                    href={event.ticket_url}
-
-                    target="_blank"
-
+                  <Link
+                    href={`/artists/${event.artist_slug}`}
                     className="
-                      inline-block
-                      mt-4
+                      text-accent
+                      hover:text-accent/80
                     "
-
                   >
+                    {event.artist_slug}
+                  </Link>
 
-                    <Button variant="primary">
-                      Tickets
-                    </Button>
+                </div>
 
-                  </a>
+              )}
 
-                )
-              }
+              {event.venue_slug && (
 
+                <div>
 
+                  <h2 className="font-semibold">
+                    Venue
+                  </h2>
 
+                  <p className="text-gray-400">
+                    {event.venue_slug}
+                  </p>
 
+                </div>
+
+              )}
+
+              {event.ticket_url && (
+
+                <a
+                  href={event.ticket_url}
+                  target="_blank"
+                  className="inline-block mt-4"
+                >
+
+                  <Button variant="primary">
+                    Tickets
+                  </Button>
+
+                </a>
+
+              )}
 
             </div>
 
-
           </div>
-
-
-
-
-
-
-
-
 
           <div>
 
+            <Card className="p-6 space-y-6">
 
-            <Card className="p-6">
+              <div>
 
+                <h2
+                  className="
+                    text-[18px]
+                    font-bold
+                    mb-4
+                  "
+                >
+                  Your attendance
+                </h2>
 
-              <h2 className="
-                text-[18px]
-                font-bold
-                mb-4
-              ">
+                <div className="space-y-3">
 
-                Your attendance
-
-              </h2>
-
-
-
-
-
-              <div className="space-y-3">
-
-
-                {
-                  isEventPast ? (
-
+                  {isEventPast ? (
 
                     <Button
-
                       disabled={submitting}
-
                       onClick={() =>
                         requireLogin(() =>
                           handleShowLog('went')
                         )
                       }
-
                       variant={
                         showLog?.status === 'went'
                           ? 'neon'
                           : 'outlineGradient'
                       }
-
                       className="w-full"
-
                     >
-
                       ✓ I Went
-
                     </Button>
-
 
                   ) : (
 
-
                     <>
 
-
                       <Button
-
                         disabled={submitting}
-
                         onClick={() =>
                           requireLogin(() =>
                             handleShowLog('going')
                           )
                         }
-
                         variant={
                           showLog?.status === 'going'
                             ? 'neon'
                             : 'outlineGradient'
                         }
-
                         className="w-full"
-
                       >
-
                         ✓ I'm going
-
                       </Button>
 
-
-
-
-
                       <Button
-
                         disabled={submitting}
-
                         onClick={() =>
                           requireLogin(() =>
                             handleShowLog('maybe')
                           )
                         }
-
                         variant={
                           showLog?.status === 'maybe'
                             ? 'neon'
                             : 'outlineGradient'
                         }
-
                         className="w-full"
-
                       >
-
                         ? Maybe
-
                       </Button>
-
-
 
                     </>
 
+                  )}
 
-                  )
-
-                }
-
+                </div>
 
               </div>
 
+              {showLog?.status === 'went' && (
 
+                <div
+                  className="
+                    border-t
+                    border-border
+                    pt-6
+                  "
+                >
 
+                  <h2
+                    className="
+                      text-[18px]
+                      font-bold
+                      mb-4
+                    "
+                  >
+                    Your review
+                  </h2>
 
+                  <ReviewEditor
+                    initialRating={rating}
+                    initialReview={review}
+                    loading={savingReview}
+                    onSave={handleSaveReview}
+                    onDelete={handleDeleteReview}
+                  />
 
+                </div>
 
+              )}
 
+              <div
+                className="
+                  border-t
+                  border-border
+                  pt-4
+                "
+              >
 
-              <div className="
-                border-t
-                border-border
-                mt-6
-                pt-4
-              ">
-
-
-                <div className="
-                  grid
-                  grid-cols-3
-                  text-center
-                ">
-
-
+                <div
+                  className="
+                    grid
+                    grid-cols-3
+                    text-center
+                  "
+                >
 
                   <div>
 
@@ -775,16 +669,11 @@ export default function EventDetailPage(){
                       {event.going_count ?? 0}
                     </strong>
 
-
                     <p className="text-gray-400 text-sm">
                       Going
                     </p>
 
                   </div>
-
-
-
-
 
                   <div>
 
@@ -792,16 +681,11 @@ export default function EventDetailPage(){
                       {event.maybe_count ?? 0}
                     </strong>
 
-
                     <p className="text-gray-400 text-sm">
                       Maybe
                     </p>
 
                   </div>
-
-
-
-
 
                   <div>
 
@@ -809,38 +693,23 @@ export default function EventDetailPage(){
                       {event.went_count ?? 0}
                     </strong>
 
-
                     <p className="text-gray-400 text-sm">
                       Went
                     </p>
 
                   </div>
 
-
-
-
                 </div>
-
 
               </div>
 
-
-
             </Card>
-
 
           </div>
 
-
-
-
-
         </div>
 
-
-
       </main>
-
 
     </div>
 

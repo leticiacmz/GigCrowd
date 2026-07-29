@@ -30,9 +30,6 @@ from app.repositories.show_log_repository import (
     ShowLogRepository,
 )
 
-from app.schemas.review_update import (
-    ReviewUpdate,
-)
 
 from app.services.show_log_service import (
     ShowLogService,
@@ -297,8 +294,6 @@ async def update_review(
 
     event_id: str,
 
-    review_data: ReviewUpdate,
-
     current_user: dict = Depends(
         get_current_active_user
     ),
@@ -342,4 +337,31 @@ async def delete_review(
 
     return ShowLogResponse(
         **log.model_dump()
+    )
+    
+@router.delete(
+    "/{event_id}/review",
+    response_model=ShowLogResponse
+)
+async def delete_review(
+
+    event_id: str,
+
+    current_user: dict = Depends(
+        get_current_active_user
+    ),
+
+):
+
+    service = get_show_log_service()
+
+
+    show_log = await service.delete_review(
+        current_user["_id"],
+        event_id,
+    )
+
+
+    return ShowLogResponse(
+        **show_log.model_dump()
     )
