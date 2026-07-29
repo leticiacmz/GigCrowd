@@ -47,12 +47,20 @@ class ShowLogService:
             show_log_data.event_id
         )
 
-
         if not event:
             raise ValueError(
                 "Event not found"
             )
 
+        now = datetime.now(UTC)
+
+        if (
+            show_log_data.status == AttendanceStatus.WENT
+            and event.starts_at > now
+        ):
+            raise ValueError(
+                "Cannot mark an upcoming event as attended."
+            )
 
         existing_log = await self.show_log_repository.collection.find_one(
             {
@@ -60,9 +68,6 @@ class ShowLogService:
                 "event_id": show_log_data.event_id,
             }
         )
-
-
-        now = datetime.now(UTC)
 
 
         if existing_log:
@@ -100,7 +105,7 @@ class ShowLogService:
 
         show_log = show_log_data.model_dump()
 
-
+        
         show_log["user_id"] = user_id
         show_log["date"] = event.starts_at
         show_log["created_at"] = now
@@ -176,6 +181,21 @@ class ShowLogService:
         update_data["updated_at"] = datetime.now(UTC)
 
 
+        if (
+            show_log_data.status == AttendanceStatus.WENT
+        ):
+
+            event = await self.event_repository.get_by_id(
+                event_id
+            )
+
+        if (
+            event
+            and event.starts_at > datetime.now(UTC)
+        ):
+            raise ValueError(
+                "Cannot mark an upcoming event as attended."
+            )
 
         updated = await self.show_log_repository.collection.find_one_and_update(
             {
@@ -221,7 +241,85 @@ class ShowLogService:
 
         return deleted
 
-        
+    async def update_review(
+            self,
+            user_id: str,
+            event_id: str,
+            rating: int,
+            review: str | None,
+        ) -> ShowLogInDB:
+
+            log = await self.show_log_repository.collection.find_one(
+                {
+                    "user_id": user_id,
+                    "event_id": event_id,
+                }
+            )
+
+            if not log:
+                raise ValueError(
+                    "Show log not found"
+                )
+
+            update_data = {
+                "rating": rating,
+                "review": review,
+                "updated_at": datetime.now(UTC),
+            }
+
+            updated = await self.show_log_repository.collection.find_one_and_update(
+                {
+                    "_id": log["_id"],
+                },
+                {
+                    "$set": update_data,
+                },
+                return_document=True,
+            )
+
+            return ShowLogInDB(
+                **self._normalize_id(updated)
+            )
+
+
+    async def delete_review(
+        self,
+        user_id: str,
+        event_id: str,
+    ) -> ShowLogInDB:
+
+        log = await self.show_log_repository.collection.find_one(
+            {
+                "user_id": user_id,
+                "event_id": event_id,
+            }
+        )
+
+        if not log:
+            raise ValueError(
+                "Show log not found"
+            )
+
+        updated = await self.show_log_repository.collection.find_one_and_update(
+            {
+                "_id": log["_id"],
+            },
+            {
+                "$unset": {
+                    "rating": "",
+                    "review": "",
+                },
+                "$set": {
+                    "updated_at": datetime.now(UTC),
+                },
+            },
+            return_document=True,
+        )
+
+        return ShowLogInDB(
+            **self._normalize_id(updated)
+        )
+
     async def _refresh_event_counts(
         self,
         event_id: str,

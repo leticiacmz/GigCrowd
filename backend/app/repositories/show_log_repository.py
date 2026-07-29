@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.repositories.base import BaseRepository
 
 
@@ -8,25 +10,25 @@ class ShowLogRepository(BaseRepository):
 
         super().__init__(
             db,
-            "show_logs"
+            "show_logs",
         )
 
 
     async def get_user_logs(
         self,
-        user_id: str
+        user_id: str,
     ):
 
         cursor = self.collection.find(
             {
-                "user_id": user_id
+                "user_id": user_id,
             }
         )
 
-
         return await cursor.to_list(
-            length=None
+            length=None,
         )
+
 
     async def get_by_user_and_event(
         self,
@@ -40,10 +42,11 @@ class ShowLogRepository(BaseRepository):
                 "event_id": event_id,
             }
         )
-    
+
+
     async def delete_by_user_and_event(
-    self,
-    user_id: str,
+        self,
+        user_id: str,
         event_id: str,
     ):
 
@@ -55,7 +58,8 @@ class ShowLogRepository(BaseRepository):
         )
 
         return result.deleted_count > 0
-    
+
+
     async def count_by_status(
         self,
         event_id: str,
@@ -68,12 +72,13 @@ class ShowLogRepository(BaseRepository):
                 "status": status,
             }
         )
-    
+
+
     async def get_user_status(
         self,
         user_id: str,
         event_id: str,
-        ):
+    ):
 
         log = await self.collection.find_one(
             {
@@ -88,7 +93,6 @@ class ShowLogRepository(BaseRepository):
         return log["status"]
 
 
-
     async def get_attendance_summary(
         self,
         event_id: str,
@@ -97,14 +101,14 @@ class ShowLogRepository(BaseRepository):
         pipeline = [
             {
                 "$match": {
-                    "event_id": event_id
+                    "event_id": event_id,
                 }
             },
             {
                 "$group": {
                     "_id": "$status",
                     "count": {
-                        "$sum": 1
+                        "$sum": 1,
                     }
                 }
             }
@@ -120,3 +124,57 @@ class ShowLogRepository(BaseRepository):
             result[item["_id"]] = item["count"]
 
         return result
+
+
+    async def update_review(
+        self,
+        user_id: str,
+        event_id: str,
+        rating: int,
+        review: str | None,
+    ):
+
+        await self.collection.update_one(
+            {
+                "user_id": user_id,
+                "event_id": event_id,
+            },
+            {
+                "$set": {
+                    "rating": rating,
+                    "review": review,
+                    "reviewed_at": datetime.utcnow(),
+                }
+            },
+        )
+
+        return await self.get_by_user_and_event(
+            user_id,
+            event_id,
+        )
+
+
+    async def delete_review(
+        self,
+        user_id: str,
+        event_id: str,
+    ):
+
+        await self.collection.update_one(
+            {
+                "user_id": user_id,
+                "event_id": event_id,
+            },
+            {
+                "$unset": {
+                    "rating": "",
+                    "review": "",
+                    "reviewed_at": "",
+                }
+            },
+        )
+
+        return await self.get_by_user_and_event(
+            user_id,
+            event_id,
+        )
