@@ -37,7 +37,7 @@ class EventImportService:
 
         self.venue_repository = venue_repository
 
-    async def import_artist_events(
+    async def sync_artist_events(
         self,
         artist: Artist,
     ):
@@ -48,10 +48,22 @@ class EventImportService:
             f"🎤 Synchronizing artist: '{artist.name}'"
         )
 
+     
         payloads = await self.provider_manager.get_artist_events(
-            artist.name
+    artist.name
         )
 
+
+        logger.info(
+            f"Payloads received: {len(payloads)}"
+        )
+
+
+        if payloads:
+            logger.info(
+                f"First event payload: {payloads[0]}"
+            )
+        
         logger.info(
             f"📥 Received {len(payloads)} events from provider."
         )
@@ -103,24 +115,17 @@ class EventImportService:
             # Event
             #
 
-            existing_event = (
-                await self.event_repository.get_by_external_id(
-                    "bandsintown",
-                    event.external_ids["bandsintown"],
-                )
-            )
-
-            if existing_event:
-
-                events_existing += 1
-
-                continue
-
-            await self.event_repository.insert_event(
+            created = await self.event_repository.upsert_event(
                 event
             )
 
-            events_created += 1
+            if created:
+
+                events_created += 1
+
+            else:
+
+                events_existing += 1
 
         elapsed = time.perf_counter() - started_at
 

@@ -18,6 +18,18 @@ class ArtistProfileResponse(BaseModel):
 
     image: str | None = None
 
-    genres: list[str] = Field(default_factory=list)
+    genres: list[str] = Field(
+        default_factory=list
+    )
+
+    external_ids: dict[str, str] = Field(
+        default_factory=dict
+    )
+
+    followers: int | None = None
+
+    popularity: int | None = None
+
+    verified: bool = False
 
     events: ArtistEventStats

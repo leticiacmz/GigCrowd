@@ -1,5 +1,6 @@
 from pymongo import ASCENDING
-
+from datetime import datetime, UTC
+from bson import ObjectId
 from app.domain.artist import Artist
 from app.mappers.artist_document_mapper import (
     ArtistDocumentMapper,
@@ -138,3 +139,38 @@ class ArtistRepository(BaseRepository):
             for document in documents
 
         ]
+
+    async def update_last_synced(
+        self,
+        artist_id: str,
+    ):
+
+        await self.collection.update_one(
+            {
+                "_id": ObjectId(artist_id),
+            },
+            {
+                "$set": {
+                    "last_synced_at": datetime.now(UTC),
+                    "sync_status": "success",
+                    "updated_at": datetime.now(UTC),
+                }
+            },
+        )
+
+    async def update_sync_error(
+        self,
+        artist_id: str,
+    ):
+
+        await self.collection.update_one(
+            {
+                "_id": ObjectId(artist_id),
+            },
+            {
+                "$set": {
+                    "sync_status": "error",
+                    "updated_at": datetime.now(UTC),
+                }
+            },
+        )

@@ -1,28 +1,36 @@
 from fastapi import APIRouter, Depends
-
+from motor.motor_asyncio import AsyncIOMotorClient
+from app.config import settings
 from app.services.artist_search_service import ArtistSearchService
 from app.services.artist_import_service import ArtistImportService
 from app.services.provider_manager import ProviderManager
 from app.schemas.artist_import import ArtistImportRequest
+
 from app.repositories.artist_repository import ArtistRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.venue_repository import VenueRepository
+
 from app.services.event_import_service import EventImportService
 from app.services.event_service import EventService
-from app.providers.registry import registry
-from app.schemas.event_response import EventResponse
-from app.config import settings
-from app.services.artist_synchronization_service import ArtistSynchronizationService
-from motor.motor_asyncio import AsyncIOMotorClient
+
 from app.services.artist_service import ArtistService
+
+from app.services.synchronization_service import (
+    SynchronizationService,
+)
+
+from app.schemas.event_response import EventResponse
+
 from app.schemas.artist_profile_response import (
     ArtistProfileResponse,
 )
 
-from app.database.connection import get_database
 from app.schemas.artist_list_response import (
     ArtistListResponse,
 )
+
+from app.database.connection import get_database
+
 from app.repositories.artist_follow_repository import (
     ArtistFollowRepository,
 )
@@ -39,39 +47,72 @@ from app.auth.dependencies import (
     get_current_active_user,
 )
 
+
 router = APIRouter(
     prefix="/artists",
     tags=["Artists"],
 )
 
-client = AsyncIOMotorClient(settings.MONGODB_URL)
 
-db = client[settings.DATABASE_NAME]
+
+client = AsyncIOMotorClient(
+    settings.MONGODB_URL
+)
+
+db = client[
+    settings.DATABASE_NAME
+]
+
+# ----------------------------------------------------
+# Repositories
+# ----------------------------------------------------
+
+artist_repository = ArtistRepository(
+    db
+)
+
+
+event_repository = EventRepository(
+    db
+)
+
+
+venue_repository = VenueRepository(
+    db
+)
+
+
+artist_follow_repository = ArtistFollowRepository(
+    db
+)
+
+
+
+# ----------------------------------------------------
+# Providers
+# ----------------------------------------------------
 
 provider_manager = ProviderManager()
 
-artist_repository = ArtistRepository(db)
 
-artist_follow_repository = ArtistFollowRepository(db)
 
-artist_follow_service = ArtistFollowService(
-    repository=artist_follow_repository,
-    artist_repository=artist_repository,
-)
+# ----------------------------------------------------
+# Services
+# ----------------------------------------------------
 
 artist_search_service = ArtistSearchService(
     provider_manager=provider_manager,
     artist_repository=artist_repository,
 )
 
+
+
 artist_import_service = ArtistImportService(
     provider_manager=provider_manager,
     artist_repository=artist_repository,
 )
 
-event_repository = EventRepository(db)
 
-venue_repository = VenueRepository(db)
 
 event_import_service = EventImportService(
     provider_manager=provider_manager,
@@ -79,53 +120,80 @@ event_import_service = EventImportService(
     venue_repository=venue_repository,
 )
 
-event_repository = EventRepository(db)
+
+
+synchronization_service = SynchronizationService(
+    artist_repository=artist_repository,
+    event_import_service=event_import_service,
+)
+
+
+artist_service = ArtistService(
+    artist_repository=artist_repository,
+    event_repository=event_repository,
+    synchronization_service=synchronization_service,
+)
+
+
 
 event_service = EventService(
     event_repository=event_repository,
     venue_repository=venue_repository,
     artist_repository=artist_repository,
 )
-artist_synchronization_service = (
-    ArtistSynchronizationService(
-        artist_import_service=artist_import_service,
-        event_import_service=event_import_service,
-    )
-)
-artist_service = ArtistService(
+
+
+
+artist_follow_service = ArtistFollowService(
+    repository=artist_follow_repository,
     artist_repository=artist_repository,
-    event_repository=event_repository,
 )
+
+
+
+
 
 # ----------------------------------------------------
 # Routes
 # ----------------------------------------------------
 
+
 @router.get("/search")
-async def search_artist(q: str):
-    return await artist_search_service.search_artist(q)
+async def search_artist(
+    q: str,
+):
+
+    return await artist_search_service.search_artist(
+        q
+    )
+
+
+
 
 
 @router.post("/import")
 async def import_artist(
     data: ArtistImportRequest,
 ):
-    return await (
-        artist_synchronization_service
-        .synchronize_artist(data)
+
+    artist = await artist_repository.get_by_external_id(
+        data.provider,
+        data.provider_artist_id,
     )
 
-@router.get(
-    "/{artist_slug}/events",
-    response_model=list[EventResponse],
-)
-async def get_artist_events(
-    artist_slug: str,
-):
+    if not artist:
 
-    return await event_service.get_artist_events(
-        artist_slug
+        result = await artist_import_service.import_artist(
+            data
+        )
+
+        artist = result["artist"]
+
+
+    return await synchronization_service.synchronize_artist(
+        artist
     )
+
 
 @router.get(
     "",
@@ -140,6 +208,63 @@ async def get_artists(
         limit=limit,
         skip=skip,
     )
+
+
+
+
+
+@router.get(
+    "/{artist_slug}",
+    response_model=ArtistProfileResponse,
+)
+async def get_artist(
+    artist_slug: str,
+):
+
+    return await artist_service.get_artist_profile(
+        artist_slug
+    )
+
+
+
+
+
+@router.get(
+    "/{artist_slug}/events",
+    response_model=list[EventResponse],
+)
+async def get_artist_events(
+    artist_slug: str,
+):
+
+    return await event_service.get_artist_events(
+        artist_slug
+    )
+
+
+
+
+
+@router.get(
+    "/{artist_slug}/events/all",
+)
+async def get_all_artist_events(
+    artist_slug: str,
+):
+
+    return await event_service.get_all_artist_events(
+        artist_slug
+    )
+
+
+
+
+
+# ----------------------------------------------------
+# Follow
+# ----------------------------------------------------
+
+
 @router.post(
     "/{artist_slug}/follow",
     response_model=ArtistFollowResponse,
@@ -155,6 +280,8 @@ async def follow_artist(
         user_id=current_user["_id"],
         artist_slug=artist_slug,
     )
+
+
 
 
 
@@ -176,6 +303,8 @@ async def unfollow_artist(
 
 
 
+
+
 @router.get(
     "/{artist_slug}/follow",
     response_model=ArtistFollowResponse,
@@ -190,29 +319,4 @@ async def get_follow_status(
     return await artist_follow_service.status(
         user_id=current_user["_id"],
         artist_slug=artist_slug,
-    )
-
-@router.get(
-    "/{artist_slug}",
-    response_model=ArtistProfileResponse,
-)
-async def get_artist(
-    artist_slug: str,
-):
-
-    return await artist_service.get_artist_profile(
-        artist_slug
-    )
-
-@router.get(
-    "/{artist_slug}/events/all",
-)
-async def get_all_artist_events(
-
-    artist_slug: str,
-
-):
-
-    return await event_service.get_all_artist_events(
-        artist_slug
     )

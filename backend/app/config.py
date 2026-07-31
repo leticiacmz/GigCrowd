@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     SPOTIFY_AUTH_URL: str 
 
     CORS_ORIGINS: List[str]
-
+    CORS_ORIGIN_REGEX: str | None = None
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

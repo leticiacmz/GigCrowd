@@ -16,7 +16,18 @@ class BandsintownClient:
         self,
         artist_name: str,
         date: str = "upcoming",
-    ) -> list[dict]:
+    ):
+
+        print("==============================")
+        print("BANDSINTOWN REQUEST")
+        print(
+            f"Artist: {artist_name}"
+        )
+        print(
+            f"Date: {date}"
+        )
+        print("==============================")
+
 
         response = await self.client.get(
             f"/artists/{artist_name}/events",
@@ -25,6 +36,24 @@ class BandsintownClient:
                 "date": date,
             },
         )
+
+
+        print(
+            "STATUS:",
+            response.status_code
+        )
+
+
+        print(
+            "RESPONSE SIZE:",
+            len(response.text)
+        )
+
+
+        print(
+            response.text[:500]
+        )
+
 
         response.raise_for_status()
 

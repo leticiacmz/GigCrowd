@@ -247,3 +247,51 @@ class EventRepository(BaseRepository):
             for document in documents
 
         ]
+
+    async def update_event(
+        self,
+        event: Event,
+    ):
+
+        await self.collection.update_one(
+            {
+                "external_ids.bandsintown": event.external_ids["bandsintown"],
+            },
+            {
+                "$set": event.model_dump(
+                    exclude={
+                        "id",
+                    }
+                )
+            },
+        )
+
+
+    async def upsert_event(
+        self,
+        event: Event,
+    ) -> bool:
+        """
+        Returns:
+            True  -> created
+            False -> updated
+        """
+
+        existing = await self.get_by_external_id(
+            "bandsintown",
+            event.external_ids["bandsintown"],
+        )
+
+        if existing:
+
+            await self.update_event(
+                event
+            )
+
+            return False
+
+        await self.insert_event(
+            event
+        )
+
+        return True

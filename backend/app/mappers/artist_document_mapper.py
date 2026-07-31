@@ -9,11 +9,15 @@ class ArtistDocumentMapper:
     ) -> Artist:
 
         return Artist(
+
             id=str(document["_id"]),
 
             name=document["name"],
 
-            normalized_name=document["normalized_name"],
+            normalized_name=document.get(
+                "normalized_name",
+                "",
+            ),
 
             slug=document["slug"],
 
@@ -43,6 +47,12 @@ class ArtistDocumentMapper:
                 "verified",
                 False,
             ),
-        )
 
-    
+            sync_status=document.get(
+                "sync_status"
+            ),
+
+            last_synced_at=document.get(
+                "last_synced_at"
+            ),
+        )
