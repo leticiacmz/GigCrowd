@@ -2,37 +2,56 @@ from datetime import datetime, UTC, timedelta
 
 from app.core.logger import get_logger
 
+from app.domain.artist import Artist
 
-logger = get_logger("synchronization")
+from app.repositories.artist_repository import (
+    ArtistRepository,
+)
+
+from app.services.event_import_service import (
+    EventImportService,
+)
+
+
+logger = get_logger(
+    "synchronization"
+)
 
 
 class SynchronizationService:
 
     def __init__(
         self,
-        event_import_service,
-        artist_repository,
+        artist_repository: ArtistRepository,
+        event_import_service: EventImportService,
     ):
 
-        self.event_import_service = event_import_service
+        self.artist_repository = (
+            artist_repository
+        )
 
-        self.artist_repository = artist_repository
+        self.event_import_service = (
+            event_import_service
+        )
 
 
     async def synchronize_artist(
         self,
-        artist,
+        artist: Artist,
         *,
-        force: bool = True,
+        force: bool = False,
     ):
 
         if (
             not force
-            and not self._needs_sync(artist)
+            and not self._needs_sync(
+                artist
+            )
         ):
 
             logger.info(
-                f"{artist.name} sync skipped. Cache valid."
+                f"{artist.name} sync skipped. "
+                "Cache valid."
             )
 
             return {
@@ -47,30 +66,96 @@ class SynchronizationService:
         )
 
 
-        result = await (
-            self.event_import_service
-            .sync_artist_events(
-                artist
+        try:
+
+            result = await (
+                self.event_import_service
+                .sync_artist_events(
+                    artist
+                )
             )
-        )
 
 
-        await self.artist_repository.update_last_synced(
-            artist.id
-        )
+            events_received = result.get(
+                "events_received",
+                0,
+            )
 
 
-        return {
-            "artist": artist,
-            "synced": True,
-            "result": result,
-        }
+            if events_received > 0:
+
+                await (
+                    self.artist_repository
+                    .update_last_synced(
+                        artist.id
+                    )
+                )
+
+
+                artist.last_synced_at = (
+                    datetime.now(UTC)
+                )
+
+                artist.sync_status = (
+                    "success"
+                )
+
+            else:
+
+                logger.warning(
+                    f"{artist.name} sync returned "
+                    "0 events. Keeping previous sync."
+                )
+
+
+                await (
+                    self.artist_repository
+                    .update_sync_empty(
+                        artist.id
+                    )
+                )
+
+
+                artist.sync_status = (
+                    "empty"
+                )
+
+
+            return {
+                "artist": artist,
+                "synced": True,
+                "result": result,
+            }
+
+
+        except Exception as error:
+
+            logger.exception(
+                f"Sync failed for {artist.name}: "
+                f"{error}"
+            )
+
+
+            await (
+                self.artist_repository
+                .update_sync_error(
+                    artist.id
+                )
+            )
+
+
+            artist.sync_status = (
+                "error"
+            )
+
+
+            raise
 
 
 
     def _needs_sync(
         self,
-        artist,
+        artist: Artist,
     ) -> bool:
 
 
@@ -79,10 +164,14 @@ class SynchronizationService:
             return True
 
 
-        last_sync = artist.last_synced_at
+        last_sync = (
+            artist.last_synced_at
+        )
 
 
-        # Corrige datas antigas do Mongo
+        #
+        # Mongo pode retornar datetime sem timezone
+        #
         if last_sync.tzinfo is None:
 
             last_sync = last_sync.replace(

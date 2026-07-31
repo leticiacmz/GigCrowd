@@ -174,3 +174,20 @@ class ArtistRepository(BaseRepository):
                 }
             },
         )
+
+    async def update_sync_empty(
+        self,
+        artist_id: str,
+    ):
+
+        await self.collection.update_one(
+            {
+                "_id": ObjectId(artist_id),
+            },
+            {
+                "$set": {
+                    "sync_status": "empty",
+                    "updated_at": datetime.now(UTC),
+                }
+            },
+        )

@@ -1,10 +1,11 @@
 from typing import Optional
-from datetime import datetime
 
 from pydantic import Field
 
 from .entity import Entity
 
+from datetime import datetime
+from typing import Optional
 
 class Artist(Entity):
 
@@ -14,21 +15,27 @@ class Artist(Entity):
 
     slug: str
 
+
     external_ids: dict[str, str] = Field(
-        default_factory=dict
+        default_factory=dict,
     )
+
 
     followers: Optional[int] = None
 
     image: Optional[str] = None
 
+
     genres: list[str] = Field(
-        default_factory=list
+        default_factory=list,
     )
+
 
     popularity: Optional[int] = None
 
+
     verified: bool = False
+
 
     sync_status: Optional[str] = None
 
