@@ -191,3 +191,34 @@ class ArtistRepository(BaseRepository):
                 }
             },
         )
+
+    # NEW: Lookup artist by Songkick ID (handles multiple ID formats)
+    async def get_by_songkick_id(
+        self,
+        songkick_id: int | str,
+    ) -> Artist | None:
+        """
+        Lookup artist by Songkick ID.
+        Handles multiple formats:
+        - 976211 (numeric)
+        - "976211" (string numeric)
+        - "Artist976211" (prefixed string)
+        """
+        # Normalize to prefixed format
+        if isinstance(songkick_id, int):
+            songkick_id = str(songkick_id)
+        
+        # If already prefixed, use as-is
+        if songkick_id.startswith("Artist"):
+            prefixed_id = songkick_id
+        else:
+            prefixed_id = f"Artist{songkick_id}"
+        
+        document = await self.find_one({
+            "external_ids.songkick": prefixed_id
+        })
+        
+        if not document:
+            return None
+        
+        return ArtistDocumentMapper.to_domain(document)

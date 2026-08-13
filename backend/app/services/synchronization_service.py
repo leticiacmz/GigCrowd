@@ -40,6 +40,7 @@ class SynchronizationService:
         artist: Artist,
         *,
         force: bool = False,
+        provider: str = "bandsintown",
     ):
 
         if (
@@ -71,7 +72,8 @@ class SynchronizationService:
             result = await (
                 self.event_import_service
                 .sync_artist_events(
-                    artist
+                    artist,
+                    provider=provider
                 )
             )
 

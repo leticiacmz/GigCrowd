@@ -118,6 +118,7 @@ event_import_service = EventImportService(
     provider_manager=provider_manager,
     event_repository=event_repository,
     venue_repository=venue_repository,
+    artist_repository=artist_repository,
 )
 
 
@@ -191,7 +192,8 @@ async def import_artist(
 
 
     return await synchronization_service.synchronize_artist(
-        artist
+        artist,
+        provider=data.provider
     )
 
 

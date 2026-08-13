@@ -16,13 +16,17 @@ class ProviderManager:
     async def search_artist(
         self,
         query: str,
+        provider: str = "songkick",
     ):
-
-        spotify = self.get_provider(
-            "spotify"
+        """
+        Search artists using the specified provider.
+        Defaults to Songkick as the canonical source.
+        """
+        selected_provider = self.get_provider(
+            provider
         )
 
-        return await spotify.search_artist(
+        return await selected_provider.search_artist(
             query
         )
 
@@ -43,12 +47,16 @@ class ProviderManager:
     async def get_artist_events(
         self,
         artist_name: str,
+        provider: str = "bandsintown",
     ):
-
-        bandsintown = self.get_provider(
-            "bandsintown"
+        """
+        Get artist events using the specified provider.
+        Defaults to Bandsintown for backward compatibility.
+        """
+        selected_provider = self.get_provider(
+            provider
         )
 
-        return await bandsintown.get_artist_events(
+        return await selected_provider.get_artist_events(
             artist_name
         )

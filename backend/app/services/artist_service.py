@@ -45,8 +45,15 @@ class ArtistService:
                 detail="Artist not found.",
             )
 
+        # Determine provider from artist's external_ids
+        # Prefer Songkick if available, otherwise default to bandsintown
+        provider = "bandsintown"
+        if artist.external_ids and "songkick" in artist.external_ids:
+            provider = "songkick"
+        
         sync = await self.synchronization_service.synchronize_artist(
-            artist
+            artist,
+            provider=provider
         )
 
         logger.info(

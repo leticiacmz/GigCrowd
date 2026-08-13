@@ -1,8 +1,13 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, List
 
 
 class Settings(BaseSettings):
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True
+    )
     
     APP_NAME: str
     APP_VERSION: str
@@ -30,14 +35,15 @@ class Settings(BaseSettings):
     SPOTIFY_REDIRECT_URI: str
     SPOTIFY_API_URL: str 
     SPOTIFY_AUTH_URL: str 
+    
+    # Songkick configuration
+    SONGKICK_BASE_URL: str = "https://www.songkick.com"
+    PLAYWRIGHT_HEADLESS: bool = True
+    PLAYWRIGHT_TIMEOUT: int = 60000
+    SONGKICK_REQUIRE_NAVIGATION: bool = True
 
     CORS_ORIGINS: List[str]
     CORS_ORIGIN_REGEX: str | None = None
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
 
 
-settings = Settings()
 settings = Settings()

@@ -8,6 +8,14 @@ class EventDocumentMapper:
         document: dict,
     ) -> Event:
 
+        # Backward compatibility: migrate artist_slug to artist_slugs if not present
+        artist_slugs = document.get("artist_slugs")
+        if artist_slugs is None:
+            artist_slug = document.get("artist_slug", "")
+            artist_slugs = [artist_slug] if artist_slug else []
+        else:
+            artist_slug = document.get("artist_slug", artist_slugs[0] if artist_slugs else "")
+
         return Event(
 
             id=str(document["_id"]),
@@ -17,7 +25,9 @@ class EventDocumentMapper:
                 {},
             ),
 
-            artist_slug=document["artist_slug"],
+            artist_slugs=artist_slugs,
+
+            artist_slug=artist_slug,
 
             venue_slug=document["venue_slug"],
 
@@ -25,6 +35,15 @@ class EventDocumentMapper:
 
             starts_at=document.get(
                 "starts_at"
+            ),
+
+            ends_at=document.get(
+                "ends_at"
+            ),
+
+            event_type=document.get(
+                "event_type",
+                "Concert"
             ),
 
             sold_out=document.get(

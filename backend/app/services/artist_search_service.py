@@ -41,8 +41,10 @@ class ArtistSearchService:
 
 
 
-        spotify_results = await self.provider_manager.search_artist(
-            query
+        # Use Songkick as canonical source (Phase 2)
+        songkick_results = await self.provider_manager.search_artist(
+            query,
+            provider="songkick"
         )
 
 
@@ -51,7 +53,7 @@ class ArtistSearchService:
 
 
 
-        for artist in spotify_results:
+        for artist in songkick_results:
 
 
             existing = await self.artist_repository.get_by_external_id(

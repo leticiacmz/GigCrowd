@@ -64,3 +64,46 @@ class VenueRepository(BaseRepository):
             counter += 1
 
         return slug
+
+    # NEW: Upsert venue by external ID
+    async def upsert_venue(
+        self,
+        venue: Venue,
+    ) -> bool:
+        """
+        Upsert venue using external_ids for deduplication.
+        Returns:
+            True  -> created
+            False -> updated
+        """
+        # Check if venue exists by external ID
+        for provider, external_id in venue.external_ids.items():
+            existing = await self.find_one({
+                f"external_ids.{provider}": external_id
+            })
+            if existing:
+                # Update existing venue
+                await self.collection.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": venue.model_dump(exclude={"id", "external_ids"})}
+                )
+                return False
+        
+        # Check by normalized name as fallback
+        existing = await self.get_by_name(venue.name)
+        if existing:
+            # Merge external IDs
+            existing_external_ids = existing.get("external_ids", {})
+            merged_external_ids = {**existing_external_ids, **venue.external_ids}
+            await self.collection.update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": venue.model_dump(exclude={"id", "external_ids"}),
+                    "$set": {"external_ids": merged_external_ids}
+                }
+            )
+            return False
+        
+        # Insert new venue
+        await self.insert_venue(venue)
+        return True

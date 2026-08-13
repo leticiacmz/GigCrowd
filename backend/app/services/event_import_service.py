@@ -3,6 +3,8 @@ from app.core.logger import get_logger
 from app.mappers.bandsintown_event_mapper import (
     BandsintownEventMapper,
 )
+from app.mappers.songkick_event_mapper import SongkickEventMapper
+from app.mappers.songkick_venue_mapper import SongkickVenueMapper
 
 from app.repositories.event_repository import (
     EventRepository,
@@ -11,6 +13,7 @@ from app.repositories.event_repository import (
 from app.repositories.venue_repository import (
     VenueRepository,
 )
+from app.repositories.artist_repository import ArtistRepository
 
 from app.services.provider_manager import (
     ProviderManager,
@@ -29,6 +32,7 @@ class EventImportService:
         provider_manager: ProviderManager,
         event_repository: EventRepository,
         venue_repository: VenueRepository,
+        artist_repository: ArtistRepository,
     ):
 
         self.provider_manager = provider_manager
@@ -36,28 +40,45 @@ class EventImportService:
         self.event_repository = event_repository
 
         self.venue_repository = venue_repository
+        
+        self.artist_repository = artist_repository
 
     async def sync_artist_events(
         self,
         artist: Artist,
+        provider: str = "bandsintown",
     ):
-
+        """
+        Synchronize events for an artist from the specified provider.
+        
+        Phase 2: Supports both Bandsintown and Songkick providers.
+        """
         started_at = time.perf_counter()
 
         logger.info(
-            f"🎤 Synchronizing artist: '{artist.name}'"
+            f"🎤 Synchronizing artist: '{artist.name}' from {provider}"
         )
 
-     
+        if provider == "songkick":
+            # Use Songkick-specific import logic
+            from app.services.songkick_event_import_service import SongkickEventImportService
+            songkick_service = SongkickEventImportService(
+                self.provider_manager,
+                self.event_repository,
+                self.venue_repository,
+                self.artist_repository
+            )
+            return await songkick_service.sync_artist_events(artist)
+        
+        # Bandsintown (existing logic)
         payloads = await self.provider_manager.get_artist_events(
-    artist.name
+            artist.name,
+            provider=provider
         )
-
 
         logger.info(
             f"Payloads received: {len(payloads)}"
         )
-
 
         if payloads:
             logger.info(
