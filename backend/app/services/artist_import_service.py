@@ -73,6 +73,21 @@ class ArtistImportService:
                 "using the name and SongkickArtistMapper directly."
             )
 
+        # DEPRECATED: Spotify import for canonical artists
+        # Phase 3: Spotify should only be used for enrichment/discovery
+        # Canonical artists must come from Songkick
+        if request.provider == "spotify":
+            logger.error(
+                f"Spotify import deprecated for canonical artist creation. "
+                f"Use Songkick for canonical artist import. "
+                f"Spotify can be used for enrichment via RecommendationService."
+            )
+            raise NotImplementedError(
+                "Spotify import deprecated for canonical artist creation. "
+                "Use Songkick (canonical source) for artist import. "
+                "Spotify should only be used for enrichment/discovery via RecommendationService."
+            )
+
 
         artist = await self.provider_manager.get_artist(
             provider=request.provider,

@@ -66,7 +66,12 @@ class SpotifyArtistMapper:
     def map_artist(
         payload: dict,
     ) -> Artist:
-
+        """
+        Map Spotify artist data to domain Artist.
+        
+        IMPORTANT: This should only be used for enrichment of existing canonical artists.
+        The slug and identity should come from Songkick, not Spotify.
+        """
         images = payload.get(
             "images",
             [],
@@ -80,6 +85,8 @@ class SpotifyArtistMapper:
                 payload["name"]
             ),
 
+            # Note: Slug should come from Songkick, not Spotify
+            # This is kept for backward compatibility but should not be used for canonical creation
             slug=generate_slug(
                 payload["name"]
             ),
@@ -108,3 +115,25 @@ class SpotifyArtistMapper:
 
             verified=False,
         )
+
+    @staticmethod
+    def map_enrichment(
+        payload: dict,
+    ) -> dict:
+        """
+        Map Spotify artist data to enrichment fields only.
+        
+        This returns only the fields that can be used to enrich
+        an existing canonical Artist without modifying identity.
+        """
+        images = payload.get("images", [])
+
+        return {
+            "external_ids": {
+                "spotify": payload["id"]
+            },
+            "followers": payload.get("followers", {}).get("total"),
+            "image": images[0]["url"] if images else None,
+            "genres": payload.get("genres", []),
+            "popularity": payload.get("popularity"),
+        }

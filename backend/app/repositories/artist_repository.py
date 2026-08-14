@@ -8,6 +8,9 @@ from app.mappers.artist_document_mapper import (
 from app.repositories.base import BaseRepository
 from app.utils.slug import generate_slug
 from app.utils.text import normalize_text
+from app.core.logger import get_logger
+
+logger = get_logger("artist_repository")
 
 
 class ArtistRepository(BaseRepository):
@@ -222,3 +225,56 @@ class ArtistRepository(BaseRepository):
             return None
         
         return ArtistDocumentMapper.to_domain(document)
+
+    async def enrich_with_spotify(
+        self,
+        artist_id: str,
+        spotify_enrichment: dict,
+    ):
+        """
+        Enrich an existing artist with Spotify metadata.
+        
+        This merges Spotify enrichment fields without overwriting
+        canonical Songkick identity fields.
+        """
+        # Get current artist to preserve existing external_ids
+        current_artist = await self.find_one({"_id": ObjectId(artist_id)})
+        
+        if not current_artist:
+            logger.warning(f"Artist {artist_id} not found for enrichment")
+            return
+        
+        # Prepare enrichment data
+        enrichment_updates = {}
+        
+        # Merge external_ids (preserve existing)
+        existing_external_ids = current_artist.get("external_ids", {})
+        spotify_external_ids = spotify_enrichment.get("external_ids", {})
+        
+        enrichment_updates["external_ids"] = {
+            **existing_external_ids,
+            **spotify_external_ids
+        }
+        
+        # Add optional enrichment fields only if not already set
+        if spotify_enrichment.get("image") and not current_artist.get("image"):
+            enrichment_updates["image"] = spotify_enrichment["image"]
+        
+        if spotify_enrichment.get("genres"):
+            enrichment_updates["genres"] = spotify_enrichment["genres"]
+        
+        if spotify_enrichment.get("followers"):
+            enrichment_updates["followers"] = spotify_enrichment["followers"]
+        
+        if spotify_enrichment.get("popularity"):
+            enrichment_updates["popularity"] = spotify_enrichment["popularity"]
+        
+        if enrichment_updates:
+            enrichment_updates["updated_at"] = datetime.now(UTC)
+            
+            await self.collection.update_one(
+                {"_id": ObjectId(artist_id)},
+                {"$set": enrichment_updates}
+            )
+            
+            logger.info(f"Enriched artist {artist_id} with Spotify data, preserved external_ids: {enrichment_updates['external_ids']}")

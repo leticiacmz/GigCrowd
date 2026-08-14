@@ -175,12 +175,16 @@ async def get_spotify_recommendations(
     current_user: dict = Depends(get_current_active_user)
 ):
     """
-    Get event recommendations based on user's Spotify artists
+    Get event recommendations based on user's Spotify artists.
+    
+    Phase 3: This uses Spotify as a taste/interest signal for recommendations.
+    Canonical artist/event data should come from Songkick.
+    This endpoint is for discovery only, not canonical data ingestion.
     """
     from app.database.connection import get_database
     db = get_database()
     
-    # Get user's favorite artists
+    # Get user's favorite artists (Spotify IDs from user taste data)
     user = await db.users.find_one({"_id": current_user["_id"]})
     favorite_artists = user.get("favorite_artists", [])
     
@@ -190,7 +194,9 @@ async def get_spotify_recommendations(
             "events": []
         }
     
-    # Search for events for each favorite artist
+    # Search for events for each favorite artist using external event sources
+    # Note: This is for recommendation/discovery only
+    # Canonical event data should come from Songkick via event synchronization
     from app.ingestion.sources.setlistfm_source import SetlistFmSource
     from app.ingestion.sources.ticketmaster_source import TicketMasterSource
     from app.ingestion.sources.bandsintown_source import BandsintownSource
