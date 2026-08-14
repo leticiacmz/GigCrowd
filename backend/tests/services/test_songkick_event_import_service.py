@@ -22,8 +22,9 @@ async def test_resolve_artist_ids_single():
         artist_repository=mock_artist_repo
     )
     
-    result = await service._resolve_artist_ids([976211])
+    result = await service._resolve_artist_ids([976211], "demi-lovato")
     
+    # Should include resolved artist (not duplicated since it's the initiating artist)
     assert result == ["demi-lovato"]
     mock_artist_repo.get_by_songkick_id.assert_called_once_with(976211)
 
@@ -45,9 +46,12 @@ async def test_resolve_artist_ids_multiple():
         artist_repository=mock_artist_repo
     )
     
-    result = await service._resolve_artist_ids([976211, 22766, 29315])
+    result = await service._resolve_artist_ids([976211, 22766, 29315], "demi-lovato")
     
-    assert result == ["demi-lovato", "foo-fighters", "maroon-5"]
+    # Should include all resolved artists
+    assert "demi-lovato" in result
+    assert "foo-fighters" in result
+    assert "maroon-5" in result
     assert mock_artist_repo.get_by_songkick_id.call_count == 3
 
 
@@ -67,9 +71,9 @@ async def test_resolve_artist_ids_partial_failure():
         artist_repository=mock_artist_repo
     )
     
-    result = await service._resolve_artist_ids([976211, 999999])
+    result = await service._resolve_artist_ids([976211, 999999], "demi-lovato")
     
-    # Only the resolved artist should be returned
+    # Should include initiating artist and resolved artist (deduplicated)
     assert result == ["demi-lovato"]
     assert mock_artist_repo.get_by_songkick_id.call_count == 2
 
@@ -78,7 +82,7 @@ async def test_resolve_artist_ids_partial_failure():
 async def test_resolve_artist_ids_all_not_found():
     """Test resolving when no artist IDs are found"""
     mock_artist_repo = AsyncMock()
-    mock_artist_repo.get_by_songkick_id = AsyncMock(return_value=None)
+    mock_artist_repo.get_by_songkick_id = AsyncMock(side_effect=[None, None])
     
     service = SongkickEventImportService(
         provider_manager=MagicMock(),
@@ -87,10 +91,10 @@ async def test_resolve_artist_ids_all_not_found():
         artist_repository=mock_artist_repo
     )
     
-    result = await service._resolve_artist_ids([999999, 888888])
+    result = await service._resolve_artist_ids([999999, 888888], "demi-lovato")
     
-    # Empty list when no artists resolved
-    assert result == []
+    # Should still include initiating artist as fallback
+    assert result == ["demi-lovato"]
     assert mock_artist_repo.get_by_songkick_id.call_count == 2
 
 
@@ -106,7 +110,8 @@ async def test_resolve_artist_ids_empty_list():
         artist_repository=mock_artist_repo
     )
     
-    result = await service._resolve_artist_ids([])
+    result = await service._resolve_artist_ids([], "demi-lovato")
     
-    assert result == []
+    # Should include initiating artist even with empty list
+    assert result == ["demi-lovato"]
     mock_artist_repo.get_by_songkick_id.assert_not_called()

@@ -47,11 +47,11 @@ class ProviderManager:
     async def get_artist_events(
         self,
         artist_name: str,
-        provider: str = "bandsintown",
+        provider: str = "songkick",
     ):
         """
         Get artist events using the specified provider.
-        Defaults to Bandsintown for backward compatibility.
+        Defaults to Songkick as the canonical source (Phase 4).
         """
         selected_provider = self.get_provider(
             provider

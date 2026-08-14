@@ -46,8 +46,8 @@ class ArtistService:
             )
 
         # Determine provider from artist's external_ids
-        # Prefer Songkick if available, otherwise default to bandsintown
-        provider = "bandsintown"
+        # Songkick is the canonical source (Phase 4)
+        provider = "songkick"
         if artist.external_ids and "songkick" in artist.external_ids:
             provider = "songkick"
         

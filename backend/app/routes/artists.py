@@ -4,6 +4,7 @@ from app.config import settings
 from app.services.artist_search_service import ArtistSearchService
 from app.services.artist_import_service import ArtistImportService
 from app.services.provider_manager import ProviderManager
+from app.services.recommendation_service import RecommendationService
 from app.schemas.artist_import import ArtistImportRequest
 
 from app.repositories.artist_repository import ArtistRepository
@@ -135,6 +136,8 @@ artist_service = ArtistService(
     synchronization_service=synchronization_service,
 )
 
+
+recommendation_service = RecommendationService()
 
 
 event_service = EventService(
@@ -322,3 +325,31 @@ async def get_follow_status(
         user_id=current_user["_id"],
         artist_slug=artist_slug,
     )
+
+
+@router.get(
+    "/{artist_slug}/related",
+)
+async def get_related_artists(
+    artist_slug: str,
+):
+    """
+    Get related artists using Spotify for discovery.
+    
+    Phase 4: This uses Spotify for discovery/recommendation only.
+    Does not create canonical artists.
+    """
+    artist = await artist_repository.get_by_slug(artist_slug)
+    
+    if not artist:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Artist not found")
+    
+    # Use RecommendationService to get related artists from Spotify
+    related = await recommendation_service.get_related_artists(artist.name)
+    
+    return {
+        "artist": artist.name,
+        "related_artists": related,
+        "source": "spotify_discovery"
+    }

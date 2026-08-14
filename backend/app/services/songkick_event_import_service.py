@@ -49,6 +49,10 @@ class SongkickEventImportService:
         - Multi-artist events (festivals)
         - Venue upsert
         - Event upsert with proper deduplication
+        
+        Phase 4: For festival events with unresolved artists, the event
+        is skipped if no artists can be resolved. This is a limitation
+        of Songkick not providing a direct artist-by-ID endpoint.
         """
         started_at = time.perf_counter()
 
@@ -84,12 +88,13 @@ class SongkickEventImportService:
             artist_ids = payload.get("artist_ids", [])
             
             # Resolve Songkick artist IDs to local artist slugs
-            artist_slugs = await self._resolve_artist_ids(artist_ids)
+            artist_slugs = await self._resolve_artist_ids(artist_ids, artist.slug)
             
             if not artist_slugs:
                 logger.warning(
                     f"Skipping event {payload.get('id')}: "
-                    f"No artists could be resolved from IDs {artist_ids}"
+                    f"No artists could be resolved from IDs {artist_ids}. "
+                    f"Event will be imported when participating artists are added."
                 )
                 events_skipped += 1
                 continue
@@ -182,32 +187,47 @@ class SongkickEventImportService:
     async def _resolve_artist_ids(
         self,
         artist_ids: list[int],
+        initiating_artist_slug: str,
     ) -> list[str]:
         """
         Resolve Songkick numeric artist IDs to local artist slugs.
         
+        Phase 4: Ensures the initiating artist is always included,
+        even if other festival artists are not yet imported.
+        
         Example:
             [976211] -> ["demi-lovato"]
             [976211, 22766] -> ["demi-lovato", "foo-fighters"]
+        
+        Limitation: Songkick does not provide a direct artist-by-ID endpoint.
+        Artists that don't exist locally cannot be resolved without
+        an additional search by name, which is not deterministic from
+        a numeric ID alone.
         """
         artist_slugs = []
         unresolved_ids = []
+        
+        # Always include the initiating artist as a fallback
+        artist_slugs.append(initiating_artist_slug)
         
         for songkick_id in artist_ids:
             # Try to resolve via Songkick ID
             artist = await self.artist_repository.get_by_songkick_id(songkick_id)
             
             if artist:
-                artist_slugs.append(artist.slug)
+                # Add if not already present (avoid duplicates)
+                if artist.slug not in artist_slugs:
+                    artist_slugs.append(artist.slug)
                 logger.debug(f"Resolved Songkick ID {songkick_id} to slug {artist.slug}")
             else:
                 unresolved_ids.append(songkick_id)
                 logger.warning(f"Could not resolve Songkick artist ID: {songkick_id}")
         
         if unresolved_ids:
-            logger.warning(
+            logger.info(
                 f"Unresolved Songkick artist IDs: {unresolved_ids}. "
-                f"These artists do not exist locally."
+                f"Event will proceed with {len(artist_slugs)} resolved artist(s). "
+                f"Import festival artists to include them in event."
             )
         
         return artist_slugs

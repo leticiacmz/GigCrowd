@@ -46,12 +46,13 @@ class EventImportService:
     async def sync_artist_events(
         self,
         artist: Artist,
-        provider: str = "bandsintown",
+        provider: str = "songkick",
     ):
         """
         Synchronize events for an artist from the specified provider.
         
-        Phase 2: Supports both Bandsintown and Songkick providers.
+        Phase 4: Defaults to Songkick as the canonical source.
+        Bandsintown support retained for backward compatibility.
         """
         started_at = time.perf_counter()
 

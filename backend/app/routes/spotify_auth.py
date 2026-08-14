@@ -197,6 +197,7 @@ async def get_spotify_recommendations(
     # Search for events for each favorite artist using external event sources
     # Note: This is for recommendation/discovery only
     # Canonical event data should come from Songkick via event synchronization
+    # Phase 4: Bandsintown retained here only for discovery fallback
     from app.ingestion.sources.setlistfm_source import SetlistFmSource
     from app.ingestion.sources.ticketmaster_source import TicketMasterSource
     from app.ingestion.sources.bandsintown_source import BandsintownSource

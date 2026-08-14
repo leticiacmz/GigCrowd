@@ -40,7 +40,7 @@ class SynchronizationService:
         artist: Artist,
         *,
         force: bool = False,
-        provider: str = "bandsintown",
+        provider: str = "songkick",
     ):
 
         if (
