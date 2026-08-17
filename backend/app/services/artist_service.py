@@ -3,6 +3,7 @@ from app.core.logger import get_logger
 
 from app.repositories.artist_repository import ArtistRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.artist_follow_repository import ArtistFollowRepository
 from app.services.synchronization_service import SynchronizationService
 from app.schemas.artist_profile_response import (
     ArtistProfileResponse,
@@ -20,12 +21,15 @@ class ArtistService:
         self,
         artist_repository: ArtistRepository,
         event_repository: EventRepository,
+        artist_follow_repository: ArtistFollowRepository,
         synchronization_service: SynchronizationService,
     ):
 
         self.artist_repository = artist_repository
 
         self.event_repository = event_repository
+
+        self.artist_follow_repository = artist_follow_repository
 
         self.synchronization_service = synchronization_service
 
@@ -72,6 +76,9 @@ class ArtistService:
             )
         )
 
+        # Get GigCrowd follower count (internal, not from external providers)
+        followers_count = await self.artist_follow_repository.count_followers(slug)
+
         return ArtistProfileResponse(
 
             id=artist.id,
@@ -87,6 +94,8 @@ class ArtistService:
             external_ids=artist.external_ids,
 
             followers=artist.followers,
+
+            followers_count=followers_count,
 
             popularity=artist.popularity,
 

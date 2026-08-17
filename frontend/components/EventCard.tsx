@@ -41,8 +41,6 @@ interface EventCardProps {
 
 
 
-
-
 export default function EventCard({
   event,
 }: EventCardProps) {
@@ -61,7 +59,6 @@ export default function EventCard({
       new Date(event.starts_at),
       'h:mm a'
     );
-
 
 
 
@@ -90,7 +87,6 @@ export default function EventCard({
         ">
 
 
-
           <div className="
             flex
             items-start
@@ -111,7 +107,6 @@ export default function EventCard({
             </h3>
 
 
-
             <Badge
               variant="accent"
               size="sm"
@@ -125,17 +120,11 @@ export default function EventCard({
           </div>
 
 
-
-
-
-
-
           <div className="
             text-sm
             text-gray-400
             space-y-1
           ">
-
 
             <p>
 
@@ -155,24 +144,20 @@ export default function EventCard({
 
                   {
                     event.venue.city && (
-
                       <>
                         {' • '}
                         {event.venue.city}
                       </>
-
                     )
                   }
 
 
                   {
                     event.venue.country && (
-
                       <>
                         {' • '}
                         {event.venue.country}
                       </>
-
                     )
                   }
 
@@ -183,14 +168,7 @@ export default function EventCard({
             }
 
 
-
           </div>
-
-
-
-
-
-
 
 
           <div className="
@@ -210,12 +188,12 @@ export default function EventCard({
             </span>
 
 
-
             <span>
 
               ? {event.maybe_count ?? 0}
 
             </span>
+
 
 
 
@@ -229,8 +207,6 @@ export default function EventCard({
           </div>
 
 
-
-
         </div>
 
 
@@ -240,5 +216,4 @@ export default function EventCard({
     </Link>
 
   );
-
 }

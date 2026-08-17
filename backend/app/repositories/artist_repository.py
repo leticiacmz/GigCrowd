@@ -1,14 +1,20 @@
 from pymongo import ASCENDING
 from datetime import datetime, UTC
 from bson import ObjectId
+
 from app.domain.artist import Artist
+
 from app.mappers.artist_document_mapper import (
     ArtistDocumentMapper,
 )
+
 from app.repositories.base import BaseRepository
+
 from app.utils.slug import generate_slug
 from app.utils.text import normalize_text
+
 from app.core.logger import get_logger
+
 
 logger = get_logger("artist_repository")
 
@@ -81,6 +87,32 @@ class ArtistRepository(BaseRepository):
             document
         )
 
+    async def get_by_songkick_id(
+        self,
+        songkick_id: int | str,
+    ) -> Artist | None:
+
+        if isinstance(songkick_id, int):
+            songkick_id = str(songkick_id)
+
+        if songkick_id.startswith("Artist"):
+            prefixed_id = songkick_id
+        else:
+            prefixed_id = f"Artist{songkick_id}"
+
+        document = await self.find_one(
+            {
+                "external_ids.songkick": prefixed_id
+            }
+        )
+
+        if not document:
+            return None
+
+        return ArtistDocumentMapper.to_domain(
+            document
+        )
+
     async def generate_unique_slug(
         self,
         name: str,
@@ -111,9 +143,13 @@ class ArtistRepository(BaseRepository):
         artist: Artist,
     ):
 
-        return await self.insert_one(
+        result = await self.insert_one(
             artist.model_dump()
         )
+
+        artist.id = str(result.inserted_id)
+
+        return artist
 
     async def get_all(
         self,
@@ -134,14 +170,33 @@ class ArtistRepository(BaseRepository):
         )
 
         return [
-
             ArtistDocumentMapper.to_domain(
                 document
             )
-
             for document in documents
-
         ]
+
+    async def update_image(
+        self,
+        artist_id: str,
+        image: str,
+    ):
+
+        await self.collection.update_one(
+            {
+                "_id": ObjectId(artist_id),
+            },
+            {
+                "$set": {
+                    "image": image,
+                    "updated_at": datetime.now(UTC),
+                }
+            },
+        )
+
+        logger.info(
+            f"Updated image for artist {artist_id}"
+        )
 
     async def update_last_synced(
         self,
@@ -194,87 +249,3 @@ class ArtistRepository(BaseRepository):
                 }
             },
         )
-
-    # NEW: Lookup artist by Songkick ID (handles multiple ID formats)
-    async def get_by_songkick_id(
-        self,
-        songkick_id: int | str,
-    ) -> Artist | None:
-        """
-        Lookup artist by Songkick ID.
-        Handles multiple formats:
-        - 976211 (numeric)
-        - "976211" (string numeric)
-        - "Artist976211" (prefixed string)
-        """
-        # Normalize to prefixed format
-        if isinstance(songkick_id, int):
-            songkick_id = str(songkick_id)
-        
-        # If already prefixed, use as-is
-        if songkick_id.startswith("Artist"):
-            prefixed_id = songkick_id
-        else:
-            prefixed_id = f"Artist{songkick_id}"
-        
-        document = await self.find_one({
-            "external_ids.songkick": prefixed_id
-        })
-        
-        if not document:
-            return None
-        
-        return ArtistDocumentMapper.to_domain(document)
-
-    async def enrich_with_spotify(
-        self,
-        artist_id: str,
-        spotify_enrichment: dict,
-    ):
-        """
-        Enrich an existing artist with Spotify metadata.
-        
-        This merges Spotify enrichment fields without overwriting
-        canonical Songkick identity fields.
-        """
-        # Get current artist to preserve existing external_ids
-        current_artist = await self.find_one({"_id": ObjectId(artist_id)})
-        
-        if not current_artist:
-            logger.warning(f"Artist {artist_id} not found for enrichment")
-            return
-        
-        # Prepare enrichment data
-        enrichment_updates = {}
-        
-        # Merge external_ids (preserve existing)
-        existing_external_ids = current_artist.get("external_ids", {})
-        spotify_external_ids = spotify_enrichment.get("external_ids", {})
-        
-        enrichment_updates["external_ids"] = {
-            **existing_external_ids,
-            **spotify_external_ids
-        }
-        
-        # Add optional enrichment fields only if not already set
-        if spotify_enrichment.get("image") and not current_artist.get("image"):
-            enrichment_updates["image"] = spotify_enrichment["image"]
-        
-        if spotify_enrichment.get("genres"):
-            enrichment_updates["genres"] = spotify_enrichment["genres"]
-        
-        if spotify_enrichment.get("followers"):
-            enrichment_updates["followers"] = spotify_enrichment["followers"]
-        
-        if spotify_enrichment.get("popularity"):
-            enrichment_updates["popularity"] = spotify_enrichment["popularity"]
-        
-        if enrichment_updates:
-            enrichment_updates["updated_at"] = datetime.now(UTC)
-            
-            await self.collection.update_one(
-                {"_id": ObjectId(artist_id)},
-                {"$set": enrichment_updates}
-            )
-            
-            logger.info(f"Enriched artist {artist_id} with Spotify data, preserved external_ids: {enrichment_updates['external_ids']}")

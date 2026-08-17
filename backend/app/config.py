@@ -43,7 +43,6 @@ class Settings(BaseSettings):
     SONGKICK_REQUIRE_NAVIGATION: bool = True
 
     CORS_ORIGINS: List[str]
-    CORS_ORIGIN_REGEX: str | None = None
 
 
 settings = Settings()

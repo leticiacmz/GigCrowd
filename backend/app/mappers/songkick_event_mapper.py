@@ -1,88 +1,476 @@
+from datetime import datetime
+from typing import Any
+
 from app.domain.event import Event
 from app.domain.venue import Venue
-from datetime import datetime
 
 
 class SongkickEventMapper:
+
     @staticmethod
-    def to_domain(songkick_event_data: dict, artist_slugs: list[str]) -> tuple[Event, Venue]:
-        """
-        Map Songkick event data to domain Event and Venue.
-        Preserves complete artist relationship via artist_slugs array.
-        """
-        # Parse date
-        starts_at = None
-        if songkick_event_data.get("date"):
-            try:
-                starts_at = datetime.fromisoformat(
-                    songkick_event_data["date"].replace("Z", "+00:00")
+    def to_domain(
+        songkick_event_data: dict,
+        artist_slugs: list[str],
+    ) -> tuple[Event, Venue]:
+
+        if not isinstance(
+            songkick_event_data,
+            dict,
+        ):
+
+            raise ValueError(
+                "Invalid Songkick event payload."
+            )
+
+        # ========================================================
+        # EVENT ID
+        # ========================================================
+
+        event_id = (
+            songkick_event_data.get(
+                "songkick_id"
+            )
+            or songkick_event_data.get(
+                "id"
+            )
+        )
+
+        if not event_id:
+
+            raise ValueError(
+                "Songkick event does not have "
+                "a valid ID."
+            )
+
+        # ========================================================
+        # EVENT TITLE
+        # ========================================================
+
+        title = (
+            songkick_event_data.get(
+                "name"
+            )
+        )
+
+        if not title:
+
+            # HTML fallback can occasionally leave the anchor
+            # text empty. Do not fabricate an event title.
+            raise ValueError(
+                f"Songkick event {event_id} "
+                "does not have a valid name."
+            )
+
+        # ========================================================
+        # DATES
+        # ========================================================
+
+        starts_at = (
+            SongkickEventMapper
+            ._parse_datetime(
+                songkick_event_data.get(
+                    "start_date"
                 )
-            except ValueError:
-                pass
-        
-        # Parse end date for festivals
-        ends_at = None
-        if songkick_event_data.get("end_date"):
-            try:
-                ends_at = datetime.fromisoformat(
-                    songkick_event_data["end_date"].replace("Z", "+00:00")
+            )
+        )
+
+        ends_at = (
+            SongkickEventMapper
+            ._parse_datetime(
+                songkick_event_data.get(
+                    "end_date"
                 )
-            except ValueError:
-                pass
-        
-        # Create venue
-        venue = SongkickEventMapper._create_venue(songkick_event_data)
-        
-        # Create event
+            )
+        )
+
+        # ========================================================
+        # VENUE
+        # ========================================================
+
+        venue = (
+            SongkickEventMapper
+            ._create_venue(
+                songkick_event_data
+            )
+        )
+
+        # ========================================================
+        # EVENT TYPE
+        # ========================================================
+
+        raw_event_type = (
+            songkick_event_data.get(
+                "event_type"
+            )
+        )
+
+        if raw_event_type == "festival":
+
+            event_type = "FestivalInstance"
+
+        else:
+
+            event_type = "Concert"
+
+        # ========================================================
+        # EVENT
+        # ========================================================
+
         event = Event(
-            external_ids={"songkick": songkick_event_data.get("id")},
+
+            external_ids={
+                "songkick": str(
+                    event_id
+                )
+            },
+
             artist_slugs=artist_slugs,
-            artist_slug=artist_slugs[0] if artist_slugs else "",
+
+            artist_slug=(
+                artist_slugs[0]
+                if artist_slugs
+                else ""
+            ),
+
             venue_slug=venue.slug,
-            title=songkick_event_data.get("name"),
+
+            title=title,
+
             starts_at=starts_at,
+
             ends_at=ends_at,
-            event_type=songkick_event_data.get("event_type", "Concert"),
+
+            event_type=event_type,
+
             sold_out=False,
+
             free=False,
-            ticket_url=None,
+
+            ticket_url=(
+                SongkickEventMapper
+                ._extract_ticket_url(
+                    songkick_event_data
+                )
+            ),
+
             going_count=0,
+
             maybe_count=0,
-            went_count=0
+
+            went_count=0,
         )
-        
-        return (event, venue)
-    
+
+        return event, venue
+
+    # ============================================================
+    # DATETIME
+    # ============================================================
+
     @staticmethod
-    def _create_venue(songkick_event_data: dict) -> Venue:
-        """Create Venue from Songkick event data."""
-        from app.utils.slug import generate_slug
-        from app.utils.text import normalize_text
-        
-        # Parse geolocation
-        lat, lng = None, None
-        geolocation = songkick_event_data.get("geolocation")
-        if geolocation:
-            try:
-                lat_str, lng_str = geolocation.split(",")
-                lat = float(lat_str)
-                lng = float(lng_str)
-            except (ValueError, AttributeError):
-                pass
-        
-        venue_id = songkick_event_data.get("venue_id")
-        venue_name = songkick_event_data.get("venue_name", "")
-        
-        return Venue(
-            external_ids={"songkick": str(venue_id)} if venue_id else {},
-            name=venue_name,
-            normalized_name=normalize_text(venue_name),
-            slug=generate_slug(venue_name),
-            city=songkick_event_data.get("city_name", ""),
-            country=songkick_event_data.get("country_name", ""),
-            region=None,
-            latitude=lat,
-            longitude=lng,
-            street_address=None,
-            postal_code=None
+    def _parse_datetime(
+        value: Any,
+    ) -> datetime | None:
+
+        if not value:
+
+            return None
+
+        if isinstance(
+            value,
+            datetime,
+        ):
+
+            return value
+
+        if not isinstance(
+            value,
+            str,
+        ):
+
+            return None
+
+        try:
+
+            normalized = (
+                value.strip()
+            )
+
+            normalized = (
+                normalized.replace(
+                    "Z",
+                    "+00:00",
+                )
+            )
+
+            return datetime.fromisoformat(
+                normalized
+            )
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            return None
+
+    # ============================================================
+    # VENUE
+    # ============================================================
+
+    @staticmethod
+    def _create_venue(
+        songkick_event_data: dict,
+    ) -> Venue:
+
+        from app.utils.slug import (
+            generate_slug,
         )
+
+        from app.utils.text import (
+            normalize_text,
+        )
+
+        location = (
+            songkick_event_data.get(
+                "venue"
+            )
+        )
+
+        if not isinstance(
+            location,
+            dict,
+        ):
+
+            location = {}
+
+        venue_name = (
+            location.get(
+                "name"
+            )
+            or "Unknown Venue"
+        )
+
+        address = (
+            location.get(
+                "address"
+            )
+        )
+
+        street_address = None
+
+        postal_code = None
+
+        city = ""
+
+        country = ""
+
+        region = None
+
+        if isinstance(
+            address,
+            dict,
+        ):
+
+            street_address = (
+                address.get(
+                    "streetAddress"
+                )
+                or address.get(
+                    "street"
+                )
+            )
+
+            postal_code = (
+                address.get(
+                    "postalCode"
+                )
+            )
+
+            city = (
+                address.get(
+                    "addressLocality"
+                )
+                or address.get(
+                    "city"
+                )
+                or ""
+            )
+
+            country_value = (
+                address.get(
+                    "addressCountry"
+                )
+                or address.get(
+                    "country"
+                )
+                or ""
+            )
+
+            if isinstance(
+                country_value,
+                dict,
+            ):
+
+                country = (
+                    country_value.get(
+                        "name"
+                    )
+                    or country_value.get(
+                        "code"
+                    )
+                    or ""
+                )
+
+            else:
+
+                country = str(
+                    country_value
+                )
+
+            region = (
+                address.get(
+                    "addressRegion"
+                )
+                or address.get(
+                    "region"
+                )
+            )
+
+        elif isinstance(
+            address,
+            str,
+        ):
+
+            street_address = address
+
+        venue_url = (
+            location.get(
+                "url"
+            )
+        )
+
+        venue_external_id = (
+            SongkickEventMapper
+            ._extract_venue_id(
+                venue_url
+            )
+        )
+
+        external_ids = {}
+
+        if venue_external_id:
+
+            external_ids[
+                "songkick"
+            ] = venue_external_id
+
+        slug = generate_slug(
+            venue_name
+        )
+
+        return Venue(
+
+            external_ids=external_ids,
+
+            name=venue_name,
+
+            normalized_name=normalize_text(
+                venue_name
+            ),
+
+            slug=slug,
+
+            city=city,
+
+            country=country,
+
+            region=region,
+
+            latitude=None,
+
+            longitude=None,
+
+            street_address=street_address,
+
+            postal_code=postal_code,
+        )
+
+    # ============================================================
+    # TICKETS
+    # ============================================================
+
+    @staticmethod
+    def _extract_ticket_url(
+        event_data: dict,
+    ) -> str | None:
+
+        offers = event_data.get(
+            "offers"
+        )
+
+        if not offers:
+
+            return None
+
+        if isinstance(
+            offers,
+            dict,
+        ):
+
+            offers = [
+                offers
+            ]
+
+        if not isinstance(
+            offers,
+            list,
+        ):
+
+            return None
+
+        for offer in offers:
+
+            if not isinstance(
+                offer,
+                dict,
+            ):
+
+                continue
+
+            url = offer.get(
+                "url"
+            )
+
+            if url:
+
+                return str(
+                    url
+                )
+
+        return None
+
+    # ============================================================
+    # VENUE ID
+    # ============================================================
+
+    @staticmethod
+    def _extract_venue_id(
+        venue_url: str | None,
+    ) -> str | None:
+
+        if not venue_url:
+
+            return None
+
+        import re
+
+        match = re.search(
+            r"/venues/(\d+)",
+            venue_url,
+        )
+
+        if match:
+
+            return match.group(1)
+
+        return None

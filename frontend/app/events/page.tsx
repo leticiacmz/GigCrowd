@@ -14,7 +14,6 @@ interface ArtistSearchResult {
   provider_artist_id: string;
   name: string;
   followers?: number;
-  popularity?: number;
   image?: string;
   genres?: string[];
   is_imported: boolean;
@@ -50,7 +49,9 @@ export default function EventsPage() {
 
     if (!artist.is_imported) {
       target = await artistAPI.importArtist(
-        artist.provider_artist_id
+        artist.provider_artist_id,
+        artist.provider,
+        artist
       );
     }
 
@@ -71,7 +72,7 @@ export default function EventsPage() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search on Spotify..."
+              placeholder="Search artists..."
               className="flex-1"
             />
             <Button type="submit" disabled={loading}>

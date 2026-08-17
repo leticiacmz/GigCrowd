@@ -30,6 +30,8 @@ from app.schemas.artist_list_response import (
     ArtistListResponse,
 )
 
+from app.mappers.artist_response_mapper import ArtistResponseMapper
+
 from app.database.connection import get_database
 
 from app.repositories.artist_follow_repository import (
@@ -133,6 +135,7 @@ synchronization_service = SynchronizationService(
 artist_service = ArtistService(
     artist_repository=artist_repository,
     event_repository=event_repository,
+    artist_follow_repository=artist_follow_repository,
     synchronization_service=synchronization_service,
 )
 
@@ -155,8 +158,6 @@ artist_follow_service = ArtistFollowService(
 
 
 
-
-
 # ----------------------------------------------------
 # Routes
 # ----------------------------------------------------
@@ -173,30 +174,19 @@ async def search_artist(
 
 
 
-
-
 @router.post("/import")
 async def import_artist(
     data: ArtistImportRequest,
 ):
 
-    artist = await artist_repository.get_by_external_id(
-        data.provider,
-        data.provider_artist_id,
+    result = await artist_import_service.import_artist(
+        data
     )
 
-    if not artist:
+    artist = result["artist"]
 
-        result = await artist_import_service.import_artist(
-            data
-        )
-
-        artist = result["artist"]
-
-
-    return await synchronization_service.synchronize_artist(
-        artist,
-        provider=data.provider
+    return ArtistResponseMapper.to_response(
+        artist
     )
 
 

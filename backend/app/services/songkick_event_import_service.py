@@ -1,24 +1,31 @@
 from app.core.logger import get_logger
 
 from app.mappers.songkick_event_mapper import SongkickEventMapper
-from app.mappers.songkick_venue_mapper import SongkickVenueMapper
 
 from app.repositories.event_repository import (
     EventRepository,
 )
+
 from app.repositories.venue_repository import (
     VenueRepository,
 )
-from app.repositories.artist_repository import ArtistRepository
+
+from app.repositories.artist_repository import (
+    ArtistRepository,
+)
 
 from app.services.provider_manager import (
     ProviderManager,
 )
-import time
 
 from app.domain.artist import Artist
 
-logger = get_logger("songkick_event_import")
+import time
+
+
+logger = get_logger(
+    "songkick_event_import"
+)
 
 
 class SongkickEventImportService:
@@ -32,9 +39,18 @@ class SongkickEventImportService:
     ):
 
         self.provider_manager = provider_manager
-        self.event_repository = event_repository
-        self.venue_repository = venue_repository
-        self.artist_repository = artist_repository
+
+        self.event_repository = (
+            event_repository
+        )
+
+        self.venue_repository = (
+            venue_repository
+        )
+
+        self.artist_repository = (
+            artist_repository
+        )
 
     async def sync_artist_events(
         self,
@@ -42,96 +58,335 @@ class SongkickEventImportService:
     ):
         """
         Synchronize events for an artist from Songkick.
-        
-        This handles:
-        - Fetching events from Songkick
-        - Resolving Songkick artist IDs to local artist slugs
-        - Multi-artist events (festivals)
-        - Venue upsert
-        - Event upsert with proper deduplication
-        
-        Phase 4: For festival events with unresolved artists, the event
-        is skipped if no artists can be resolved. This is a limitation
-        of Songkick not providing a direct artist-by-ID endpoint.
+
+        Flow:
+
+            SongkickClient
+                ↓
+            SongkickProvider
+                ↓
+            normalized event catalogue
+                ↓
+            SongkickEventMapper
+                ↓
+            Venue + Event repositories
         """
+
         started_at = time.perf_counter()
 
         logger.info(
-            f"🎤 Synchronizing Songkick events for: '{artist.name}'"
+            f"🎤 Synchronizing Songkick events for: "
+            f"'{artist.name}'"
         )
 
-        # Get Songkick events
-        songkick_provider = self.provider_manager.get_provider("songkick")
-        payloads = await songkick_provider.get_artist_events(artist.name)
+        # --------------------------------------------------
+        # Provider
+        # --------------------------------------------------
+
+        songkick_provider = (
+            self.provider_manager.get_provider(
+                "songkick"
+            )
+        )
+
+        # --------------------------------------------------
+        # Fetch events
+        # --------------------------------------------------
+
+        result = await songkick_provider.get_artist_events(
+            artist.name
+        )
+
+        if not isinstance(result, dict):
+
+            raise TypeError(
+                "SongkickProvider.get_artist_events() "
+                "must return a dictionary."
+            )
+
+        payloads = result.get(
+            "events",
+            [],
+        )
+
+        if not isinstance(payloads, list):
+
+            raise TypeError(
+                "Songkick provider returned an invalid "
+                "'events' value. Expected a list."
+            )
 
         logger.info(
             f"Payloads received: {len(payloads)}"
         )
 
         if payloads:
+
             logger.info(
                 f"First event payload: {payloads[0]}"
             )
-        
+
         logger.info(
             f"📥 Received {len(payloads)} events from Songkick."
         )
 
+        # --------------------------------------------------
+        # Counters
+        # --------------------------------------------------
+
         venues_created = 0
         venues_existing = 0
+
         events_created = 0
         events_existing = 0
         events_skipped = 0
 
+        # --------------------------------------------------
+        # Process events
+        # --------------------------------------------------
+
         for payload in payloads:
-            # Extract artist IDs from Songkick event
-            artist_ids = payload.get("artist_ids", [])
-            
-            # Resolve Songkick artist IDs to local artist slugs
-            artist_slugs = await self._resolve_artist_ids(artist_ids, artist.slug)
-            
-            if not artist_slugs:
-                logger.warning(
-                    f"Skipping event {payload.get('id')}: "
-                    f"No artists could be resolved from IDs {artist_ids}. "
-                    f"Event will be imported when participating artists are added."
-                )
-                events_skipped += 1
-                continue
-            
-            # Map event and venue
-            event, venue = SongkickEventMapper.to_domain(
+
+            if not isinstance(
                 payload,
-                artist_slugs
-            )
-            
-            # Venue upsert
-            venue_created = await self.venue_repository.upsert_venue(venue)
-            if venue_created:
-                venues_created += 1
-            else:
-                venues_existing += 1
-            
-            event.venue_slug = venue.slug
-            
-            # Event upsert using Songkick external ID
-            try:
-                created = await self.event_repository.upsert_event_by_provider(
-                    event,
-                    "songkick"
-                )
-                
-                if created:
-                    events_created += 1
-                else:
-                    events_existing += 1
-            except ValueError as e:
+                dict,
+            ):
+
                 logger.warning(
-                    f"Skipping event without Songkick ID: {e}"
+                    "Skipping invalid Songkick event payload: "
+                    f"{payload!r}"
                 )
+
                 events_skipped += 1
 
-        elapsed = time.perf_counter() - started_at
+                continue
+
+            # --------------------------------------------------
+            # Event ID
+            # --------------------------------------------------
+
+            event_id = (
+                payload.get("songkick_id")
+                or payload.get("id")
+            )
+
+            event_url = payload.get(
+                "url"
+            )
+
+            # --------------------------------------------------
+            # Defensive fallback
+            #
+            # The client should already have extracted the ID
+            # from concert, livestream and festival URLs.
+            #
+            # If we get here without an ID, log the entire
+            # relevant information so we can identify a new
+            # Songkick URL pattern instead of silently losing it.
+            # --------------------------------------------------
+
+            if not event_id:
+
+                logger.warning(
+                    "Skipping Songkick event without "
+                    f"recognized ID. "
+                    f"name={payload.get('name')!r}, "
+                    f"url={event_url!r}, "
+                    f"event_type={payload.get('event_type')!r}, "
+                    f"festival_series_id="
+                    f"{payload.get('festival_series_id')!r}"
+                )
+
+                events_skipped += 1
+
+                continue
+
+            # --------------------------------------------------
+            # Artist relationship
+            # --------------------------------------------------
+
+            artist_ids = payload.get(
+                "artist_ids",
+                [],
+            )
+
+            artist_slugs = (
+                await self._resolve_artist_ids(
+                    artist_ids,
+                    artist.slug,
+                )
+            )
+
+            # The initiating artist must always be included.
+            if not artist_slugs:
+
+                artist_slugs = [
+                    artist.slug
+                ]
+
+            # --------------------------------------------------
+            # Map event + venue
+            # --------------------------------------------------
+
+            try:
+
+                event, venue = (
+                    SongkickEventMapper.to_domain(
+                        payload,
+                        artist_slugs,
+                    )
+                )
+
+            except ValueError as exc:
+
+                logger.warning(
+                    f"Skipping Songkick event "
+                    f"{event_id}: {exc}"
+                )
+
+                events_skipped += 1
+
+                continue
+
+            # --------------------------------------------------
+            # Venue
+            # --------------------------------------------------
+
+            try:
+
+                venue_created = (
+                    await self.venue_repository
+                    .upsert_venue(
+                        venue
+                    )
+                )
+
+                if venue_created:
+
+                    venues_created += 1
+
+                else:
+
+                    venues_existing += 1
+
+            except Exception as exc:
+
+                logger.exception(
+                    f"Failed to upsert venue for "
+                    f"Songkick event {event_id}: {exc}"
+                )
+
+                events_skipped += 1
+
+                continue
+
+            # --------------------------------------------------
+            # Resolve persisted venue
+            # --------------------------------------------------
+
+            persisted_venue = None
+
+            for provider, external_id in (
+                venue.external_ids.items()
+            ):
+
+                if not external_id:
+                    continue
+
+                persisted_venue = (
+                    await self.venue_repository
+                    .get_by_external_id(
+                        provider,
+                        external_id,
+                    )
+                )
+
+                if persisted_venue:
+                    break
+
+            # --------------------------------------------------
+            # Fallback by normalized name
+            # --------------------------------------------------
+
+            if not persisted_venue:
+
+                persisted_venue = (
+                    await self.venue_repository
+                    .get_by_name(
+                        venue.name
+                    )
+                )
+
+            # --------------------------------------------------
+            # Resolve final venue slug
+            # --------------------------------------------------
+
+            if persisted_venue:
+
+                event.venue_slug = (
+                    persisted_venue["slug"]
+                )
+
+            else:
+
+                event.venue_slug = venue.slug
+
+                logger.warning(
+                    f"Could not resolve persisted venue "
+                    f"after upsert. "
+                    f"Event={event_id}, "
+                    f"venue={venue.name!r}, "
+                    f"slug={venue.slug!r}"
+                )
+
+            # --------------------------------------------------
+            # Event
+            # --------------------------------------------------
+
+            try:
+
+                created = (
+                    await self.event_repository
+                    .upsert_event_by_provider(
+                        event,
+                        "songkick",
+                    )
+                )
+
+                if created:
+
+                    events_created += 1
+
+                else:
+
+                    events_existing += 1
+
+            except ValueError as exc:
+
+                logger.warning(
+                    f"Skipping Songkick event "
+                    f"{event_id}: {exc}"
+                )
+
+                events_skipped += 1
+
+            except Exception as exc:
+
+                logger.exception(
+                    f"Failed to upsert Songkick event "
+                    f"{event_id}: {exc}"
+                )
+
+                events_skipped += 1
+
+        # --------------------------------------------------
+        # Summary
+        # --------------------------------------------------
+
+        elapsed = (
+            time.perf_counter()
+            - started_at
+        )
 
         logger.info(
             "──────── Songkick Synchronization Summary ────────"
@@ -154,7 +409,7 @@ class SongkickEventImportService:
         )
 
         logger.info(
-            f"⏭️ Skipped events (no artists resolved): {events_skipped}"
+            f"⏭️ Skipped events: {events_skipped}"
         )
 
         logger.info(
@@ -181,7 +436,10 @@ class SongkickEventImportService:
             "events_skipped": events_skipped,
             "venues_created": venues_created,
             "venues_existing": venues_existing,
-            "elapsed_seconds": round(elapsed, 2),
+            "elapsed_seconds": round(
+                elapsed,
+                2,
+            ),
         }
 
     async def _resolve_artist_ids(
@@ -191,43 +449,60 @@ class SongkickEventImportService:
     ) -> list[str]:
         """
         Resolve Songkick numeric artist IDs to local artist slugs.
-        
-        Phase 4: Ensures the initiating artist is always included,
-        even if other festival artists are not yet imported.
-        
-        Example:
-            [976211] -> ["demi-lovato"]
-            [976211, 22766] -> ["demi-lovato", "foo-fighters"]
-        
-        Limitation: Songkick does not provide a direct artist-by-ID endpoint.
-        Artists that don't exist locally cannot be resolved without
-        an additional search by name, which is not deterministic from
-        a numeric ID alone.
+
+        The initiating artist is always included.
         """
-        artist_slugs = []
+
+        artist_slugs = [
+            initiating_artist_slug
+        ]
+
         unresolved_ids = []
-        
-        # Always include the initiating artist as a fallback
-        artist_slugs.append(initiating_artist_slug)
-        
+
         for songkick_id in artist_ids:
-            # Try to resolve via Songkick ID
-            artist = await self.artist_repository.get_by_songkick_id(songkick_id)
-            
-            if artist:
-                # Add if not already present (avoid duplicates)
-                if artist.slug not in artist_slugs:
-                    artist_slugs.append(artist.slug)
-                logger.debug(f"Resolved Songkick ID {songkick_id} to slug {artist.slug}")
-            else:
-                unresolved_ids.append(songkick_id)
-                logger.warning(f"Could not resolve Songkick artist ID: {songkick_id}")
-        
-        if unresolved_ids:
-            logger.info(
-                f"Unresolved Songkick artist IDs: {unresolved_ids}. "
-                f"Event will proceed with {len(artist_slugs)} resolved artist(s). "
-                f"Import festival artists to include them in event."
+
+            if not songkick_id:
+                continue
+
+            artist = (
+                await self.artist_repository
+                .get_by_songkick_id(
+                    songkick_id
+                )
             )
-        
+
+            if artist:
+
+                if artist.slug not in artist_slugs:
+
+                    artist_slugs.append(
+                        artist.slug
+                    )
+
+                logger.debug(
+                    f"Resolved Songkick ID "
+                    f"{songkick_id} to slug "
+                    f"{artist.slug}"
+                )
+
+            else:
+
+                unresolved_ids.append(
+                    songkick_id
+                )
+
+                logger.warning(
+                    f"Could not resolve Songkick "
+                    f"artist ID: {songkick_id}"
+                )
+
+        if unresolved_ids:
+
+            logger.info(
+                f"Unresolved Songkick artist IDs: "
+                f"{unresolved_ids}. "
+                f"Event will proceed with "
+                f"{len(artist_slugs)} resolved artist(s)."
+            )
+
         return artist_slugs

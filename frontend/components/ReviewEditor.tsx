@@ -31,9 +31,6 @@ interface ReviewEditorProps {
 
 
 
-
-
-
 export default function ReviewEditor({
 
   initialRating = 0,
@@ -55,12 +52,10 @@ export default function ReviewEditor({
   ] = useState(initialRating);
 
 
-
   const [
     review,
     setReview,
   ] = useState(initialReview);
-
 
 
   const [
@@ -71,14 +66,10 @@ export default function ReviewEditor({
   );
 
 
-
   const [
     loading,
     setLoading,
   ] = useState(false);
-
-
-
 
 
 
@@ -90,16 +81,13 @@ export default function ReviewEditor({
       initialRating
     );
 
-
     setReview(
       initialReview
     );
 
-
     setEditing(
       !initialReview
     );
-
 
   },[
     initialRating,
@@ -109,71 +97,45 @@ export default function ReviewEditor({
 
 
 
-
-
-
-
-
   async function handleSave(){
 
-
+    // Allow saving with text only (rating can be 0)
     if(
-      rating === 0
+      rating === 0 && !review.trim()
     ){
 
       return;
-
     }
-
 
     try{
 
-
       setLoading(true);
 
-
       await onSave({
-
         rating,
-
         review,
-
       });
-
 
       setEditing(false);
 
-
     }finally{
-
 
       setLoading(false);
 
-
     }
-
 
   }
 
 
 
 
-
-
-
-
-
   async function handleDelete(){
-
 
     try{
 
-
       setLoading(true);
 
-
       await onDelete();
-
 
       setRating(0);
 
@@ -181,31 +143,17 @@ export default function ReviewEditor({
 
       setEditing(true);
 
-
     }finally{
-
 
       setLoading(false);
 
-
     }
-
 
   }
 
-
-
-
-
-
-
-
-
   function renderStars(){
 
-
     return (
-
       <div
         className="
           flex
@@ -216,13 +164,9 @@ export default function ReviewEditor({
         {
           [1,2,3,4,5].map(
             star => (
-
               <button
-
                 key={star}
-
                 type="button"
-
                 onClick={() =>
                   setRating(star)
                 }
@@ -236,7 +180,6 @@ export default function ReviewEditor({
               >
 
                 <span
-
                   className={`
                     bg-gradient-to-r
                     from-pink-500
@@ -269,7 +212,6 @@ export default function ReviewEditor({
 
                 </span>
 
-
               </button>
 
             )
@@ -280,21 +222,12 @@ export default function ReviewEditor({
 
     );
 
-
   }
-
-
-
-
-
-
-
 
 
   /*
     REVIEW SALVO
   */
-
   if(
     initialReview &&
     !editing
@@ -310,7 +243,6 @@ export default function ReviewEditor({
 
         {renderStars()}
 
-
         <p
           className="
             text-gray-300
@@ -323,12 +255,8 @@ export default function ReviewEditor({
         </p>
 
 
-
-
         <button
-
           type="button"
-
           onClick={() =>
             setEditing(true)
           }
@@ -346,7 +274,6 @@ export default function ReviewEditor({
             text-transparent
 
             hover:opacity-80
-
             transition
           "
 
@@ -356,27 +283,16 @@ export default function ReviewEditor({
 
         </button>
 
-
-
       </div>
 
     );
 
-
   }
-
-
-
-
-
-
-
 
 
   /*
     FORMULÁRIO
   */
-
   return (
 
     <div
@@ -385,29 +301,20 @@ export default function ReviewEditor({
       "
     >
 
-
       {renderStars()}
-
-
-
-
-
 
 
       {
         initialReview && editing && (
-
           <div
             className="
               flex
               justify-end
             "
           >
-
             <button
 
               type="button"
-
               onClick={() =>
                 setEditing(false)
               }
@@ -425,7 +332,6 @@ export default function ReviewEditor({
                 text-transparent
 
                 hover:opacity-80
-
                 transition
               "
 
@@ -435,24 +341,14 @@ export default function ReviewEditor({
 
             </button>
 
-
           </div>
 
         )
       }
 
 
-
-
-
-
-
-
-
       <textarea
-
         value={review}
-
         onChange={
           event =>
             setReview(
@@ -460,49 +356,31 @@ export default function ReviewEditor({
             )
         }
 
-
         placeholder="Share your experience about this show..."
-
 
         className="
           w-full
-
           min-h-[130px]
-
           rounded-lg
-
           p-4
-
           bg-[#111111]
 
           border
           border-border
 
           text-white
-
           placeholder:text-gray-500
 
           focus:outline-none
-
           focus:border-purple-500
-
           focus:ring-1
-
           focus:ring-purple-500
 
           resize-none
-
           transition
         "
 
       />
-
-
-
-
-
-
-
 
 
       <div
@@ -515,43 +393,36 @@ export default function ReviewEditor({
       >
 
 
-
-
-
-
         <Button
-
           variant="outline"
-
           disabled={
             loading ||
             externalLoading ||
-            rating === 0
+            (rating === 0 && !review.trim())
           }
-
           onClick={handleSave}
 
           className="
-  !px-4
-  !py-1.5
-  !text-sm
-  !rounded-md
+            !px-4
+            !py-1.5
+            !text-sm
+            !rounded-md
 
-  border
-  border-purple-500
+            border
+            border-purple-500
 
-  bg-transparent
+            bg-transparent
 
-  bg-gradient-to-r
-  from-pink-500
-  via-purple-500
-  to-cyan-400
+            bg-gradient-to-r
+            from-pink-500
+            via-purple-500
+            to-cyan-400
 
-  bg-clip-text
-  text-transparent
+            bg-clip-text
+            text-transparent
 
-  hover:scale-105
-  transition-transform
+            hover:scale-105
+            transition-transform
 "
 
         >
@@ -568,25 +439,14 @@ export default function ReviewEditor({
             'Save review'
           }
 
-
         </Button>
-
-
-
-
-
-
 
 
         {
           initialReview && (
-
             <button
-
               type="button"
-
               onClick={handleDelete}
-
               disabled={
                 loading ||
                 externalLoading
@@ -605,7 +465,6 @@ export default function ReviewEditor({
                 text-transparent
 
                 hover:opacity-80
-
                 transition
               "
 
@@ -614,22 +473,14 @@ export default function ReviewEditor({
               Delete review
 
             </button>
-
           )
         }
-
-
-
 
 
       </div>
 
 
-
-
-
     </div>
 
   );
-
 }

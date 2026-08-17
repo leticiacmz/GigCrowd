@@ -637,6 +637,8 @@ export const artistAPI = {
 
   importArtist: async (
     providerArtistId: string,
+    provider: string = 'songkick',
+    artistData?: any
   ) => {
 
     const response =
@@ -646,9 +648,11 @@ export const artistAPI = {
 
         {
 
-          provider: 'spotify',
+          provider,
 
           provider_artist_id: providerArtistId,
+
+          artist_data: artistData,
 
         }
 
@@ -704,6 +708,19 @@ export const artistAPI = {
     const response =
       await api.delete(
         `/artists/${artistSlug}/follow`
+      );
+
+    return response.data;
+
+  },
+
+  getRelatedArtists: async (
+    artistSlug: string
+  ) => {
+
+    const response =
+      await api.get(
+        `/artists/${artistSlug}/related`
       );
 
     return response.data;

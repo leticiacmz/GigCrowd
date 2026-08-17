@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.venue_response import VenueResponse
 
@@ -14,6 +14,10 @@ class EventResponse(BaseModel):
 
     starts_at: Optional[datetime] = None
 
+    ends_at: Optional[datetime] = None
+
+    event_type: str = "Concert"
+
     ticket_url: Optional[str] = None
 
     free: Optional[bool] = None
@@ -22,7 +26,27 @@ class EventResponse(BaseModel):
 
     venue_slug: str
 
-    venue: VenueResponse
+    # Venue can be missing for legacy/orphaned events.
+    # This prevents the entire endpoint from failing.
+    venue: Optional[VenueResponse] = None
+
+    # Complete artist relationship support
+    artist_slugs: List[str] = Field(
+        default_factory=list,
+        description=(
+            "List of artist slugs for this event "
+            "(supports festivals)"
+        ),
+    )
+
+    # Backward compatibility
+    artist_slug: Optional[str] = Field(
+        default=None,
+        description=(
+            "Primary artist slug "
+            "(transitional field for backward compatibility)"
+        ),
+    )
 
     going_count: int = 0
 

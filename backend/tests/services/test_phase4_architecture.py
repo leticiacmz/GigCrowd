@@ -4,6 +4,7 @@ from app.services.provider_manager import ProviderManager
 from app.services.synchronization_service import SynchronizationService
 from app.services.event_import_service import EventImportService
 from app.services.artist_service import ArtistService
+from app.repositories.artist_follow_repository import ArtistFollowRepository
 from app.domain.artist import Artist
 
 
@@ -80,10 +81,14 @@ async def test_artist_service_uses_songkick_for_sync():
         "artist": MagicMock(name="Test Artist"),
         "synced": True
     })
-    
+
+    mock_follow_repo = AsyncMock()
+    mock_follow_repo.count_followers = AsyncMock(return_value=5)
+
     artist_service = ArtistService(
         artist_repository=mock_artist_repo,
         event_repository=mock_event_repo,
+        artist_follow_repository=mock_follow_repo,
         synchronization_service=mock_sync_service
     )
     

@@ -14,6 +14,6 @@ class VenueResponse(BaseModel):
 
     country: str
 
-    latitude: float | None = None
+    latitude: Optional[float] = None
 
-    longitude: float | None = None
+    longitude: Optional[float] = None

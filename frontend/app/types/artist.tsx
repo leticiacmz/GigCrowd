@@ -14,8 +14,6 @@ export interface Artist {
 
   genres: string[];
 
-  popularity?: number;
-
   verified: boolean;
 
   is_imported: boolean;

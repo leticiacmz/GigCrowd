@@ -1,0 +1,3 @@
+@echo off
+echo Starting GigCrowd backend with Windows event loop policy for Playwright...
+python run_server.py

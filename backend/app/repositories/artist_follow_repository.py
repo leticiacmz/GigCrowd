@@ -79,3 +79,14 @@ class ArtistFollowRepository(BaseRepository):
 
 
         return document is not None
+
+    async def count_followers(
+        self,
+        artist_slug: str,
+    ) -> int:
+        """Count GigCrowd users following this artist."""
+        return await self.collection.count_documents(
+            {
+                "artist_slug": artist_slug
+            }
+        )

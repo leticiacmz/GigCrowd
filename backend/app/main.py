@@ -1,4 +1,22 @@
+import asyncio
+import sys
+import os
 from contextlib import asynccontextmanager
+
+# =====================================================
+# Windows Event Loop Policy for Playwright
+# =====================================================
+# Playwright requires subprocess support on Windows.
+# The default SelectorEventLoop doesn't support subprocesses,
+# so we use ProactorEventLoopPolicy on Windows.
+# This must be set at module level before any async operations.
+if sys.platform == "win32":
+    os.environ["PYTHONUNBUFFERED"] = "1"
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception as e:
+        # If policy is already set, that's fine
+        pass
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +55,7 @@ async def lifespan(app: FastAPI):
 
     await db.connect()
 
-    print("🚀 GigCrowd API started")
+    print("GigCrowd API started")
 
 
     yield
@@ -47,7 +65,7 @@ async def lifespan(app: FastAPI):
 
     await db.disconnect()
 
-    print("🛑 GigCrowd API stopped")
+    print("GigCrowd API stopped")
 
 
 
@@ -70,8 +88,6 @@ app.add_middleware(
     CORSMiddleware,
 
     allow_origins=settings.CORS_ORIGINS,
-
-    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
 
     allow_credentials=True,
 

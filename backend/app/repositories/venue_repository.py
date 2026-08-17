@@ -24,6 +24,21 @@ class VenueRepository(BaseRepository):
             }
         )
 
+    async def get_by_external_id(
+        self,
+        provider: str,
+        external_id: str,
+    ):
+
+        if not external_id:
+            return None
+
+        return await self.find_one(
+            {
+                f"external_ids.{provider}": external_id
+            }
+        )
+
     async def insert_venue(
         self,
         venue: Venue,
@@ -45,7 +60,7 @@ class VenueRepository(BaseRepository):
                 "normalized_name": normalized,
             }
         )
-    
+
     async def generate_unique_slug(
         self,
         name: str,
@@ -65,45 +80,105 @@ class VenueRepository(BaseRepository):
 
         return slug
 
-    # NEW: Upsert venue by external ID
     async def upsert_venue(
         self,
         venue: Venue,
     ) -> bool:
         """
-        Upsert venue using external_ids for deduplication.
+        Upsert venue using external IDs for deduplication.
+
         Returns:
             True  -> created
             False -> updated
         """
-        # Check if venue exists by external ID
+
+        # --------------------------------------------------
+        # Check by external ID
+        # --------------------------------------------------
+
         for provider, external_id in venue.external_ids.items():
-            existing = await self.find_one({
-                f"external_ids.{provider}": external_id
-            })
+
+            if not external_id:
+                continue
+
+            existing = await self.get_by_external_id(
+                provider,
+                external_id,
+            )
+
             if existing:
-                # Update existing venue
-                await self.collection.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": venue.model_dump(exclude={"id", "external_ids"})}
+
+                update_data = venue.model_dump(
+                    exclude={
+                        "id",
+                        "external_ids",
+                    }
                 )
+
+                await self.collection.update_one(
+                    {
+                        "_id": existing["_id"]
+                    },
+                    {
+                        "$set": update_data
+                    }
+                )
+
                 return False
-        
-        # Check by normalized name as fallback
-        existing = await self.get_by_name(venue.name)
+
+        # --------------------------------------------------
+        # Fallback: normalized name
+        # --------------------------------------------------
+
+        existing = await self.get_by_name(
+            venue.name
+        )
+
         if existing:
-            # Merge external IDs
-            existing_external_ids = existing.get("external_ids", {})
-            merged_external_ids = {**existing_external_ids, **venue.external_ids}
-            await self.collection.update_one(
-                {"_id": existing["_id"]},
-                {
-                    "$set": venue.model_dump(exclude={"id", "external_ids"}),
-                    "$set": {"external_ids": merged_external_ids}
+
+            existing_external_ids = (
+                existing.get(
+                    "external_ids",
+                    {}
+                )
+            )
+
+            merged_external_ids = {
+                **existing_external_ids,
+                **venue.external_ids,
+            }
+
+            update_data = venue.model_dump(
+                exclude={
+                    "id",
+                    "external_ids",
                 }
             )
+
+            # IMPORTANT:
+            # Keep the external IDs together with the
+            # other fields in the same $set.
+            update_data["external_ids"] = (
+                merged_external_ids
+            )
+
+            await self.collection.update_one(
+                {
+                    "_id": existing["_id"]
+                },
+                {
+                    "$set": update_data
+                }
+            )
+
             return False
-        
-        # Insert new venue
-        await self.insert_venue(venue)
+
+        # --------------------------------------------------
+        # Insert
+        # --------------------------------------------------
+
+        await self.insert_venue(
+            venue
+        )
+
         return True

@@ -28,6 +28,11 @@ class ArtistProfileResponse(BaseModel):
 
     followers: int | None = None
 
+    followers_count: int = Field(
+        default=0,
+        description="GigCrowd follower count (internal, not from external providers)"
+    )
+
     popularity: int | None = None
 
     verified: bool = False

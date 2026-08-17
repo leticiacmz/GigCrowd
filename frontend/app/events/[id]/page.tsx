@@ -36,6 +36,8 @@ interface Event {
 
   artist_slug?: string;
 
+  artist_slugs?: string[];
+
   venue_slug?: string;
 
   starts_at: string;
@@ -313,6 +315,8 @@ export default function EventDetailPage(){
 
       await loadShowLog();
 
+      setEditingReview(false);
+
     }catch(error){
 
       console.error(error);
@@ -496,6 +500,43 @@ async function handleDeleteReview(){
 
               )}
 
+              {event.artist_slugs && event.artist_slugs.length > 0 && (
+
+                <div>
+
+                  <h2 className="font-semibold">
+                    Artists
+                  </h2>
+
+                  <div className="
+                    flex
+                    flex-wrap
+                    gap-2
+                  ">
+
+                    {
+                      event.artist_slugs.map(
+                        (slug, index) => (
+                          <Link
+                            key={index}
+                            href={`/artists/${slug}`}
+                            className="
+                              text-accent
+                              hover:text-accent/80
+                            "
+                          >
+                            {slug}
+                          </Link>
+                        )
+                      )
+                    }
+
+                  </div>
+
+                </div>
+
+              )}
+
               {event.venue_slug && (
 
                 <div>
@@ -615,7 +656,7 @@ async function handleDeleteReview(){
 
               </div>
 
-              {showLog?.status === 'went' && (
+              {showLog?.status === 'went' && !showLog?.review && (
 
                 <div
                   className="
@@ -632,7 +673,71 @@ async function handleDeleteReview(){
                       mb-4
                     "
                   >
-                    Your review
+                    Share your experience
+                  </h2>
+
+                  <Button
+                    onClick={() => setEditingReview(true)}
+                    variant="primary"
+                    className="w-full"
+                  >
+                    Conte sua experiência
+                  </Button>
+
+                </div>
+
+              )}
+
+              {showLog?.status === 'went' && showLog?.review && (
+
+                <div
+                  className="
+                    border-t
+                    border-border
+                    pt-6
+                  "
+                >
+
+                  <h2
+                    className="
+                      text-[18px]
+                      font-bold
+                      mb-4
+                    "
+                  >
+                    Your experience
+                  </h2>
+
+                  <ReviewEditor
+                    initialRating={rating}
+                    initialReview={review}
+                    loading={savingReview}
+                    onSave={handleSaveReview}
+                    onDelete={handleDeleteReview}
+                  />
+
+                </div>
+
+              )}
+
+              {editingReview && (
+
+                <div
+                  className="
+                    border-t
+                    border-border
+                    pt-6
+                  "
+                >
+
+                  <h2
+                    className="
+                      text-[18px]
+                      font-bold
+                      mb-4
+                    "
+                  >
+                    Share your experience
                   </h2>
 
                   <ReviewEditor

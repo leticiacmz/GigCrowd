@@ -1,21 +1,28 @@
 from app.core.logger import get_logger
 
-from app.schemas.artist_search import ArtistSearchItem
+from app.schemas.artist_search import (
+    ArtistSearchItem,
+)
 
-from app.services.provider_manager import ProviderManager
+from app.services.provider_manager import (
+    ProviderManager,
+)
 
-from app.repositories.artist_repository import ArtistRepository
+from app.repositories.artist_repository import (
+    ArtistRepository,
+)
 
-from app.mappers.artist_response_mapper import ArtistResponseMapper
+from app.mappers.artist_response_mapper import (
+    ArtistResponseMapper,
+)
 
 
-
-logger = get_logger("artist_search")
-
+logger = get_logger(
+    "artist_search"
+)
 
 
 class ArtistSearchService:
-
 
     def __init__(
         self,
@@ -23,54 +30,50 @@ class ArtistSearchService:
         artist_repository: ArtistRepository,
     ):
 
-        self.provider_manager = provider_manager
+        self.provider_manager = (
+            provider_manager
+        )
 
-        self.artist_repository = artist_repository
-
-
+        self.artist_repository = (
+            artist_repository
+        )
 
     async def search_artist(
         self,
         query: str,
     ) -> list[ArtistSearchItem]:
 
-
         logger.info(
-            f"Searching artist: {query}"
+            f"Searching artist on Spotify: {query}"
         )
 
-
-
-        # Use Songkick as canonical source (Phase 2)
-        songkick_results = await self.provider_manager.search_artist(
-            query,
-            provider="songkick"
+        spotify_results = (
+            await self.provider_manager.search_artist(
+                query,
+                provider="spotify",
+            )
         )
-
-
 
         results = []
 
+        for artist in spotify_results:
 
-
-        for artist in songkick_results:
-
-
-            existing = await self.artist_repository.get_by_external_id(
-                artist.provider,
-                artist.provider_artist_id,
+            existing = (
+                await self.artist_repository
+                .get_by_external_id(
+                    "spotify",
+                    artist.provider_artist_id,
+                )
             )
 
-
-
-            response = ArtistResponseMapper.from_search_item(
-                artist
+            response = (
+                ArtistResponseMapper
+                .from_search_item(
+                    artist
+                )
             )
-
-
 
             if existing:
-
 
                 response.is_imported = True
 
@@ -78,12 +81,8 @@ class ArtistSearchService:
 
                 response.slug = existing.slug
 
-
-
             results.append(
                 response
             )
-
-
 
         return results
