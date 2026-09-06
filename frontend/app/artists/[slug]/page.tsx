@@ -27,6 +27,8 @@ interface ArtistEvent {
   id: string;
   title: string;
   starts_at: string;
+  ends_at?: string | null;
+  event_type?: string;
   ticket_url?: string | null;
   free?: boolean | null;
   sold_out?: boolean | null;
@@ -37,6 +39,19 @@ interface ArtistEvent {
     city?: string | null;
     country?: string | null;
   };
+  festival?: {
+    series_id?: string | null;
+    name?: string | null;
+    edition?: string | null;
+    url?: string | null;
+    tracking_count?: number | null;
+  } | null;
+  location?: {
+    city?: string | null;
+    country?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+  } | null;
   going_count?: number;
   maybe_count?: number;
   went_count?: number;
@@ -61,7 +76,9 @@ export default function ArtistProfilePage() {
       loadArtist();
       loadArtistEvents();
     }
+
     const token = localStorage.getItem('token');
+
     if (token) {
       loadFollowStatus();
     }
@@ -70,69 +87,157 @@ export default function ArtistProfilePage() {
   async function loadArtist() {
     try {
       setLoading(true);
-      const data = await artistAPI.getArtist(artistSlug);
+
+      const data = await artistAPI.getArtist(
+        artistSlug
+      );
+
       setArtist(data);
+
       loadRelatedArtists();
+
     } catch (error) {
-      console.error('Failed to load artist:', error);
-      setError('Could not load artist profile.');
+
+      console.error(
+        'Failed to load artist:',
+        error
+      );
+
+      setError(
+        'Could not load artist profile.'
+      );
+
     } finally {
+
       setLoading(false);
+
     }
   }
 
   async function loadArtistEvents() {
     try {
-      const data = await eventAPI.getArtistEvents(artistSlug);
+
+      const data =
+        await eventAPI.getArtistEvents(
+          artistSlug
+        );
+
       const sortedEvents = [...data].sort(
-        (a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
+        (a, b) =>
+          new Date(
+            a.starts_at
+          ).getTime()
+          -
+          new Date(
+            b.starts_at
+          ).getTime()
       );
-      setEvents(sortedEvents);
+
+      setEvents(
+        sortedEvents
+      );
+
     } catch (error) {
-      console.error('Failed to load artist events:', error);
+
+      console.error(
+        'Failed to load artist events:',
+        error
+      );
+
     }
   }
 
   async function loadFollowStatus() {
     try {
-      const data = await artistAPI.getFollowStatus(artistSlug);
-      setFollowing(data.following);
+
+      const data =
+        await artistAPI.getFollowStatus(
+          artistSlug
+        );
+
+      setFollowing(
+        data.following
+      );
+
     } catch (error) {
-      console.error('Failed to load follow status:', error);
+
+      console.error(
+        'Failed to load follow status:',
+        error
+      );
+
     }
   }
 
   async function loadRelatedArtists() {
     try {
+
       setRelatedLoading(true);
-      const data = await artistAPI.getRelatedArtists(artistSlug);
-      setRelatedArtists(data.related_artists || []);
+
+      const data =
+        await artistAPI.getRelatedArtists(
+          artistSlug
+        );
+
+      setRelatedArtists(
+        data.related_artists || []
+      );
+
     } catch (error) {
-      console.error('Failed to load related artists:', error);
+
+      console.error(
+        'Failed to load related artists:',
+        error
+      );
+
       setRelatedArtists([]);
+
     } finally {
+
       setRelatedLoading(false);
+
     }
   }
 
   async function handleFollow() {
     try {
+
       setFollowLoading(true);
+
       if (following) {
-        await artistAPI.unfollowArtist(artistSlug);
+
+        await artistAPI.unfollowArtist(
+          artistSlug
+        );
+
         setFollowing(false);
+
       } else {
-        await artistAPI.followArtist(artistSlug);
+
+        await artistAPI.followArtist(
+          artistSlug
+        );
+
         setFollowing(true);
+
       }
+
     } catch (error) {
-      console.error('Failed to update follow:', error);
+
+      console.error(
+        'Failed to update follow:',
+        error
+      );
+
     } finally {
+
       setFollowLoading(false);
+
     }
   }
 
   if (loading) {
+
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingState message="Loading artist..." />
@@ -141,51 +246,113 @@ export default function ArtistProfilePage() {
   }
 
   if (error || !artist) {
+
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-        <p className="text-red-400">{error || 'Artist not found.'}</p>
-        <Link href="/artists" className="text-accent hover:text-accent/80">
+
+        <p className="text-red-400">
+          {error || 'Artist not found.'}
+        </p>
+
+        <Link
+          href="/artists"
+          className="text-accent hover:text-accent/80"
+        >
           Back to artists
         </Link>
+
       </div>
     );
   }
 
+  // ============================================================
+  // UPCOMING / ACTIVE EVENTS
+  // ============================================================
+
+  const now = new Date();
+
   const upcomingEvents = events
-    .filter(event => new Date(event.starts_at) >= new Date())
+    .filter((event) => {
+
+      if (event.ends_at) {
+
+        return (
+          new Date(
+            event.ends_at
+          ).getTime()
+          >=
+          now.getTime()
+        );
+
+      }
+
+      return (
+        new Date(
+          event.starts_at
+        ).getTime()
+        >=
+        now.getTime()
+      );
+
+    })
     .slice(0, 6);
 
   return (
     <div className="min-h-screen">
+
       <main className="max-w-5xl mx-auto px-4 py-10">
+
         <Card className="overflow-hidden p-0">
+
           {artist.image && (
+
             <img
               src={artist.image}
               alt={artist.name}
               className="w-full h-80 object-cover"
             />
+
           )}
 
           <div className="p-8">
+
             <div className="flex items-center justify-between mb-6">
+
               <div>
-                <h1 className="text-[36px] font-bold">{artist.name}</h1>
+
+                <h1 className="text-[36px] font-bold">
+                  {artist.name}
+                </h1>
+
                 {artist.followers_count !== undefined && (
+
                   <p className="text-gray-400 text-sm mt-1">
                     {artist.followers_count} followers
                   </p>
+
                 )}
+
               </div>
 
               <Button
                 onClick={() => {
-                  const token = localStorage.getItem('token');
+
+                  const token =
+                    localStorage.getItem(
+                      'token'
+                    );
+
                   if (!token) {
-                    router.push('/login');
+
+                    router.push(
+                      '/login'
+                    );
+
                     return;
                   }
+
                   handleFollow();
+
                 }}
                 disabled={followLoading}
               >
@@ -195,37 +362,68 @@ export default function ArtistProfilePage() {
                   ? 'Following ✓'
                   : 'Follow'}
               </Button>
+
             </div>
 
             {artist.genres?.length > 0 && (
+
               <div className="mb-8">
-                <h2 className="text-[14px] text-gray-400 mb-2">Genres</h2>
+
+                <h2 className="text-[14px] text-gray-400 mb-2">
+                  Genres
+                </h2>
+
                 <div className="flex flex-wrap gap-2">
-                  {artist.genres.map(genre => (
-                    <Badge key={genre} variant="outline">
-                      {genre}
-                    </Badge>
-                  ))}
+
+                  {artist.genres.map(
+                    (genre) => (
+
+                      <Badge
+                        key={genre}
+                        variant="outline"
+                      >
+                        {genre}
+                      </Badge>
+
+                    )
+                  )}
+
                 </div>
+
               </div>
+
             )}
 
             <section className="mt-8">
+
               <div className="flex items-center justify-between mb-5">
-                <h2 className="text-[24px] font-bold">Upcoming Events</h2>
-                {artist.events && artist.events.total > 6 && (
-                  <Link
-                    href={`/artists/${artistSlug}/events`}
-                    className="text-sm text-accent hover:text-accent/80"
-                  >
-                    See all events →
-                  </Link>
-                )}
+
+                <h2 className="text-[24px] font-bold">
+                  Upcoming Events
+                </h2>
+
+                {artist.events &&
+                  artist.events.total > 6 && (
+
+                    <Link
+                      href={`/artists/${artistSlug}/events`}
+                      className="text-sm text-accent hover:text-accent/80"
+                    >
+                      See all events →
+                    </Link>
+
+                  )}
+
               </div>
 
               {upcomingEvents.length === 0 ? (
-                <p className="text-gray-400">No upcoming events.</p>
+
+                <p className="text-gray-400">
+                  No upcoming events.
+                </p>
+
               ) : (
+
                 <div
                   className={`${
                     upcomingEvents.length <= 3
@@ -235,54 +433,110 @@ export default function ArtistProfilePage() {
                       : 'flex gap-4 overflow-x-auto pb-3 snap-x'
                   }`}
                 >
-                  {upcomingEvents.map(event => (
-                    <div
-                      key={event.id}
-                      className={`${
-                        upcomingEvents.length > 4 ? 'min-w-[280px] snap-start' : ''
-                      }`}
-                    >
-                      <EventCard event={event} />
-                    </div>
-                  ))}
+
+                  {upcomingEvents.map(
+                    (event) => (
+
+                      <div
+                        key={event.id}
+                        className={`${
+                          upcomingEvents.length > 4
+                            ? 'min-w-[280px] snap-start'
+                            : ''
+                        }`}
+                      >
+
+                        <EventCard
+                          event={event}
+                        />
+
+                      </div>
+
+                    )
+                  )}
+
                 </div>
+
               )}
+
             </section>
 
             {relatedArtists.length > 0 && (
+
               <section className="mt-12">
-                <h2 className="text-[24px] font-bold mb-5">Related Artists</h2>
+
+                <h2 className="text-[24px] font-bold mb-5">
+                  Related Artists
+                </h2>
+
                 {relatedLoading ? (
-                  <p className="text-gray-400">Loading related artists...</p>
+
+                  <p className="text-gray-400">
+                    Loading related artists...
+                  </p>
+
                 ) : (
+
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {relatedArtists.map((relatedArtist, index) => (
-                      <Link
-                        key={index}
-                        href={`/artists/${relatedArtist.slug}`}
-                        className="block"
-                      >
-                        <Card hoverable className="p-4 text-center">
-                          {relatedArtist.image && (
-                            <img
-                              src={relatedArtist.image}
-                              alt={relatedArtist.name}
-                              className="w-full h-32 object-cover rounded-lg mb-3"
-                            />
-                          )}
-                          <p className="font-semibold text-sm line-clamp-1">
-                            {relatedArtist.name}
-                          </p>
-                        </Card>
-                      </Link>
-                    ))}
+
+                    {relatedArtists.map(
+                      (
+                        relatedArtist,
+                        index
+                      ) => (
+
+                        <Link
+                          key={index}
+                          href={`/artists/${relatedArtist.slug}`}
+                          className="block"
+                        >
+
+                          <Card
+                            hoverable
+                            className="p-4 text-center"
+                          >
+
+                            {relatedArtist.image && (
+
+                              <img
+                                src={
+                                  relatedArtist.image
+                                }
+                                alt={
+                                  relatedArtist.name
+                                }
+                                className="w-full h-32 object-cover rounded-lg mb-3"
+                              />
+
+                            )}
+
+                            <p className="font-semibold text-sm line-clamp-1">
+                              {
+                                relatedArtist.name
+                              }
+                            </p>
+
+                          </Card>
+
+                        </Link>
+
+                      )
+                    )}
+
                   </div>
+
                 )}
+
               </section>
+
             )}
+
           </div>
+
         </Card>
+
       </main>
+
     </div>
   );
 }

@@ -27,8 +27,10 @@ class ArtistFollowService:
         artist_slug: str,
     ):
 
-        artist = await self.artist_repository.get_by_slug(
-            artist_slug
+        artist = (
+            await self.artist_repository.get_by_slug(
+                artist_slug
+            )
         )
 
         if not artist:

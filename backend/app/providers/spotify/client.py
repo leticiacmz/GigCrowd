@@ -32,9 +32,6 @@ class SpotifyClient:
             },
         )
 
-        print("SEARCH STATUS:", response.status_code)
-        print("SEARCH BODY:", response.text)
-        
         response.raise_for_status()
 
         return response.json()

@@ -38,14 +38,11 @@ class SpotifyArtistMapper:
 
                     name=artist["name"],
 
-                    followers=artist.get(
-                        "followers",
-                        {},
-                    ).get(
-                        "total"
+                    image=(
+                        images[0]["url"]
+                        if images
+                        else None
                     ),
-
-                    image=images[0]["url"] if images else None,
 
                     popularity=artist.get(
                         "popularity"
@@ -53,9 +50,12 @@ class SpotifyArtistMapper:
 
                     verified=False,
 
-                    genres=artist.get(
-                        "genres",
-                        [],
+                    genres=(
+                        artist.get(
+                            "genres",
+                            [],
+                        )
+                        or []
                     ),
                 )
             )
@@ -66,12 +66,7 @@ class SpotifyArtistMapper:
     def map_artist(
         payload: dict,
     ) -> Artist:
-        """
-        Map Spotify artist data to domain Artist.
-        
-        IMPORTANT: This should only be used for enrichment of existing canonical artists.
-        The slug and identity should come from Songkick, not Spotify.
-        """
+
         images = payload.get(
             "images",
             [],
@@ -85,8 +80,6 @@ class SpotifyArtistMapper:
                 payload["name"]
             ),
 
-            # Note: Slug should come from Songkick, not Spotify
-            # This is kept for backward compatibility but should not be used for canonical creation
             slug=generate_slug(
                 payload["name"]
             ),
@@ -95,18 +88,18 @@ class SpotifyArtistMapper:
                 "spotify": payload["id"]
             },
 
-            followers=payload.get(
-                "followers",
-                {},
-            ).get(
-                "total"
+            image=(
+                images[0]["url"]
+                if images
+                else None
             ),
 
-            image=images[0]["url"] if images else None,
-
-            genres=payload.get(
-                "genres",
-                [],
+            genres=(
+                payload.get(
+                    "genres",
+                    [],
+                )
+                or []
             ),
 
             popularity=payload.get(
@@ -120,20 +113,32 @@ class SpotifyArtistMapper:
     def map_enrichment(
         payload: dict,
     ) -> dict:
-        """
-        Map Spotify artist data to enrichment fields only.
-        
-        This returns only the fields that can be used to enrich
-        an existing canonical Artist without modifying identity.
-        """
-        images = payload.get("images", [])
+
+        images = payload.get(
+            "images",
+            [],
+        )
 
         return {
             "external_ids": {
                 "spotify": payload["id"]
             },
-            "followers": payload.get("followers", {}).get("total"),
-            "image": images[0]["url"] if images else None,
-            "genres": payload.get("genres", []),
-            "popularity": payload.get("popularity"),
+
+            "image": (
+                images[0]["url"]
+                if images
+                else None
+            ),
+
+            "genres": (
+                payload.get(
+                    "genres",
+                    [],
+                )
+                or []
+            ),
+
+            "popularity": payload.get(
+                "popularity"
+            ),
         }

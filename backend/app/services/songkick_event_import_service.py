@@ -65,7 +65,7 @@ class SongkickEventImportService:
                 ↓
             SongkickProvider
                 ↓
-            normalized event catalogue
+            canonical event catalogue
                 ↓
             SongkickEventMapper
                 ↓
@@ -97,23 +97,150 @@ class SongkickEventImportService:
             artist.name
         )
 
-        if not isinstance(result, dict):
+        if not isinstance(
+            result,
+            dict,
+        ):
 
             raise TypeError(
                 "SongkickProvider.get_artist_events() "
                 "must return a dictionary."
             )
 
+        # --------------------------------------------------
+        # Canonical event catalogue
+        # --------------------------------------------------
+        #
+        # SongkickProvider guarantees that upcoming
+        # festivals are included in this list.
+        #
+        # This is important because SongkickClient keeps
+        # upcoming_festivals separate from regular events.
+        # --------------------------------------------------
+
         payloads = result.get(
             "events",
             [],
         )
 
-        if not isinstance(payloads, list):
+        if not isinstance(
+            payloads,
+            list,
+        ):
 
             raise TypeError(
                 "Songkick provider returned an invalid "
                 "'events' value. Expected a list."
+            )
+
+        upcoming_festivals = result.get(
+            "upcoming_festivals",
+            [],
+        )
+
+        if not isinstance(
+            upcoming_festivals,
+            list,
+        ):
+
+            upcoming_festivals = []
+
+        logger.info(
+            "Songkick import catalogue: "
+            f"events={len(payloads)}, "
+            f"upcoming_festivals={len(upcoming_festivals)}"
+        )
+
+        # --------------------------------------------------
+        # Explicit verification of upcoming festivals
+        # --------------------------------------------------
+
+        upcoming_festival_ids = set()
+
+        for festival in upcoming_festivals:
+
+            if not isinstance(
+                festival,
+                dict,
+            ):
+
+                continue
+
+            festival_id = (
+                festival.get("songkick_id")
+                or festival.get("id")
+            )
+
+            if festival_id:
+
+                upcoming_festival_ids.add(
+                    str(festival_id)
+                )
+
+                logger.info(
+                    "[EVENT IMPORT] Upcoming festival "
+                    "detected: "
+                    f"id={festival_id} | "
+                    f"name={festival.get('name')} | "
+                    f"start={festival.get('start_date')} | "
+                    f"end={festival.get('end_date')}"
+                )
+
+        logger.info(
+            "[EVENT IMPORT] Upcoming festivals in "
+            f"provider response: "
+            f"{len(upcoming_festival_ids)}"
+        )
+
+        # --------------------------------------------------
+        # Verify festivals actually reached the canonical
+        # event catalogue.
+        # --------------------------------------------------
+
+        canonical_festival_ids = set()
+
+        for payload in payloads:
+
+            if not isinstance(
+                payload,
+                dict,
+            ):
+
+                continue
+
+            payload_id = (
+                payload.get("songkick_id")
+                or payload.get("id")
+            )
+
+            if (
+                payload_id
+                and str(payload_id)
+                in upcoming_festival_ids
+            ):
+
+                canonical_festival_ids.add(
+                    str(payload_id)
+                )
+
+                logger.info(
+                    "[EVENT IMPORT] Upcoming festival "
+                    "is present in canonical payloads: "
+                    f"id={payload_id} | "
+                    f"name={payload.get('name')}"
+                )
+
+        missing_festival_ids = (
+            upcoming_festival_ids
+            - canonical_festival_ids
+        )
+
+        if missing_festival_ids:
+
+            logger.error(
+                "[EVENT IMPORT] Upcoming festivals "
+                "were NOT included in canonical "
+                f"event payloads: {missing_festival_ids}"
             )
 
         logger.info(
@@ -176,13 +303,6 @@ class SongkickEventImportService:
 
             # --------------------------------------------------
             # Defensive fallback
-            #
-            # The client should already have extracted the ID
-            # from concert, livestream and festival URLs.
-            #
-            # If we get here without an ID, log the entire
-            # relevant information so we can identify a new
-            # Songkick URL pattern instead of silently losing it.
             # --------------------------------------------------
 
             if not event_id:
@@ -200,6 +320,25 @@ class SongkickEventImportService:
                 events_skipped += 1
 
                 continue
+
+            # --------------------------------------------------
+            # Log upcoming festival before mapping
+            # --------------------------------------------------
+
+            if (
+                str(event_id)
+                in upcoming_festival_ids
+            ):
+
+                logger.info(
+                    "[EVENT IMPORT] Processing upcoming "
+                    "festival: "
+                    f"id={event_id} | "
+                    f"name={payload.get('name')} | "
+                    f"type={payload.get('event_type')} | "
+                    f"start={payload.get('start_date')} | "
+                    f"end={payload.get('end_date')}"
+                )
 
             # --------------------------------------------------
             # Artist relationship
@@ -398,6 +537,21 @@ class SongkickEventImportService:
 
         logger.info(
             f"📥 Events received: {len(payloads)}"
+        )
+
+        logger.info(
+            f"🏟️ Upcoming festivals received: "
+            f"{len(upcoming_festival_ids)}"
+        )
+
+        logger.info(
+            f"🏟️ Upcoming festivals included in payloads: "
+            f"{len(canonical_festival_ids)}"
+        )
+
+        logger.info(
+            f"❌ Upcoming festivals missing from payloads: "
+            f"{len(missing_festival_ids)}"
         )
 
         logger.info(

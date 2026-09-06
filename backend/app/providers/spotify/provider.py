@@ -25,9 +25,13 @@ class SpotifyProvider(BaseProvider):
             f"Searching Spotify artists: {query}"
         )
 
-        response = await self.client.search_artist(query)
-        
-        return SpotifyArtistMapper.map_search_results(response)
+        response = await self.client.search_artist(
+            query
+        )
+
+        return SpotifyArtistMapper.map_search_results(
+            response
+        )
 
     async def get_artist(
         self,

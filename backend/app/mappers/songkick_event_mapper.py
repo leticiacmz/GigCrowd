@@ -54,8 +54,6 @@ class SongkickEventMapper:
 
         if not title:
 
-            # HTML fallback can occasionally leave the anchor
-            # text empty. Do not fabricate an event title.
             raise ValueError(
                 f"Songkick event {event_id} "
                 "does not have a valid name."
@@ -108,9 +106,89 @@ class SongkickEventMapper:
 
             event_type = "FestivalInstance"
 
+        elif songkick_event_data.get(
+            "is_live_stream"
+        ):
+
+            event_type = "Livestream"
+
         else:
 
             event_type = "Concert"
+
+        # ========================================================
+        # EXTERNAL IDS
+        # ========================================================
+
+        external_ids = {
+            "songkick": str(
+                event_id
+            )
+        }
+
+        # ========================================================
+        # FESTIVAL
+        # ========================================================
+
+        festival = (
+            songkick_event_data.get(
+                "festival"
+            )
+        )
+
+        if not isinstance(
+            festival,
+            dict,
+        ):
+
+            festival = None
+
+        # ========================================================
+        # LOCATION
+        # ========================================================
+
+        location = (
+            songkick_event_data.get(
+                "location"
+            )
+        )
+
+        if not isinstance(
+            location,
+            dict,
+        ):
+
+            location = None
+
+        # ========================================================
+        # SOURCE
+        # ========================================================
+
+        source = (
+            songkick_event_data.get(
+                "source"
+            )
+        )
+
+        if not isinstance(
+            source,
+            dict,
+        ):
+
+            source = {
+                "provider": "songkick",
+                "external_id": str(
+                    event_id
+                ),
+            }
+
+            event_url = songkick_event_data.get(
+                "url"
+            )
+
+            if event_url:
+
+                source["url"] = event_url
 
         # ========================================================
         # EVENT
@@ -118,11 +196,7 @@ class SongkickEventMapper:
 
         event = Event(
 
-            external_ids={
-                "songkick": str(
-                    event_id
-                )
-            },
+            external_ids=external_ids,
 
             artist_slugs=artist_slugs,
 
@@ -141,6 +215,12 @@ class SongkickEventMapper:
             ends_at=ends_at,
 
             event_type=event_type,
+
+            festival=festival,
+
+            location=location,
+
+            source=source,
 
             sold_out=False,
 

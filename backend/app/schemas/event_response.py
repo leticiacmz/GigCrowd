@@ -27,10 +27,12 @@ class EventResponse(BaseModel):
     venue_slug: str
 
     # Venue can be missing for legacy/orphaned events.
-    # This prevents the entire endpoint from failing.
     venue: Optional[VenueResponse] = None
 
-    # Complete artist relationship support
+    # ============================================================
+    # ARTISTS
+    # ============================================================
+
     artist_slugs: List[str] = Field(
         default_factory=list,
         description=(
@@ -47,6 +49,43 @@ class EventResponse(BaseModel):
             "(transitional field for backward compatibility)"
         ),
     )
+
+    # ============================================================
+    # FESTIVAL
+    # ============================================================
+
+    festival: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Festival metadata"
+        ),
+    )
+
+    # ============================================================
+    # LOCATION
+    # ============================================================
+
+    location: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Event location metadata"
+        ),
+    )
+
+    # ============================================================
+    # SOURCE
+    # ============================================================
+
+    source: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Event source metadata"
+        ),
+    )
+
+    # ============================================================
+    # ATTENDANCE
+    # ============================================================
 
     going_count: int = 0
 

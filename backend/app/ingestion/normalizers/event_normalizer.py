@@ -16,111 +16,14 @@ class EventNormalizer:
         Returns:
             Normalized event data
         """
-        if source == "setlistfm":
-            return self._normalize_setlistfm(raw_event)
-        elif source == "ticketmaster":
-            return self._normalize_ticketmaster(raw_event)
-        elif source == "spotify":
+        
+        if source == "spotify":
             return self._normalize_spotify(raw_event)
         elif source == "bandsintown":
             return self._normalize_bandsintown(raw_event)
         else:
             return self._normalize_setlistfm(raw_event)  # Default
     
-    def _normalize_setlistfm(self, raw_event: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize Setlist.fm event data"""
-        artist = raw_event.get("artist", {})
-        venue = raw_event.get("venue", {})
-        
-        # Parse date from Setlist.fm format (DD-MM-YYYY)
-        event_date = self._parse_date(raw_event.get("eventDate"))
-        
-        # Build location string
-        city = venue.get("city", {})
-        location = f"{city.get('name', '')}, {city.get('country', {}).get('name', '')}"
-        
-        normalized = {
-            "_id": raw_event.get("id", f"event_{datetime.now(UTC).timestamp()}"),
-            "title": f"{artist.get('name', 'Unknown Artist')} Concert",
-            "artist_id": artist.get("mbid", ""),
-            "artist_name": artist.get("name", "Unknown Artist"),
-            "venue_name": venue.get("name", "Unknown Venue"),
-            "venue_id": venue.get("id", ""),
-            "date": event_date,
-            "location": location,
-            "city": city.get("name", ""),
-            "country": city.get("country", {}).get("name", ""),
-            "latitude": venue.get("city", {}).get("coords", {}).get("lat"),
-            "longitude": venue.get("city", {}).get("coords", {}).get("long"),
-            "description": raw_event.get("tour", {}).get("name", ""),
-            "source": "setlistfm",
-            "external_id": raw_event.get("id", ""),
-            "status": "upcoming" if event_date >= datetime.now(UTC) else "past",
-            "going_count": 0,
-            "maybe_count": 0,
-            "went_count": 0,
-            "attendees_count": 0,
-            "created_at": datetime.now(UTC),
-            "updated_at": datetime.now(UTC)
-        }
-        
-        return normalized
-    
-    def _normalize_ticketmaster(self, raw_event: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize TicketMaster event data"""
-        venue = raw_event.get("venue", {})
-        dates = raw_event.get("dates", {}).get("start", {})
-        attractions = raw_event.get("attractions", [])
-        
-        # Parse date from TicketMaster format
-        event_date = self._parse_ticketmaster_date(dates.get("localDate"))
-        
-        # Get artist info
-        artist_name = "Unknown Artist"
-        artist_id = ""
-        if attractions:
-            artist_name = attractions[0].get("name", "Unknown Artist")
-            artist_id = attractions[0].get("id", "")
-        
-        # Build location string
-        city = venue.get("city", {})
-        location = f"{city.get('name', '')}, {city.get('country', {}).get('name', '')}"
-        
-        # Get image
-        images = raw_event.get("images", [])
-        image_url = images[0].get("url") if images else None
-        
-        # Get ticket URL
-        ticket_url = raw_event.get("url", "")
-        
-        normalized = {
-            "_id": raw_event.get("id", f"event_{datetime.now(UTC).timestamp()}"),
-            "title": raw_event.get("name", "Event"),
-            "artist_id": artist_id,
-            "artist_name": artist_name,
-            "venue_name": venue.get("name", "Unknown Venue"),
-            "venue_id": venue.get("id", ""),
-            "date": event_date,
-            "location": location,
-            "city": city.get("name", ""),
-            "country": city.get("country", {}).get("name", ""),
-            "latitude": venue.get("location", {}).get("latitude"),
-            "longitude": venue.get("location", {}).get("longitude"),
-            "description": raw_event.get("description", ""),
-            "image_url": image_url,
-            "ticket_url": ticket_url,
-            "source": "ticketmaster",
-            "external_id": raw_event.get("id", ""),
-            "status": "upcoming" if event_date >= datetime.now(UTC) else "past",
-            "going_count": 0,
-            "maybe_count": 0,
-            "went_count": 0,
-            "attendees_count": 0,
-            "created_at": datetime.now(UTC),
-            "updated_at": datetime.now(UTC)
-        }
-        
-        return normalized
     
     def _parse_date(self, date_str: str) -> datetime:
         """

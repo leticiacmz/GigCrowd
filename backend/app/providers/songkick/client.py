@@ -18,7 +18,6 @@ logger = get_logger("songkick_client")
 class SongkickClient:
 
     def __init__(self):
-
         self.base_url = (
             settings.SONGKICK_BASE_URL.rstrip("/")
         )
@@ -34,37 +33,26 @@ class SongkickClient:
                 "application/json, "
                 "text/plain, */*"
             ),
-
             "accept-language": "en-US",
-
             "referer": (
                 f"{self.base_url}/"
             ),
-
             "origin": self.base_url,
-
             "user-agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/148.0.0.0 Safari/537.36"
             ),
-
             "sec-ch-ua": (
                 '"Not/A)Brand";v="99", '
                 '"Chromium";v="148", '
                 '"Google Chrome";v="148"'
             ),
-
             "sec-ch-ua-mobile": "?0",
-
             "sec-ch-ua-platform": '"Windows"',
-
             "sec-fetch-dest": "empty",
-
             "sec-fetch-mode": "cors",
-
             "sec-fetch-site": "same-origin",
-
             "priority": "u=1, i",
         }
 
@@ -80,11 +68,7 @@ class SongkickClient:
             "text/html,application/xhtml+xml"
         ),
     ):
-
-        headers = dict(
-            self.headers
-        )
-
+        headers = dict(self.headers)
         headers["accept"] = accept
 
         logger.debug(
@@ -109,7 +93,6 @@ class SongkickClient:
             "text/html,application/xhtml+xml"
         ),
     ):
-
         return await asyncio.to_thread(
             self._request_sync,
             url,
@@ -149,7 +132,6 @@ class SongkickClient:
         )
 
         if response.status_code != 200:
-
             logger.error(
                 "Songkick API returned "
                 f"{response.status_code}"
@@ -165,7 +147,6 @@ class SongkickClient:
             )
 
         try:
-
             data = response.json()
 
         except Exception as exc:
@@ -234,6 +215,16 @@ class SongkickClient:
             f"{len(top_results)} top results"
         )
 
+        logger.info(
+            "Universal search future events raw: %s",
+            json.dumps(
+                events,
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
         return {
             "raw": raw_data,
             "artists": artists,
@@ -261,7 +252,6 @@ class SongkickClient:
         )
 
         if response.status_code != 200:
-
             raise Exception(
                 "Songkick artist page error: "
                 f"{response.status_code}"
@@ -310,11 +300,8 @@ class SongkickClient:
         )
 
         all_events = []
-
         seen_ids = set()
-
         page_number = 1
-
         current_url = gigography_url
 
         while current_url:
@@ -329,7 +316,6 @@ class SongkickClient:
             )
 
             if response.status_code != 200:
-
                 raise Exception(
                     "Songkick gigography error: "
                     f"{response.status_code}"
@@ -346,7 +332,6 @@ class SongkickClient:
             page_events = parsed["events"]
 
             new_events = 0
-
             duplicates = 0
 
             for event in page_events:
@@ -358,7 +343,6 @@ class SongkickClient:
                 )
 
                 if identity is None:
-
                     identity = (
                         self._livestream_identity(
                             event
@@ -366,15 +350,12 @@ class SongkickClient:
                     )
 
                 if identity in seen_ids:
-
                     duplicates += 1
-
                     continue
 
                 seen_ids.add(identity)
 
                 all_events.append(event)
-
                 new_events += 1
 
             logger.info(
@@ -435,7 +416,6 @@ class SongkickClient:
         )
 
         if not artist_info:
-
             raise ValueError(
                 "Artist not found on Songkick: "
                 f"{artist_name}"
@@ -494,12 +474,104 @@ class SongkickClient:
             artist_page["upcoming_festivals"]
         )
 
-        gigography_events = (
+        raw_gigography_events = (
             gigography["events"]
         )
 
-        merged_events = []
+        # --------------------------------------------------------
+        # UPCOMING IDENTITIES
+        # --------------------------------------------------------
 
+        upcoming_identities = set()
+
+        for event in (
+            upcoming_events
+            + upcoming_festivals
+        ):
+
+            identity = (
+                self._event_identity(
+                    event
+                )
+            )
+
+            if identity is None:
+                identity = (
+                    self._livestream_identity(
+                        event
+                    )
+                )
+
+            upcoming_identities.add(
+                identity
+            )
+
+        logger.info(
+            "Upcoming identities detected: "
+            f"{len(upcoming_identities)}"
+        )
+
+        # --------------------------------------------------------
+        # FILTER GIGOGRAPHY
+        # --------------------------------------------------------
+
+        gigography_events = []
+
+        removed_upcoming_from_gigography = 0
+
+        for event in raw_gigography_events:
+
+            identity = (
+                self._event_identity(
+                    event
+                )
+            )
+
+            if identity is None:
+                identity = (
+                    self._livestream_identity(
+                        event
+                    )
+                )
+
+            if identity in upcoming_identities:
+
+                removed_upcoming_from_gigography += 1
+
+                logger.info(
+                    "[UPCOMING FILTER] Removing "
+                    "event from gigography because "
+                    "it is currently upcoming: "
+                    f"id={event.get('songkick_id')} | "
+                    f"type={event.get('event_type')} | "
+                    f"name={event.get('name')} | "
+                    f"start={event.get('start_date')} | "
+                    f"end={event.get('end_date')}"
+                )
+
+                continue
+
+            gigography_events.append(
+                event
+            )
+
+        logger.info(
+            "[UPCOMING FILTER] Gigography filtered: "
+            f"original={len(raw_gigography_events)}, "
+            f"removed_upcoming="
+            f"{removed_upcoming_from_gigography}, "
+            f"historical={len(gigography_events)}"
+        )
+
+        # --------------------------------------------------------
+        # MERGE EVENTS
+        #
+        # First merge the artist-page representations.
+        # After that, enrich the resulting events with the
+        # canonical information from universal_search.
+        # --------------------------------------------------------
+
+        merged_events = []
         seen = set()
 
         for event in (
@@ -515,7 +587,6 @@ class SongkickClient:
             )
 
             if identity is None:
-
                 identity = (
                     self._livestream_identity(
                         event
@@ -527,7 +598,50 @@ class SongkickClient:
 
             seen.add(identity)
 
-            merged_events.append(event)
+            merged_events.append(
+                event
+            )
+
+        # --------------------------------------------------------
+        # ENRICH WITH UNIVERSAL SEARCH
+        #
+        # The artist page often contains an artist-specific
+        # representation of a festival:
+        #
+        #   "Demi Lovato @ Barra Olympic Park..."
+        #
+        # universal_search contains the canonical festival
+        # representation:
+        #
+        #   "Rock In Rio 2026"
+        #
+        # We therefore use universal_search as the enrichment
+        # source instead of allowing the JSON-LD representation
+        # to overwrite the canonical festival information.
+        # --------------------------------------------------------
+
+        search_event_index = (
+            self._build_search_event_index(
+                search_data
+            )
+        )
+
+        enriched_events = []
+
+        for event in merged_events:
+
+            enriched_event = (
+                self._enrich_event_with_search_data(
+                    event,
+                    search_event_index,
+                )
+            )
+
+            enriched_events.append(
+                enriched_event
+            )
+
+        merged_events = enriched_events
 
         live_streams = [
             event
@@ -549,7 +663,7 @@ class SongkickClient:
             "Complete Songkick scrape finished: "
             f"{len(merged_events)} total events, "
             f"{len(upcoming_events)} upcoming, "
-            f"{len(gigography_events)} gigography, "
+            f"{len(gigography_events)} historical gigography, "
             f"{len(live_streams)} livestreams, "
             f"{len(festivals)} festivals"
         )
@@ -593,6 +707,999 @@ class SongkickClient:
         }
 
     # ============================================================
+    # UNIVERSAL SEARCH EVENT INDEX
+    # ============================================================
+
+    @classmethod
+    def _build_search_event_index(
+        cls,
+        search_data: dict,
+    ) -> dict[str, dict]:
+
+        """
+        Build an index of Songkick event documents returned by
+        universal_search.
+
+        The same event can appear in different structures, so
+        we normalize all available event-like documents into a
+        single lookup by Songkick event ID.
+        """
+
+        index: dict[str, dict] = {}
+
+        candidate_sections = (
+            "events",
+            "past_events",
+            "top_results",
+        )
+
+        for section_name in candidate_sections:
+
+            section = search_data.get(
+                section_name,
+                [],
+            )
+
+            if not isinstance(
+                section,
+                list,
+            ):
+                continue
+
+            for item in section:
+
+                document = (
+                    item.get(
+                        "document",
+                        item,
+                    )
+                    if isinstance(
+                        item,
+                        dict,
+                    )
+                    else None
+                )
+
+                if not isinstance(
+                    document,
+                    dict,
+                ):
+                    continue
+
+                event_id = (
+                    cls._extract_search_event_id(
+                        document
+                    )
+                )
+
+                if not event_id:
+                    continue
+
+                index[event_id] = document
+
+        logger.info(
+            "Songkick universal_search event index: "
+            f"{len(index)} events"
+        )
+
+        return index
+
+    @classmethod
+    def _extract_search_event_id(
+        cls,
+        document: dict,
+    ) -> str | None:
+
+        candidates = [
+            document.get(
+                "primary_key_id"
+            ),
+            document.get(
+                "event_id"
+            ),
+            document.get(
+                "id"
+            ),
+        ]
+
+        for candidate in candidates:
+
+            if candidate is None:
+                continue
+
+            value = str(candidate)
+
+            numeric_id = (
+                cls._numeric_event_id(
+                    value
+                )
+            )
+
+            if numeric_id:
+                return numeric_id
+
+        url = (
+            document.get("url")
+            or document.get("uri")
+            or document.get("web_url")
+        )
+
+        reference = (
+            cls.extract_event_reference(
+                str(url)
+                if url
+                else None
+            )
+        )
+
+        return reference.get(
+            "event_id"
+        )
+
+    @staticmethod
+    def _numeric_event_id(
+        value: str | None,
+    ) -> str | None:
+
+        if not value:
+            return None
+
+        value = str(value)
+
+        patterns = [
+            r"Event(\d+)$",
+            r"FestivalInstance(\d+)$",
+            r"Concert(\d+)$",
+            r"LiveStream(\d+)$",
+            r"/id/(\d+)",
+            r"/concerts/(\d+)",
+            r"/live-stream-concerts/(\d+)",
+        ]
+
+        for pattern in patterns:
+
+            match = re.search(
+                pattern,
+                value,
+                flags=re.IGNORECASE,
+            )
+
+            if match:
+                return match.group(1)
+
+        if value.isdigit():
+            return value
+
+        return None
+
+    # ============================================================
+    # EVENT ENRICHMENT
+    # ============================================================
+
+    @classmethod
+    def _enrich_event_with_search_data(
+        cls,
+        event: dict,
+        search_event_index: dict[str, dict],
+    ) -> dict:
+
+        if not isinstance(
+            event,
+            dict,
+        ):
+            return event
+
+        event_id = (
+            event.get("songkick_id")
+            or event.get("id")
+        )
+
+        if event_id is None:
+            return event
+
+        event_id = str(event_id)
+
+        search_document = (
+            search_event_index.get(
+                event_id
+            )
+        )
+
+        if not search_document:
+            return event
+
+        # --------------------------------------------------------
+        # Only enrich actual festivals.
+        #
+        # universal_search contains much more authoritative
+        # festival information than the artist-page JSON-LD.
+        # --------------------------------------------------------
+
+        is_festival = (
+            event.get("is_festival")
+            or cls._is_search_festival(
+                search_document
+            )
+        )
+
+        if not is_festival:
+            return event
+
+        enriched = dict(event)
+
+        enriched["is_festival"] = True
+        enriched["event_type"] = "festival"
+
+        # --------------------------------------------------------
+        # Canonical festival name
+        # --------------------------------------------------------
+
+        canonical_name = (
+            cls._first_non_empty(
+                search_document.get("name"),
+                search_document.get("title"),
+            )
+        )
+
+        if canonical_name:
+            enriched["name"] = canonical_name
+            enriched["original_name"] = canonical_name
+
+        # --------------------------------------------------------
+        # Dates
+        #
+        # Keep the artist-page dates when universal_search does
+        # not provide them.
+        # --------------------------------------------------------
+
+        search_start = (
+            cls._first_non_empty(
+                search_document.get("date"),
+                search_document.get("start_date"),
+                search_document.get("startDate"),
+            )
+        )
+
+        search_end = (
+            cls._first_non_empty(
+                search_document.get("end_date"),
+                search_document.get("endDate"),
+            )
+        )
+
+        if search_start:
+            enriched["start_date"] = search_start
+
+        if search_end:
+            enriched["end_date"] = search_end
+
+        # --------------------------------------------------------
+        # URL
+        # --------------------------------------------------------
+
+        search_url = (
+            cls._first_non_empty(
+                search_document.get("url"),
+                search_document.get("web_url"),
+                search_document.get("uri"),
+            )
+        )
+
+        if search_url:
+            enriched["url"] = (
+                str(search_url)
+                .split("?")[0]
+            )
+
+        # --------------------------------------------------------
+        # Venue / location
+        # --------------------------------------------------------
+
+        venue_name = (
+            cls._first_non_empty(
+                search_document.get(
+                    "venue_name"
+                ),
+                search_document.get(
+                    "venue"
+                ),
+            )
+        )
+
+        if venue_name:
+
+            current_venue = (
+                enriched.get("venue")
+            )
+
+            if not isinstance(
+                current_venue,
+                dict,
+            ):
+                current_venue = {}
+
+            current_venue = dict(
+                current_venue
+            )
+
+            current_venue["name"] = (
+                venue_name
+            )
+
+            enriched["venue"] = (
+                current_venue
+            )
+
+        location = (
+            cls._build_search_location(
+                search_document
+            )
+        )
+
+        if location:
+            enriched["location"] = location
+
+        # --------------------------------------------------------
+        # Festival metadata
+        # --------------------------------------------------------
+
+        festival = (
+            cls._build_festival_metadata(
+                search_document,
+                event,
+            )
+        )
+
+        if festival:
+            enriched["festival"] = festival
+
+        # --------------------------------------------------------
+        # Source metadata
+        # --------------------------------------------------------
+
+        source = (
+            enriched.get("source")
+        )
+
+        if not isinstance(
+            source,
+            dict,
+        ):
+            source = {}
+
+        source = dict(source)
+
+        source.update(
+            {
+                "provider": "songkick",
+                "event_id": event_id,
+            }
+        )
+
+        if search_url:
+            source["url"] = (
+                str(search_url)
+                .split("?")[0]
+            )
+
+        enriched["source"] = source
+
+        logger.info(
+            "[EVENT ENRICHMENT] Festival enriched: "
+            f"id={event_id} | "
+            f"name={enriched.get('name')} | "
+            f"series="
+            f"{festival.get('series_id') if festival else None} | "
+            f"artists="
+            f"{len(festival.get('artists', [])) if festival else 0}"
+        )
+
+        return enriched
+
+    @classmethod
+    def _build_festival_metadata(
+        cls,
+        search_document: dict,
+        original_event: dict,
+    ) -> dict:
+
+        series_id = (
+            cls._extract_festival_series_id(
+                search_document,
+                original_event,
+            )
+        )
+
+        name = (
+            cls._first_non_empty(
+                search_document.get("name"),
+                search_document.get("title"),
+                original_event.get("name"),
+            )
+        )
+
+        edition = (
+            cls._extract_festival_edition(
+                name
+            )
+        )
+
+        url = (
+            cls._first_non_empty(
+                search_document.get("url"),
+                search_document.get("web_url"),
+                search_document.get("uri"),
+                original_event.get("url"),
+            )
+        )
+
+        tracking_count = (
+            cls._first_non_none(
+                search_document.get(
+                    "number_of_users_tracking"
+                ),
+                search_document.get(
+                    "tracking_count"
+                ),
+            )
+        )
+
+        artist_ids = (
+            cls._extract_artist_ids(
+                search_document
+            )
+        )
+
+        artists = (
+            cls._extract_festival_artists(
+                search_document
+            )
+        )
+
+        festival = {
+            "series_id": series_id,
+            "name": name,
+            "edition": edition,
+            "url": (
+                str(url).split("?")[0]
+                if url
+                else None
+            ),
+            "tracking_count": tracking_count,
+            "artist_ids": artist_ids,
+            "artists": artists,
+        }
+
+        # Preserve useful canonical Songkick fields when present.
+
+        full_name = (
+            search_document.get(
+                "full_name"
+            )
+        )
+
+        if full_name:
+            festival["full_name"] = (
+                full_name
+            )
+
+        if (
+            search_document.get(
+                "event_type"
+            )
+            is not None
+        ):
+            festival["event_type"] = (
+                search_document.get(
+                    "event_type"
+                )
+            )
+
+        if (
+            search_document.get(
+                "is_flagged_as_ended"
+            )
+            is not None
+        ):
+            festival["is_flagged_as_ended"] = (
+                search_document.get(
+                    "is_flagged_as_ended"
+                )
+            )
+
+        return festival
+
+    @classmethod
+    def _extract_festival_series_id(
+        cls,
+        search_document: dict,
+        original_event: dict,
+    ) -> str | None:
+
+        candidates = [
+            search_document.get(
+                "series_id"
+            ),
+            search_document.get(
+                "festival_series_id"
+            ),
+            original_event.get(
+                "festival_series_id"
+            ),
+        ]
+
+        for candidate in candidates:
+
+            if candidate is None:
+                continue
+
+            value = str(candidate).strip()
+
+            if value:
+                return value
+
+        url = (
+            search_document.get("url")
+            or original_event.get("url")
+        )
+
+        festival_data = (
+            cls.extract_festival_data(
+                str(url)
+                if url
+                else None
+            )
+        )
+
+        if festival_data:
+            return festival_data.get(
+                "series_id"
+            )
+
+        return None
+
+    @staticmethod
+    def _extract_festival_edition(
+        name: str | None,
+    ) -> str | None:
+
+        if not name:
+            return None
+
+        match = re.search(
+            r"\b(19|20)\d{2}\b",
+            str(name),
+        )
+
+        if match:
+            return match.group(0)
+
+        return None
+
+    @classmethod
+    def _extract_artist_ids(
+        cls,
+        search_document: dict,
+    ) -> list[str]:
+
+        candidates = [
+            search_document.get(
+                "artist_ids"
+            ),
+            search_document.get(
+                "artists_ids"
+            ),
+        ]
+
+        for value in candidates:
+
+            if not isinstance(
+                value,
+                list,
+            ):
+                continue
+
+            result = []
+
+            for artist_id in value:
+
+                if artist_id is None:
+                    continue
+
+                numeric_id = (
+                    cls._numeric_artist_id(
+                        artist_id
+                    )
+                )
+
+                if numeric_id:
+                    result.append(
+                        numeric_id
+                    )
+
+            return list(
+                dict.fromkeys(result)
+            )
+
+        return []
+
+    @classmethod
+    def _extract_festival_artists(
+        cls,
+        search_document: dict,
+    ) -> list[dict]:
+
+        """
+        Songkick's universal_search payload can expose artist
+        information in different shapes.
+
+        We preserve names/IDs whenever the payload actually
+        contains them. We intentionally do not fabricate artist
+        names from IDs.
+        """
+
+        candidates = [
+            search_document.get(
+                "artists"
+            ),
+            search_document.get(
+                "performers"
+            ),
+            search_document.get(
+                "artist"
+            ),
+        ]
+
+        for value in candidates:
+
+            if not isinstance(
+                value,
+                list,
+            ):
+                continue
+
+            artists = []
+
+            for artist in value:
+
+                if isinstance(
+                    artist,
+                    str,
+                ):
+
+                    name = artist.strip()
+
+                    if name:
+                        artists.append(
+                            {
+                                "name": name
+                            }
+                        )
+
+                    continue
+
+                if not isinstance(
+                    artist,
+                    dict,
+                ):
+                    continue
+
+                document = artist.get(
+                    "document",
+                    artist,
+                )
+
+                if not isinstance(
+                    document,
+                    dict,
+                ):
+                    continue
+
+                artist_id = (
+                    document.get(
+                        "primary_key_id"
+                    )
+                    or document.get("id")
+                    or document.get(
+                        "artist_id"
+                    )
+                )
+
+                artist_name = (
+                    document.get("name")
+                    or document.get(
+                        "display_name"
+                    )
+                )
+
+                artist_item = {}
+
+                if artist_id is not None:
+
+                    numeric_id = (
+                        cls._numeric_artist_id(
+                            artist_id
+                        )
+                    )
+
+                    if numeric_id:
+                        artist_item["id"] = (
+                            numeric_id
+                        )
+
+                if artist_name:
+
+                    artist_item["name"] = (
+                        str(
+                            artist_name
+                        ).strip()
+                    )
+
+                artist_url = (
+                    document.get("url")
+                )
+
+                if artist_url:
+                    artist_item["url"] = (
+                        str(
+                            artist_url
+                        ).split("?")[0]
+                    )
+
+                if artist_item:
+                    artists.append(
+                        artist_item
+                    )
+
+            if artists:
+                return cls._deduplicate_artist_metadata(
+                    artists
+                )
+
+        return []
+
+    @staticmethod
+    def _deduplicate_artist_metadata(
+        artists: list[dict],
+    ) -> list[dict]:
+
+        result = []
+        seen = set()
+
+        for artist in artists:
+
+            identity = (
+                artist.get("id")
+                or artist.get("name")
+            )
+
+            if not identity:
+                continue
+
+            identity = str(
+                identity
+            ).lower()
+
+            if identity in seen:
+                continue
+
+            seen.add(identity)
+            result.append(artist)
+
+        return result
+
+    @classmethod
+    def _build_search_location(
+        cls,
+        search_document: dict,
+    ) -> dict:
+
+        location = {}
+
+        city = (
+            cls._first_non_empty(
+                search_document.get(
+                    "city_name"
+                ),
+                search_document.get(
+                    "city"
+                ),
+            )
+        )
+
+        country = (
+            cls._first_non_empty(
+                search_document.get(
+                    "country_name"
+                ),
+                search_document.get(
+                    "country"
+                ),
+            )
+        )
+
+        latitude = (
+            search_document.get(
+                "latitude"
+            )
+        )
+
+        longitude = (
+            search_document.get(
+                "longitude"
+            )
+        )
+
+        geolocation = (
+            search_document.get(
+                "geolocation"
+            )
+        )
+
+        if (
+            geolocation
+            and (
+                latitude is None
+                or longitude is None
+            )
+        ):
+
+            coordinates = (
+                cls._parse_geolocation(
+                    geolocation
+                )
+            )
+
+            if coordinates:
+
+                latitude = (
+                    coordinates[0]
+                )
+
+                longitude = (
+                    coordinates[1]
+                )
+
+        if city:
+            location["city"] = city
+
+        if country:
+            location["country"] = country
+
+        if latitude is not None:
+
+            try:
+                location["latitude"] = (
+                    float(latitude)
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                pass
+
+        if longitude is not None:
+
+            try:
+                location["longitude"] = (
+                    float(longitude)
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                pass
+
+        return location
+
+    @staticmethod
+    def _parse_geolocation(
+        value: Any,
+    ) -> tuple[float, float] | None:
+
+        if isinstance(
+            value,
+            str,
+        ):
+
+            parts = [
+                part.strip()
+                for part in value.split(",")
+            ]
+
+            if len(parts) != 2:
+                return None
+
+            try:
+                return (
+                    float(parts[0]),
+                    float(parts[1]),
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                return None
+
+        if isinstance(
+            value,
+            (list, tuple),
+        ) and len(value) >= 2:
+
+            try:
+                return (
+                    float(value[0]),
+                    float(value[1]),
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                return None
+
+        return None
+
+    @staticmethod
+    def _is_search_festival(
+        document: dict,
+    ) -> bool:
+
+        event_type = (
+            document.get(
+                "event_type"
+            )
+        )
+
+        if str(
+            event_type or ""
+        ).lower() in {
+            "festival",
+            "festivalinstance",
+        }:
+            return True
+
+        return bool(
+            document.get(
+                "series_id"
+            )
+            or document.get(
+                "festival_series_id"
+            )
+        )
+
+    @staticmethod
+    def _first_non_empty(
+        *values,
+    ):
+        for value in values:
+
+            if value is None:
+                continue
+
+            if isinstance(
+                value,
+                str,
+            ):
+
+                if value.strip():
+                    return value
+
+            else:
+                return value
+
+        return None
+
+    @staticmethod
+    def _first_non_none(
+        *values,
+    ):
+        for value in values:
+            if value is not None:
+                return value
+
+        return None
+
+    # ============================================================
     # ARTIST PAGE PARSER
     # ============================================================
 
@@ -609,8 +1716,134 @@ class SongkickClient:
         )
 
         upcoming_events = []
-
         upcoming_festivals = []
+
+        # --------------------------------------------------------
+        # SONGKICK #coming-up
+        # --------------------------------------------------------
+
+        coming_up = soup.select_one(
+            "#coming-up"
+        )
+
+        coming_up_references = []
+
+        if coming_up:
+
+            anchors = coming_up.find_all(
+                "a",
+                href=True,
+            )
+
+            logger.info(
+                "[UPCOMING DEBUG] "
+                f"#coming-up found with "
+                f"{len(anchors)} links"
+            )
+
+            seen_references = set()
+
+            for anchor in anchors:
+
+                href = anchor.get(
+                    "href"
+                )
+
+                if not href:
+                    continue
+
+                absolute_url = urljoin(
+                    source_url,
+                    href,
+                )
+
+                reference = (
+                    cls.extract_event_reference(
+                        absolute_url
+                    )
+                )
+
+                event_id = reference.get(
+                    "event_id"
+                )
+
+                if not event_id:
+                    continue
+
+                identity = (
+                    reference.get(
+                        "event_type"
+                    ),
+                    event_id,
+                )
+
+                if identity in seen_references:
+                    continue
+
+                seen_references.add(
+                    identity
+                )
+
+                name = (
+                    anchor.get_text(
+                        " ",
+                        strip=True,
+                    )
+                    or None
+                )
+
+                coming_up_references.append(
+                    {
+                        "event_type": (
+                            reference.get(
+                                "event_type"
+                            )
+                        ),
+                        "event_id": event_id,
+                        "festival_series_id": (
+                            reference.get(
+                                "festival_series_id"
+                            )
+                        ),
+                        "name": name,
+                        "url": (
+                            absolute_url
+                            .split("?")[0]
+                        ),
+                    }
+                )
+
+            logger.info(
+                "[UPCOMING DEBUG] "
+                "#coming-up event references="
+                f"{len(coming_up_references)}"
+            )
+
+            for reference in coming_up_references:
+
+                logger.info(
+                    "[UPCOMING DEBUG] "
+                    "COMING-UP REF | "
+                    f"type={reference['event_type']} | "
+                    f"id={reference['event_id']} | "
+                    f"series={reference['festival_series_id']} | "
+                    f"name={reference['name']} | "
+                    f"url={reference['url']}"
+                )
+
+        else:
+
+            logger.warning(
+                "[UPCOMING DEBUG] "
+                "#coming-up section NOT FOUND"
+            )
+
+        # --------------------------------------------------------
+        # JSON-LD
+        # --------------------------------------------------------
+
+        all_jsonld_events = []
+        all_jsonld_festivals = []
 
         for script in soup.find_all(
             "script",
@@ -630,10 +1863,153 @@ class SongkickClient:
             cls._extract_jsonld_events(
                 value,
                 source_url,
-                upcoming_events,
-                upcoming_festivals,
-                upcoming_only=True,
+                all_jsonld_events,
+                all_jsonld_festivals,
+                upcoming_only=False,
             )
+
+        logger.info(
+            "[UPCOMING DEBUG] "
+            "JSON-LD parsed: "
+            f"{len(all_jsonld_events)} concerts/events, "
+            f"{len(all_jsonld_festivals)} festivals"
+        )
+
+        # --------------------------------------------------------
+        # INDEX JSON-LD BY SONGKICK EVENT ID
+        # --------------------------------------------------------
+
+        jsonld_by_identity = {}
+
+        for event in (
+            all_jsonld_events
+            + all_jsonld_festivals
+        ):
+
+            identity = (
+                cls._event_identity(
+                    event
+                )
+            )
+
+            if identity is None:
+                continue
+
+            jsonld_by_identity[
+                identity
+            ] = event
+
+        # --------------------------------------------------------
+        # AUTHORITATIVE UPCOMING EVENTS
+        # --------------------------------------------------------
+
+        coming_up_identities = set()
+
+        for reference in coming_up_references:
+
+            identity = (
+                "id",
+                str(
+                    reference["event_id"]
+                ),
+            )
+
+            coming_up_identities.add(
+                identity
+            )
+
+            matching_event = (
+                jsonld_by_identity.get(
+                    identity
+                )
+            )
+
+            if not matching_event:
+
+                logger.warning(
+                    "[UPCOMING DEBUG] "
+                    "NO JSON-LD MATCH | "
+                    f"type={reference['event_type']} | "
+                    f"id={reference['event_id']} | "
+                    f"name={reference['name']} | "
+                    f"url={reference['url']}"
+                )
+
+                continue
+
+            logger.info(
+                "[UPCOMING DEBUG] "
+                "JSON-LD MATCH | "
+                f"type={matching_event.get('event_type')} | "
+                f"id={matching_event.get('songkick_id')} | "
+                f"name={matching_event.get('name')} | "
+                f"start={matching_event.get('start_date')} | "
+                f"end={matching_event.get('end_date')} | "
+                "upcoming=True "
+                "(authoritative #coming-up)"
+            )
+
+            if matching_event.get(
+                "is_festival"
+            ):
+
+                upcoming_festivals.append(
+                    matching_event
+                )
+
+            else:
+
+                upcoming_events.append(
+                    matching_event
+                )
+
+        # --------------------------------------------------------
+        # FALLBACK
+        # --------------------------------------------------------
+
+        for event in all_jsonld_events:
+
+            identity = (
+                cls._event_identity(
+                    event
+                )
+            )
+
+            if identity in coming_up_identities:
+                continue
+
+            if not cls._is_upcoming_event(
+                event
+            ):
+                continue
+
+            upcoming_events.append(
+                event
+            )
+
+        for event in all_jsonld_festivals:
+
+            identity = (
+                cls._event_identity(
+                    event
+                )
+            )
+
+            if identity in coming_up_identities:
+                continue
+
+            if not cls._is_upcoming_event(
+                event
+            ):
+                continue
+
+            upcoming_festivals.append(
+                event
+            )
+
+        # --------------------------------------------------------
+        # DEDUPLICATE
+        # --------------------------------------------------------
 
         upcoming_events = (
             cls._deduplicate_events(
@@ -647,11 +2023,36 @@ class SongkickClient:
             )
         )
 
+        # --------------------------------------------------------
+        # FINAL UPCOMING DEBUG
+        # --------------------------------------------------------
+
+        logger.info(
+            "[UPCOMING DEBUG] "
+            "Final upcoming result: "
+            f"{len(upcoming_events)} concerts/events, "
+            f"{len(upcoming_festivals)} festivals"
+        )
+
+        for event in (
+            upcoming_events
+            + upcoming_festivals
+        ):
+
+            logger.info(
+                "[UPCOMING DEBUG] "
+                "FINAL | "
+                f"type={event.get('event_type')} | "
+                f"id={event.get('songkick_id')} | "
+                f"name={event.get('name')} | "
+                f"start={event.get('start_date')} | "
+                f"end={event.get('end_date')}"
+            )
+
         return {
             "upcoming_events": (
                 upcoming_events
             ),
-
             "upcoming_festivals": (
                 upcoming_festivals
             ),
@@ -716,12 +2117,7 @@ class SongkickClient:
         )
 
         # --------------------------------------------------------
-        # 2. HTML event links
-        #
-        # This is important.
-        #
-        # Songkick can expose event links in the page even when
-        # the corresponding event is not represented in JSON-LD.
+        # 2. HTML EVENT LINKS
         # --------------------------------------------------------
 
         html_events = (
@@ -739,9 +2135,6 @@ class SongkickClient:
 
         # --------------------------------------------------------
         # Merge HTML references with JSON-LD.
-        #
-        # JSON-LD has priority because it contains richer data.
-        # HTML references fill the missing events.
         # --------------------------------------------------------
 
         events = (
@@ -802,7 +2195,6 @@ class SongkickClient:
     ) -> list[dict]:
 
         events = []
-
         seen = set()
 
         for anchor in soup.find_all(
@@ -843,13 +2235,6 @@ class SongkickClient:
 
             seen.add(identity)
 
-            # ----------------------------------------------------
-            # If JSON-LD does not exist for this event, we still
-            # create a minimal normalized payload.
-            #
-            # Later JSON-LD data will replace/enrich it.
-            # ----------------------------------------------------
-
             name = (
                 anchor.get_text(
                     " ",
@@ -863,77 +2248,55 @@ class SongkickClient:
                     "id": reference[
                         "event_id"
                     ],
-
                     "songkick_id": reference[
                         "event_id"
                     ],
-
                     "event_type": (
                         reference[
                             "event_type"
                         ]
                         or "concert"
                     ),
-
                     "url": (
                         absolute_url
                         .split("?")[0]
                     ),
-
                     "name": name,
-
                     "original_name": name,
-
                     "start_date": None,
-
                     "end_date": None,
-
                     "event_status": None,
-
                     "event_attendance_mode": None,
-
                     "description": None,
-
                     "venue": None,
-
                     "performers": [],
-
                     "offers": [],
-
                     "songkick_image": None,
-
                     "source_page": source_url,
-
                     "raw": {
                         "source": "html",
                         "href": absolute_url,
                     },
-
                     "festival": None,
-
                     "is_festival": (
                         reference[
                             "event_type"
                         ]
                         == "festival"
                     ),
-
                     "is_live_stream": (
                         "/live-stream-concerts/"
                         in absolute_url
                     ),
-
                     "source": (
                         "songkick_gigography"
                     ),
-
                     "primary_detail": (
                         "Live Stream"
                         if "/live-stream-concerts/"
                         in absolute_url
                         else None
                     ),
-
                     "secondary_detail": None,
                 }
             )
@@ -952,7 +2315,6 @@ class SongkickClient:
     ) -> list[dict]:
 
         result = []
-
         by_identity = {}
 
         # --------------------------------------------------------
@@ -968,7 +2330,6 @@ class SongkickClient:
             )
 
             if identity is None:
-
                 identity = (
                     cls._livestream_identity(
                         event
@@ -976,12 +2337,13 @@ class SongkickClient:
                 )
 
             if identity in by_identity:
-
                 continue
 
             by_identity[identity] = event
 
-            result.append(event)
+            result.append(
+                event
+            )
 
         # --------------------------------------------------------
         # Fallback = HTML
@@ -996,7 +2358,6 @@ class SongkickClient:
             )
 
             if identity is None:
-
                 identity = (
                     cls._livestream_identity(
                         fallback
@@ -1160,7 +2521,6 @@ class SongkickClient:
             data,
             dict,
         ):
-
             return
 
         graph = data.get(
@@ -1209,7 +2569,6 @@ class SongkickClient:
             )
 
         if not is_event:
-
             return
 
         event = (
@@ -1220,7 +2579,6 @@ class SongkickClient:
         )
 
         if not event:
-
             return
 
         if upcoming_only:
@@ -1228,7 +2586,6 @@ class SongkickClient:
             if not cls._is_upcoming_event(
                 event
             ):
-
                 return
 
         if event.get(
@@ -1276,16 +2633,11 @@ class SongkickClient:
                 )
 
         if url:
-
             url = url.split("?")[0]
 
         start_date = data.get(
             "startDate"
         )
-
-        # --------------------------------------------------------
-        # Event reference MUST come from URL.
-        # --------------------------------------------------------
 
         reference = (
             cls.extract_event_reference(
@@ -1297,17 +2649,6 @@ class SongkickClient:
             "event_id"
         )
 
-        event_type = (
-            reference.get(
-                "event_type"
-            )
-        )
-
-        # --------------------------------------------------------
-        # Fallback only when URL does not contain a recognized
-        # Songkick event reference.
-        # --------------------------------------------------------
-
         if not event_id:
 
             event_id = (
@@ -1316,27 +2657,26 @@ class SongkickClient:
                 )
             )
 
-        if not event_id:
-
             logger.debug(
                 "JSON-LD event without "
                 "recognizable Songkick ID: "
                 f"{url}"
             )
 
-        if not start_date:
-
-            return None
+        event_type = reference.get(
+            "event_type"
+        )
 
         if event_type is None:
 
             event_type = (
                 "festival"
-                if cls._is_festival_url(
-                    url
-                )
+                if cls._is_festival_url(url)
                 else "concert"
             )
+
+        if not start_date:
+            return None
 
         attendance_mode = (
             data.get(
@@ -1380,7 +2720,6 @@ class SongkickClient:
                 performer,
                 dict,
             ):
-
                 continue
 
             performers.append(
@@ -1388,16 +2727,13 @@ class SongkickClient:
                     "name": performer.get(
                         "name"
                     ),
-
                     "type": performer.get(
                         "@type"
                     ),
-
                     "genre": performer.get(
                         "genre",
                         [],
                     ),
-
                     "same_as": performer.get(
                         "sameAs"
                     ),
@@ -1420,11 +2756,9 @@ class SongkickClient:
                 "name": location.get(
                     "name"
                 ),
-
                 "url": location.get(
                     "url"
                 ),
-
                 "address": location.get(
                     "address"
                 ),
@@ -1436,65 +2770,45 @@ class SongkickClient:
 
         return {
             "id": event_id,
-
             "songkick_id": event_id,
-
             "event_type": event_type,
-
             "url": url,
-
             "name": name,
-
             "original_name": name,
-
             "start_date": start_date,
-
             "end_date": data.get(
                 "endDate"
             ),
-
             "event_status": data.get(
                 "eventStatus"
             ),
-
             "event_attendance_mode":
                 attendance_mode,
-
             "description": data.get(
                 "description"
             ),
-
             "venue": venue,
-
             "performers": performers,
-
             "offers": data.get(
                 "offers",
                 [],
             ),
-
             "songkick_image": data.get(
                 "image"
             ),
-
             "source_page": source_url,
-
             "raw": data,
-
             "festival": (
                 data
                 if event_type == "festival"
                 else None
             ),
-
             "is_festival": (
                 event_type == "festival"
             ),
-
             "is_live_stream": (
                 is_live_stream
             ),
-
             "source": (
                 "songkick_artist_page"
                 if (
@@ -1505,13 +2819,11 @@ class SongkickClient:
                 )
                 else "songkick_gigography"
             ),
-
             "primary_detail": (
                 "Live Stream"
                 if is_live_stream
                 else None
             ),
-
             "secondary_detail": None,
         }
 
@@ -1525,7 +2837,6 @@ class SongkickClient:
     ):
 
         if not url:
-
             return None
 
         match = re.search(
@@ -1534,7 +2845,6 @@ class SongkickClient:
         )
 
         if match:
-
             return match.group(1)
 
         return None
@@ -1545,17 +2855,14 @@ class SongkickClient:
     ):
 
         if not url:
-
             return None
 
         match = re.search(
-            r"/live-stream-concerts/(\d+)"
-            r"(?:-|/|$|\?)",
+            r"/live-stream-concerts/(\d+)(?:-|/|$|\?)",
             url,
         )
 
         if match:
-
             return match.group(1)
 
         return None
@@ -1566,24 +2873,30 @@ class SongkickClient:
     ):
 
         if not url:
-
             return None
 
-        match = re.search(
-            r"/festivals/(\d+)-[^/]+"
-            r"/id/(\d+)"
-            r"(?:-|/|$|\?)",
+        festival_match = re.search(
+            r"/festivals/(\d+)(?:-[^/]+)?",
             url,
         )
 
-        if not match:
-
+        if not festival_match:
             return None
 
-        return {
-            "series_id": match.group(1),
+        series_id = festival_match.group(1)
 
-            "event_id": match.group(2),
+        event_match = re.search(
+            r"/id/(\d+)",
+            url,
+        )
+
+        return {
+            "series_id": series_id,
+            "event_id": (
+                event_match.group(1)
+                if event_match
+                else None
+            ),
         }
 
     @classmethod
@@ -1650,17 +2963,11 @@ class SongkickClient:
 
             return {
                 "event_type": "festival",
-
                 "event_id": (
-                    festival_data[
-                        "event_id"
-                    ]
+                    festival_data["event_id"]
                 ),
-
                 "festival_series_id": (
-                    festival_data[
-                        "series_id"
-                    ]
+                    festival_data["series_id"]
                 ),
             }
 
@@ -1690,8 +2997,7 @@ class SongkickClient:
                 continue
 
             reference = (
-                SongkickClient
-                .extract_event_reference(
+                SongkickClient.extract_event_reference(
                     str(value)
                 )
             )
@@ -1712,7 +3018,6 @@ class SongkickClient:
     ) -> bool:
 
         if not url:
-
             return False
 
         return (
@@ -1721,49 +3026,156 @@ class SongkickClient:
         )
 
     @staticmethod
-    def _is_upcoming_event(
-        event: dict,
-    ) -> bool:
+    def _parse_datetime(
+        value: str | None,
+    ) -> datetime | None:
 
-        start_date = event.get(
-            "start_date"
-        )
-
-        if not start_date:
-
-            return False
+        if not value:
+            return None
 
         try:
 
-            normalized = (
-                start_date.replace(
-                    "Z",
-                    "+00:00",
-                )
+            normalized = value.replace(
+                "Z",
+                "+00:00",
             )
 
-            date = (
-                datetime.fromisoformat(
-                    normalized
-                )
+            parsed = datetime.fromisoformat(
+                normalized
             )
 
-            if date.tzinfo is None:
+            if parsed.tzinfo is None:
 
-                date = date.replace(
+                parsed = parsed.replace(
                     tzinfo=timezone.utc
                 )
 
-            return (
-                date
-                >= datetime.now(
-                    timezone.utc
-                )
+            return parsed
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            return None
+
+    @staticmethod
+    def _is_date_only(
+        value: str | None,
+    ) -> bool:
+
+        if not isinstance(
+            value,
+            str,
+        ):
+            return False
+
+        return bool(
+            re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}",
+                value.strip(),
             )
+        )
 
-        except Exception:
+    @classmethod
+    def _is_upcoming_event(
+        cls,
+        event: dict,
+    ) -> bool:
 
-            return True
+        now = datetime.now(
+            timezone.utc
+        )
+
+        start_value = event.get(
+            "start_date"
+        )
+
+        end_value = event.get(
+            "end_date"
+        )
+
+        # --------------------------------------------------------
+        # Multi-day event with date-only end date.
+        # --------------------------------------------------------
+
+        if (
+            isinstance(
+                end_value,
+                str,
+            )
+            and cls._is_date_only(
+                end_value
+            )
+        ):
+
+            try:
+
+                end_date = datetime.strptime(
+                    end_value.strip(),
+                    "%Y-%m-%d",
+                ).date()
+
+                return (
+                    end_date
+                    >= now.date()
+                )
+
+            except ValueError:
+                pass
+
+        # --------------------------------------------------------
+        # Normal timezone-aware end date.
+        # --------------------------------------------------------
+
+        end_date = cls._parse_datetime(
+            end_value
+        )
+
+        if end_date is not None:
+            return end_date >= now
+
+        # --------------------------------------------------------
+        # Date-only start date.
+        # --------------------------------------------------------
+
+        if (
+            isinstance(
+                start_value,
+                str,
+            )
+            and cls._is_date_only(
+                start_value
+            )
+        ):
+
+            try:
+
+                start_date = datetime.strptime(
+                    start_value.strip(),
+                    "%Y-%m-%d",
+                ).date()
+
+                return (
+                    start_date
+                    >= now.date()
+                )
+
+            except ValueError:
+                pass
+
+        # --------------------------------------------------------
+        # Normal start date.
+        # --------------------------------------------------------
+
+        start_date = cls._parse_datetime(
+            start_value
+        )
+
+        if start_date is not None:
+            return start_date >= now
+
+        return True
 
     @staticmethod
     def _event_identity(
@@ -1814,7 +3226,6 @@ class SongkickClient:
     ) -> list:
 
         result = []
-
         seen = set()
 
         for event in events:
@@ -1836,11 +3247,9 @@ class SongkickClient:
                 )
 
             if identity in seen:
-
                 continue
 
             seen.add(identity)
-
             result.append(event)
 
         return result
@@ -1851,7 +3260,6 @@ class SongkickClient:
     ) -> str | None:
 
         if artist_id is None:
-
             return None
 
         value = str(
@@ -1864,7 +3272,6 @@ class SongkickClient:
         )
 
         if match:
-
             return match.group(1)
 
         return value
@@ -1887,7 +3294,6 @@ class SongkickClient:
             )
 
             if match:
-
                 return match.group(1)
 
         value = (
@@ -1908,7 +3314,6 @@ class SongkickClient:
     ) -> dict | None:
 
         if not artists:
-
             return None
 
         normalized_query = (
@@ -1932,7 +3337,6 @@ class SongkickClient:
             ).strip().lower()
 
             if name == normalized_query:
-
                 return item
 
         return artists[0]

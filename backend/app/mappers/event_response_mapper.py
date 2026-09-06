@@ -27,22 +27,42 @@ class EventResponseMapper:
 
         return EventResponse(
             id=event.id,
+
             title=event.title,
+
             starts_at=event.starts_at,
+
             ends_at=event.ends_at,
+
             event_type=event.event_type,
+
             ticket_url=event.ticket_url,
+
             free=event.free,
+
             sold_out=event.sold_out,
+
             venue_slug=event.venue_slug,
+
             venue=venue_response,
+
             artist_slugs=event.artist_slugs,
+
             artist_slug=(
                 event.artist_slug
                 if event.artist_slug
                 else None
             ),
+
+            festival=event.festival,
+
+            location=event.location,
+
+            source=event.source,
+
             going_count=event.going_count,
+
             maybe_count=event.maybe_count,
+
             went_count=event.went_count,
         )

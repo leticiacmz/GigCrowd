@@ -26,11 +26,12 @@ class ArtistProfileResponse(BaseModel):
         default_factory=dict
     )
 
-    followers: int | None = None
-
     followers_count: int = Field(
         default=0,
-        description="GigCrowd follower count (internal, not from external providers)"
+        description=(
+            "Number of GigCrowd users "
+            "following this artist."
+        ),
     )
 
     popularity: int | None = None

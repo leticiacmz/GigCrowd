@@ -1,7 +1,16 @@
 from app.domain.artist import Artist
-from app.schemas.artist_response import ArtistResponse
-from app.schemas.artist_search import ArtistSearchItem
-from app.schemas.artist_profile_response import ArtistProfileResponse
+
+from app.schemas.artist_response import (
+    ArtistResponse,
+)
+
+from app.schemas.artist_search import (
+    ArtistSearchItem,
+)
+
+from app.schemas.artist_profile_response import (
+    ArtistProfileResponse,
+)
 
 
 class ArtistResponseMapper:
@@ -27,8 +36,6 @@ class ArtistResponseMapper:
 
             slug=artist.slug,
 
-            followers=artist.followers,
-
             image=artist.image,
 
             genres=artist.genres,
@@ -49,11 +56,11 @@ class ArtistResponseMapper:
 
             provider=artist.provider,
 
-            provider_artist_id=artist.provider_artist_id,
+            provider_artist_id=(
+                artist.provider_artist_id
+            ),
 
             name=artist.name,
-
-            followers=artist.followers,
 
             image=artist.image,
 
@@ -69,6 +76,7 @@ class ArtistResponseMapper:
     @staticmethod
     def to_response(
         artist: Artist,
+        followers_count: int = 0,
     ) -> ArtistProfileResponse:
 
         return ArtistProfileResponse(
@@ -85,13 +93,7 @@ class ArtistResponseMapper:
 
             external_ids=artist.external_ids,
 
-            followers=artist.followers,
-
-            followers_count=(
-                artist.followers
-                if artist.followers
-                else 0
-            ),
+            followers_count=followers_count,
 
             popularity=artist.popularity,
 
@@ -100,5 +102,5 @@ class ArtistResponseMapper:
             events={
                 "upcoming": 0,
                 "total": 0,
-            }
+            },
         )

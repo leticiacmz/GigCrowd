@@ -39,7 +39,6 @@ from app.config import settings
 
 from app.providers.registry import registry
 from app.providers.spotify.provider import SpotifyProvider
-from app.providers.bandsintown.provider import BandsintownProvider
 from app.providers.songkick.provider import SongkickProvider
 
 
@@ -107,11 +106,6 @@ registry.register(
     SpotifyProvider(),
 )
 
-
-registry.register(
-    "bandsintown",
-    BandsintownProvider(),
-)
 
 registry.register(
     "songkick",

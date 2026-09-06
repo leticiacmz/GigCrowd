@@ -1,12 +1,17 @@
 from app.core.logger import get_logger
 
 from app.providers.base import BaseProvider
-from app.providers.songkick.client import SongkickClient
+from app.providers.songkick.client import (
+    SongkickClient,
+)
+from app.schemas.artist_search import (
+    ArtistSearchItem,
+)
 
-from app.schemas.artist_search import ArtistSearchItem
 
-
-logger = get_logger("songkick_provider")
+logger = get_logger(
+    "songkick_provider"
+)
 
 
 class SongkickProvider(BaseProvider):
@@ -15,9 +20,9 @@ class SongkickProvider(BaseProvider):
 
         self.client = SongkickClient()
 
-    # ============================================================
+    # ==================================================
     # ARTIST SEARCH
-    # ============================================================
+    # ==================================================
 
     async def search_artist(
         self,
@@ -34,11 +39,12 @@ class SongkickProvider(BaseProvider):
             )
         )
 
-        artists_data = data[
-            "artists"
-        ]
+        artists_data = data.get(
+            "artists",
+            [],
+        )
 
-        results = []
+        results: list[ArtistSearchItem] = []
 
         for result in artists_data:
 
@@ -46,6 +52,21 @@ class SongkickProvider(BaseProvider):
                 "document",
                 {},
             )
+
+            artist_id = document.get(
+                "id"
+            )
+
+            name = document.get(
+                "name"
+            )
+
+            if not artist_id or not name:
+                continue
+
+            # --------------------------------------------------
+            # Popularity
+            # --------------------------------------------------
 
             popularity = document.get(
                 "popularity"
@@ -68,22 +89,65 @@ class SongkickProvider(BaseProvider):
 
                     popularity = None
 
+            # --------------------------------------------------
+            # Genres
+            # --------------------------------------------------
+
+            genres = document.get(
+                "genres",
+                [],
+            )
+
+            if genres is None:
+                genres = []
+
+            if isinstance(
+                genres,
+                str,
+            ):
+
+                genres = [
+                    genres
+                ]
+
+            if not isinstance(
+                genres,
+                list,
+            ):
+
+                genres = []
+
+            genres = [
+                genre.strip()
+                for genre in genres
+                if isinstance(
+                    genre,
+                    str,
+                )
+                and genre.strip()
+            ]
+
+            # --------------------------------------------------
+            # Log actual Songkick data
+            # --------------------------------------------------
+
+            logger.info(
+                "Songkick artist result: "
+                f"name='{name}', "
+                f"id='{artist_id}', "
+                f"genres={genres}"
+            )
+
             results.append(
                 ArtistSearchItem(
 
                     provider="songkick",
 
-                    provider_artist_id=(
-                        document.get(
-                            "id"
-                        )
+                    provider_artist_id=str(
+                        artist_id
                     ),
 
-                    name=document.get(
-                        "name"
-                    ),
-
-                    followers=None,
+                    name=name,
 
                     image=document.get(
                         "image"
@@ -96,7 +160,7 @@ class SongkickProvider(BaseProvider):
                         False,
                     ),
 
-                    genres=[],
+                    genres=genres,
 
                     is_imported=False,
                 )
@@ -109,9 +173,9 @@ class SongkickProvider(BaseProvider):
 
         return results
 
-    # ============================================================
+    # ==================================================
     # GET ARTIST
-    # ============================================================
+    # ==================================================
 
     async def get_artist(
         self,
@@ -131,6 +195,7 @@ class SongkickProvider(BaseProvider):
                 artist_id.replace(
                     "Artist",
                     "",
+                    1,
                 )
             )
 
@@ -150,9 +215,51 @@ class SongkickProvider(BaseProvider):
             "Use search_artist() with the artist name."
         )
 
-    # ============================================================
+    # ==================================================
+    # EVENT IDENTITY
+    # ==================================================
+
+    @staticmethod
+    def _event_identity(
+        event: dict,
+    ) -> tuple[str, str] | None:
+
+        """
+        Build a stable identity for a Songkick event.
+
+        Songkick may expose the same event through
+        multiple catalogue sections, so we use the
+        provider ID first and URL as a fallback.
+        """
+
+        event_id = (
+            event.get("songkick_id")
+            or event.get("id")
+        )
+
+        if event_id:
+
+            return (
+                "songkick",
+                str(event_id),
+            )
+
+        url = event.get(
+            "url"
+        )
+
+        if url:
+
+            return (
+                "url",
+                str(url).split("?")[0],
+            )
+
+        return None
+
+    # ==================================================
     # GET ARTIST EVENTS
-    # ============================================================
+    # ==================================================
 
     async def get_artist_events(
         self,
@@ -170,57 +277,202 @@ class SongkickProvider(BaseProvider):
             )
         )
 
-        events = data[
-            "events"
-        ]
+        events = data.get(
+            "events",
+            [],
+        )
 
-        upcoming = data[
-            "upcoming"
-        ]
+        upcoming = data.get(
+            "upcoming",
+            [],
+        )
 
-        upcoming_festivals = data[
-            "upcoming_festivals"
-        ]
+        upcoming_festivals = data.get(
+            "upcoming_festivals",
+            [],
+        )
 
-        gigography = data[
-            "gigography"
-        ]
+        gigography = data.get(
+            "gigography",
+            [],
+        )
 
-        gigography_festivals = data[
-            "gigography_festivals"
-        ]
+        gigography_festivals = data.get(
+            "gigography_festivals",
+            [],
+        )
 
-        live_streams = data[
-            "live_streams"
-        ]
+        live_streams = data.get(
+            "live_streams",
+            [],
+        )
+
+        # --------------------------------------------------
+        # Build canonical import catalogue
+        # --------------------------------------------------
+
+        canonical_events = []
+
+        seen_identities: set[
+            tuple[str, str]
+        ] = set()
+
+        def add_event(
+            event: dict,
+            source: str,
+        ) -> None:
+
+            if not isinstance(
+                event,
+                dict,
+            ):
+                return
+
+            identity = (
+                self._event_identity(
+                    event
+                )
+            )
+
+            if identity is not None:
+
+                if identity in seen_identities:
+
+                    logger.debug(
+                        "Skipping duplicate event "
+                        f"from {source}: "
+                        f"id={event.get('songkick_id') or event.get('id')}"
+                    )
+
+                    return
+
+                seen_identities.add(
+                    identity
+                )
+
+            canonical_events.append(
+                event
+            )
+
+        # --------------------------------------------------
+        # Regular events
+        # --------------------------------------------------
+
+        for event in events:
+
+            add_event(
+                event,
+                "events",
+            )
+
+        # --------------------------------------------------
+        # Upcoming festivals
+        # --------------------------------------------------
+
+        for festival in upcoming_festivals:
+
+            add_event(
+                festival,
+                "upcoming_festivals",
+            )
 
         logger.info(
-            "Songkick complete catalogue: "
-            f"{len(events)} total events, "
-            f"{len(upcoming)} upcoming, "
-            f"{len(gigography)} gigography events, "
-            f"{len(live_streams)} livestreams"
+            "Songkick canonical event catalogue: "
+            f"regular_events={len(events)}, "
+            f"upcoming={len(upcoming)}, "
+            f"upcoming_festivals={len(upcoming_festivals)}, "
+            f"canonical_events={len(canonical_events)}"
+        )
+
+        for event in upcoming_festivals:
+
+            festival = event.get(
+                "festival"
+            )
+
+            festival_name = None
+            festival_series_id = None
+            festival_artist_count = 0
+
+            if isinstance(
+                festival,
+                dict,
+            ):
+
+                festival_name = (
+                    festival.get(
+                        "name"
+                    )
+                )
+
+                festival_series_id = (
+                    festival.get(
+                        "series_id"
+                    )
+                )
+
+                artists = festival.get(
+                    "artists",
+                    [],
+                )
+
+                if isinstance(
+                    artists,
+                    list,
+                ):
+                    festival_artist_count = (
+                        len(artists)
+                    )
+
+            logger.info(
+                "[EVENT CATALOG] Upcoming festival "
+                "included in canonical catalogue: "
+                f"id={event.get('songkick_id') or event.get('id')} | "
+                f"name={event.get('name')} | "
+                f"festival_name={festival_name} | "
+                f"series={festival_series_id} | "
+                f"festival_artists={festival_artist_count} | "
+                f"start={event.get('start_date')} | "
+                f"end={event.get('end_date')}"
+            )
+
+        search_data = data.get(
+            "search",
+            {},
         )
 
         return {
 
             "artist_name": artist_name,
 
-            "artist": data[
+            "artist": data.get(
                 "artist"
-            ],
+            ),
 
-            "artists": data[
-                "search"
-            ]["artists"],
+            "artists": search_data.get(
+                "artists",
+                [],
+            ),
 
-            "events": events,
+            # --------------------------------------------------
+            # Canonical import catalogue
+            # --------------------------------------------------
+
+            "events": canonical_events,
+
+            # --------------------------------------------------
+            # Explicit upcoming catalogue
+            # --------------------------------------------------
 
             "upcoming": upcoming,
 
             "upcoming_festivals": (
                 upcoming_festivals
             ),
+
+            # --------------------------------------------------
+            # Historical catalogue
+            # --------------------------------------------------
 
             "past_events": [
                 event
@@ -236,23 +488,32 @@ class SongkickProvider(BaseProvider):
                 gigography_festivals
             ),
 
-            "live_streams": (
-                live_streams
+            # --------------------------------------------------
+            # Livestreams
+            # --------------------------------------------------
+
+            "live_streams": live_streams,
+
+            # --------------------------------------------------
+            # Other Songkick data
+            # --------------------------------------------------
+
+            "festivals": data.get(
+                "festivals",
+                [],
             ),
 
-            "festivals": data[
-                "festivals"
-            ],
+            "top_results": search_data.get(
+                "top_results",
+                [],
+            ),
 
-            "top_results": data[
-                "search"
-            ]["top_results"],
-
-            "pages": data[
+            "pages": data.get(
                 "pages"
-            ],
+            ),
 
-            "total_events": data[
-                "total_events"
-            ],
+            "total_events": data.get(
+                "total_events",
+                len(canonical_events),
+            ),
         }

@@ -12,10 +12,6 @@ from app.services.provider_manager import (
     ProviderManager,
 )
 
-from app.mappers.artist_response_mapper import (
-    ArtistResponseMapper,
-)
-
 from app.providers.songkick.artist_mapper import (
     SongkickArtistMapper,
 )
@@ -42,9 +38,69 @@ class ArtistImportService:
             artist_repository
         )
 
-    # --------------------------------------------------
+    # ==================================================
+    # HELPERS
+    # ==================================================
+
+    @staticmethod
+    def _merge_genres(
+        spotify_genres: list[str] | None,
+        songkick_genres: list[str] | None,
+    ) -> list[str]:
+
+        """
+        Merge Spotify and Songkick genres.
+
+        Deduplication is case-insensitive and ignores
+        surrounding whitespace, but preserves the
+        original display value.
+
+        Example:
+
+            Spotify:
+                ["rock", "Alternative Rock"]
+
+            Songkick:
+                ["Rock", "indie"]
+
+            Result:
+                ["rock", "Alternative Rock", "indie"]
+        """
+
+        result: list[str] = []
+
+        seen: set[str] = set()
+
+        for genre in (
+            (spotify_genres or [])
+            + (songkick_genres or [])
+        ):
+
+            if not isinstance(
+                genre,
+                str,
+            ):
+                continue
+
+            normalized = genre.strip().casefold()
+
+            if not normalized:
+                continue
+
+            if normalized in seen:
+                continue
+
+            seen.add(normalized)
+
+            result.append(
+                genre.strip()
+            )
+
+        return result
+
+    # ==================================================
     # GENERIC IMPORT
-    # --------------------------------------------------
+    # ==================================================
 
     async def import_artist(
         self,
@@ -58,32 +114,20 @@ class ArtistImportService:
         )
 
         # --------------------------------------------------
-        # SONGKICK
-        # --------------------------------------------------
-
-        if request.provider == "songkick":
-
-            return await self.import_songkick_artist(
-                artist_name=(
-                    request.artist_data.get(
-                        "name"
-                    )
-                    if request.artist_data
-                    else None
-                ),
-                songkick_artist_data=(
-                    request.artist_data
-                ),
-                songkick_id=(
-                    request.provider_artist_id
-                ),
-            )
-
-        # --------------------------------------------------
         # SPOTIFY
         # --------------------------------------------------
 
         if request.provider == "spotify":
+
+            return await self.import_from_spotify(
+                request.provider_artist_id
+            )
+
+        # --------------------------------------------------
+        # SONGKICK
+        # --------------------------------------------------
+
+        if request.provider == "songkick":
 
             artist_name = None
 
@@ -98,12 +142,16 @@ class ArtistImportService:
             if not artist_name:
 
                 raise ValueError(
-                    "Spotify import requires "
+                    "Songkick import requires "
                     "artist_data.name"
                 )
 
-            return await self.import_from_spotify(
-                artist_name
+            return await self.import_songkick_artist(
+                artist_name=artist_name,
+                songkick_artist_data=(
+                    request.artist_data
+                ),
+                spotify_image=request.image,
             )
 
         raise ValueError(
@@ -111,21 +159,60 @@ class ArtistImportService:
             f"{request.provider}"
         )
 
-    # --------------------------------------------------
+    # ==================================================
     # IMPORT FROM SPOTIFY
-    # --------------------------------------------------
+    # ==================================================
 
     async def import_from_spotify(
         self,
-        artist_name: str,
+        spotify_artist_id: str,
     ):
 
         logger.info(
-            f"Resolving Spotify artist "
-            f"'{artist_name}' through Songkick"
+            f"Starting Spotify artist import: "
+            f"{spotify_artist_id}"
         )
 
-        # Search Songkick using the artist name
+        # --------------------------------------------------
+        # 1. Get complete Spotify artist
+        # --------------------------------------------------
+
+        spotify_provider = (
+            self.provider_manager.get_provider(
+                "spotify"
+            )
+        )
+
+        spotify_artist = (
+            await spotify_provider.get_artist(
+                spotify_artist_id
+            )
+        )
+
+        if not spotify_artist:
+
+            raise ValueError(
+                f"Spotify artist "
+                f"'{spotify_artist_id}' "
+                "could not be found."
+            )
+
+        artist_name = spotify_artist.name
+
+        logger.info(
+            f"Spotify artist resolved: "
+            f"{artist_name}"
+        )
+
+        # --------------------------------------------------
+        # 2. Resolve canonical artist on Songkick
+        # --------------------------------------------------
+
+        logger.info(
+            f"Resolving '{artist_name}' "
+            "through Songkick"
+        )
+
         songkick_results = (
             await self.provider_manager.search_artist(
                 artist_name,
@@ -140,18 +227,23 @@ class ArtistImportService:
                 "was not found on Songkick."
             )
 
-        # Try to find the exact artist name first
-        exact_match = None
+        # --------------------------------------------------
+        # 3. Exact name match
+        # --------------------------------------------------
 
         normalized_name = (
-            artist_name.strip().lower()
+            artist_name.strip().casefold()
         )
+
+        exact_match = None
 
         for result in songkick_results:
 
+            if not result.name:
+                continue
+
             if (
-                result.name
-                and result.name.strip().lower()
+                result.name.strip().casefold()
                 == normalized_name
             ):
 
@@ -159,18 +251,24 @@ class ArtistImportService:
 
                 break
 
-        # If exact match does not exist,
-        # do not blindly import the first result.
         if not exact_match:
 
             raise ValueError(
                 f"Could not find an exact "
-                f"Songkick match for '{artist_name}'."
+                f"Songkick match for "
+                f"'{artist_name}'."
             )
 
         songkick_id = (
             exact_match.provider_artist_id
         )
+
+        if not songkick_id:
+
+            raise ValueError(
+                f"Songkick match for "
+                f"'{artist_name}' has no ID."
+            )
 
         logger.info(
             f"Resolved '{artist_name}' to "
@@ -178,9 +276,191 @@ class ArtistImportService:
         )
 
         # --------------------------------------------------
-        # IMPORTANT:
-        # Check canonical Songkick identity BEFORE
-        # generating any slug.
+        # 4. Check canonical Songkick identity
+        # --------------------------------------------------
+
+        existing_by_songkick = (
+            await self.artist_repository
+            .get_by_songkick_id(
+                songkick_id
+            )
+        )
+
+        # --------------------------------------------------
+        # 5. Build Songkick data
+        # --------------------------------------------------
+
+        songkick_artist_data = {
+
+            "id": str(
+                songkick_id
+            ),
+
+            "name": exact_match.name,
+
+            "image": exact_match.image,
+
+            "genres": (
+                exact_match.genres
+                or []
+            ),
+
+            "popularity": (
+                (
+                    exact_match.popularity
+                    / 100
+                )
+                if exact_match.popularity
+                is not None
+                else None
+            ),
+
+            "is_valid": (
+                exact_match.verified
+            ),
+        }
+
+        logger.info(
+            f"Songkick genres for "
+            f"'{artist_name}': "
+            f"{songkick_artist_data['genres']}"
+        )
+
+        # --------------------------------------------------
+        # 6. Existing artist
+        # --------------------------------------------------
+
+        if existing_by_songkick:
+
+            logger.info(
+                f"Artist '{existing_by_songkick.name}' "
+                "already exists by Songkick ID. "
+                "Applying Spotify enrichment."
+            )
+
+            spotify_genres = (
+                spotify_artist.genres
+                or []
+            )
+
+            songkick_genres = (
+                songkick_artist_data.get(
+                    "genres",
+                    [],
+                )
+                or []
+            )
+
+            existing_by_songkick.external_ids[
+                "songkick"
+            ] = str(songkick_id)
+
+            existing_by_songkick.external_ids[
+                "spotify"
+            ] = spotify_artist.external_ids.get(
+                "spotify",
+                spotify_artist_id,
+            )
+
+            if (
+                spotify_artist.image
+                and not existing_by_songkick.image
+            ):
+
+                existing_by_songkick.image = (
+                    spotify_artist.image
+                )
+
+            existing_by_songkick.genres = (
+                self._merge_genres(
+                    existing_by_songkick.genres,
+                    self._merge_genres(
+                        spotify_genres,
+                        songkick_genres,
+                    ),
+                )
+            )
+
+            if (
+                spotify_artist.popularity
+                is not None
+            ):
+
+                existing_by_songkick.popularity = (
+                    spotify_artist.popularity
+                )
+
+            # Persist enrichment.
+            await self.artist_repository.update_external_data(
+                existing_by_songkick.id,
+                existing_by_songkick.external_ids,
+                existing_by_songkick.image,
+                existing_by_songkick.genres,
+                existing_by_songkick.popularity,
+            )
+
+            refreshed_artist = (
+                await self.artist_repository
+                .get_by_songkick_id(
+                    songkick_id
+                )
+            )
+
+            return {
+                "artist": (
+                    refreshed_artist
+                    or existing_by_songkick
+                ),
+                "is_new": False,
+            }
+
+        # --------------------------------------------------
+        # 7. Create new canonical artist
+        # --------------------------------------------------
+
+        return await self.import_songkick_artist(
+            artist_name=exact_match.name,
+            songkick_artist_data=(
+                songkick_artist_data
+            ),
+            spotify_artist=spotify_artist,
+        )
+
+    # ==================================================
+    # SONGKICK IMPORT
+    # ==================================================
+
+    async def import_songkick_artist(
+        self,
+        artist_name: str,
+        songkick_artist_data: dict,
+        spotify_artist=None,
+        spotify_image: str | None = None,
+    ):
+
+        logger.info(
+            f"Importing Songkick artist: "
+            f"{artist_name}"
+        )
+
+        songkick_id = (
+            songkick_artist_data.get(
+                "id"
+            )
+        )
+
+        if not songkick_id:
+
+            raise ValueError(
+                "Songkick artist requires an ID."
+            )
+
+        songkick_id = str(
+            songkick_id
+        )
+
+        # --------------------------------------------------
+        # Check canonical identity
         # --------------------------------------------------
 
         existing = (
@@ -193,9 +473,8 @@ class ArtistImportService:
         if existing:
 
             logger.info(
-                f"Artist '{existing.name}' "
-                f"already exists with slug "
-                f"'{existing.slug}'"
+                f"Artist already imported: "
+                f"{existing.name}"
             )
 
             return {
@@ -204,92 +483,41 @@ class ArtistImportService:
             }
 
         # --------------------------------------------------
-        # Build Songkick data
+        # Build canonical artist
         # --------------------------------------------------
-
-        songkick_artist_data = {
-            "id": songkick_id,
-            "name": exact_match.name,
-            "popularity": (
-                (
-                    exact_match.popularity or 0
-                ) / 100
-            ),
-            "is_valid": (
-                exact_match.verified
-            ),
-        }
-
-        return await self.import_songkick_artist(
-            artist_name=exact_match.name,
-            songkick_artist_data=(
-                songkick_artist_data
-            ),
-        )
-
-    # --------------------------------------------------
-    # SONGKICK IMPORT
-    # --------------------------------------------------
-
-    async def import_songkick_artist(
-        self,
-        artist_name: str,
-        songkick_artist_data: dict,
-        spotify_image: str | None = None,
-    ):
-        """
-        Import Songkick artist using data obtained from
-        the Songkick search result.
-
-        Songkick is the canonical source.
-
-        Spotify is used only as an image fallback when
-        Songkick does not provide an image.
-        """
-
-        logger.info(
-            f"Importing Songkick artist: {artist_name}"
-        )
-
-        songkick_id = songkick_artist_data.get(
-            "id"
-        )
-
-        existing = await self.artist_repository.get_by_external_id(
-            "songkick",
-            songkick_id
-        )
-
-        if existing:
-
-            logger.info(
-                f"Artist already imported: {existing.name}"
-            )
-
-            return {
-                "artist": existing,
-                "is_new": False
-            }
 
         artist = SongkickArtistMapper.to_domain(
             songkick_artist_data,
+            spotify_artist=spotify_artist,
             fallback_image=spotify_image,
         )
 
-        artist.slug = await self.artist_repository.generate_unique_slug(
-            artist.name
+        # --------------------------------------------------
+        # Canonical slug
+        # --------------------------------------------------
+
+        artist.slug = (
+            await self.artist_repository
+            .generate_unique_slug(
+                artist.name
+            )
         )
+
+        # --------------------------------------------------
+        # Persist
+        # --------------------------------------------------
 
         await self.artist_repository.insert_artist(
             artist
         )
 
         logger.info(
-            f"Artist '{artist.name}' imported successfully "
-            f"with Songkick ID: {songkick_id}"
+            f"Artist '{artist.name}' imported "
+            f"successfully with Songkick ID: "
+            f"{songkick_id}"
         )
 
         return {
             "artist": artist,
-            "is_new": True
-        }
+            "is_new": True,
+        } 
