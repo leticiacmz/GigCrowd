@@ -18,6 +18,10 @@ interface EventCardProps {
 
     starts_at: string;
 
+    ends_at?: string | null;
+
+    event_type?: string;
+
     venue?: {
 
       name: string;
@@ -28,6 +32,33 @@ interface EventCardProps {
 
     } | null;
 
+    venue_slug?: string | null;
+
+    location?: {
+
+      city?: string | null;
+
+      country?: string | null;
+
+      latitude?: number | null;
+
+      longitude?: number | null;
+
+    } | null;
+
+    festival?: {
+
+      series_id?: string | null;
+
+      name?: string | null;
+
+      edition?: string | null;
+
+      url?: string | null;
+
+      tracking_count?: number | null;
+
+    } | null;
 
     going_count?: number;
 
@@ -40,35 +71,151 @@ interface EventCardProps {
 }
 
 
+function isFestival(event: EventCardProps['event']) {
+
+  return event.event_type === 'FestivalInstance';
+
+}
+
+
+function formatEventDate(
+  event: EventCardProps['event']
+) {
+
+  const startDate =
+    new Date(event.starts_at);
+
+  if (
+    isFestival(event) &&
+    event.ends_at
+  ) {
+
+    const endDate =
+      new Date(event.ends_at);
+
+    const sameYear =
+      startDate.getFullYear() ===
+      endDate.getFullYear();
+
+    if (sameYear) {
+
+      return `${format(
+        startDate,
+        'MMM d'
+      )} – ${format(
+        endDate,
+        'MMM d, yyyy'
+      )}`;
+
+    }
+
+    return `${format(
+      startDate,
+      'MMM d, yyyy'
+    )} – ${format(
+      endDate,
+      'MMM d, yyyy'
+    )}`;
+
+  }
+
+  return format(
+    startDate,
+    'MMM d, yyyy'
+  );
+
+}
+
+
+function formatEventTime(
+  event: EventCardProps['event']
+) {
+
+  if (isFestival(event)) {
+    return null;
+  }
+
+  return format(
+    new Date(event.starts_at),
+    'h:mm a'
+  );
+
+}
+
+
+function getVenueName(
+  event: EventCardProps['event']
+) {
+
+  if (event.venue?.name) {
+    return event.venue.name;
+  }
+
+  if (event.venue_slug) {
+    return event.venue_slug
+      .replace(/-/g, ' ');
+  }
+
+  return null;
+
+}
+
+
+function getCity(
+  event: EventCardProps['event']
+) {
+
+  return (
+    event.location?.city ??
+    event.venue?.city ??
+    null
+  );
+
+}
+
+
+function getCountry(
+  event: EventCardProps['event']
+) {
+
+  return (
+    event.location?.country ??
+    event.venue?.country ??
+    null
+  );
+
+}
+
 
 export default function EventCard({
   event,
 }: EventCardProps) {
 
+  const festival =
+    isFestival(event);
 
   const formattedDate =
-    format(
-      new Date(event.starts_at),
-      'MMM d, yyyy'
-    );
-
-
+    formatEventDate(event);
 
   const formattedTime =
-    format(
-      new Date(event.starts_at),
-      'h:mm a'
-    );
+    formatEventTime(event);
 
+  const venueName =
+    getVenueName(event);
+
+  const city =
+    getCity(event);
+
+  const country =
+    getCountry(event);
 
 
   return (
 
     <Link
       href={`/events/${event.id}`}
-      className="block"
+      className="block h-full"
     >
-
 
       <Card
         hoverable
@@ -79,13 +226,11 @@ export default function EventCard({
         "
       >
 
-
         <div className="
           flex
           flex-col
           h-full
         ">
-
 
           <div className="
             flex
@@ -95,27 +240,32 @@ export default function EventCard({
             mb-4
           ">
 
-
             <h3 className="
               font-semibold
               text-lg
               line-clamp-2
             ">
 
-              {event.title}
+              {
+                festival &&
+                event.festival?.name
+                  ? event.festival.name
+                  : event.title
+              }
 
             </h3>
-
 
             <Badge
               variant="accent"
               size="sm"
             >
 
-              {formattedDate}
+              {festival
+                ? 'Festival'
+                : 'Concert'
+              }
 
             </Badge>
-
 
           </div>
 
@@ -123,52 +273,70 @@ export default function EventCard({
           <div className="
             text-sm
             text-gray-400
-            space-y-1
+            space-y-2
           ">
 
             <p>
-
-              {formattedTime}
-
+              {formattedDate}
             </p>
 
 
+            {formattedTime && (
+
+              <p>
+                {formattedTime}
+              </p>
+
+            )}
 
 
-            {
-              event.venue && (
+            {venueName && (
 
-                <p>
+              <p>
+                {venueName}
+              </p>
 
-                  {event.venue.name}
-
-                  {
-                    event.venue.city && (
-                      <>
-                        {' • '}
-                        {event.venue.city}
-                      </>
-                    )
-                  }
+            )}
 
 
-                  {
-                    event.venue.country && (
-                      <>
-                        {' • '}
-                        {event.venue.country}
-                      </>
-                    )
-                  }
+            {(city || country) && (
 
+              <p>
 
-                </p>
+                {city}
 
-              )
-            }
+                {city && country && (
+                  <>
+                    {' • '}
+                  </>
+                )}
 
+                {country}
+
+              </p>
+
+            )}
 
           </div>
+
+
+          {festival &&
+            event.festival?.tracking_count != null && (
+
+              <p className="
+                mt-4
+                text-xs
+                text-gray-500
+              ">
+
+                {event.festival.tracking_count}
+                {' '}
+                people tracking this festival
+
+              </p>
+
+            )
+          }
 
 
           <div className="
@@ -180,40 +348,27 @@ export default function EventCard({
             text-gray-400
           ">
 
-
             <span>
-
               ✓ {event.going_count ?? 0}
-
             </span>
 
-
             <span>
-
               ? {event.maybe_count ?? 0}
-
             </span>
-
-
-
 
             <span>
-
               ★ {event.went_count ?? 0}
-
             </span>
-
 
           </div>
 
 
         </div>
 
-
       </Card>
-
 
     </Link>
 
   );
+
 }

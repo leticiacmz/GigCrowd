@@ -1,4 +1,5 @@
 import Link from 'next/link';
+
 import Avatar from './ui/Avatar';
 import Badge from './ui/Badge';
 
@@ -10,12 +11,28 @@ interface ArtistCardProps {
     image?: string;
     genres?: string[];
   };
+  onClick?: () => void;
 }
 
-export default function ArtistCard({ artist }: ArtistCardProps) {
+export default function ArtistCard({
+  artist,
+  onClick,
+}: ArtistCardProps) {
+  const href = `/artists/${artist.slug || artist.provider_artist_id}`;
+
+  function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (!onClick) {
+      return;
+    }
+
+    e.preventDefault();
+    onClick();
+  }
+
   return (
     <Link
-      href={`/artists/${artist.slug || artist.provider_artist_id}`}
+      href={href}
+      onClick={handleClick}
       className="block"
     >
       <div className="bg-card-bg border border-border rounded-xl overflow-hidden hover:border-accent hover:bg-card-hover transition-all duration-200 cursor-pointer">
@@ -32,12 +49,12 @@ export default function ArtistCard({ artist }: ArtistCardProps) {
             </div>
           )}
         </div>
-        
+
         <div className="p-4">
           <h3 className="text-foreground font-semibold text-lg mb-2 line-clamp-1">
             {artist.name}
           </h3>
-          
+
           {artist.genres && artist.genres.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {artist.genres.slice(0, 2).map((genre, index) => (
@@ -45,6 +62,7 @@ export default function ArtistCard({ artist }: ArtistCardProps) {
                   {genre}
                 </Badge>
               ))}
+
               {artist.genres.length > 2 && (
                 <Badge variant="outline" size="sm">
                   +{artist.genres.length - 2}

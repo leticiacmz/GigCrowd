@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
 import { artistAPI } from '../lib/api';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import ArtistCard from '../../components/ArtistCard';
+import LoadingState from '../../components/LoadingState';
 
 interface ArtistSearchResult {
   provider: string;
@@ -26,39 +26,77 @@ export default function EventsPage() {
 
   const [query, setQuery] = useState('');
   const [artists, setArtists] = useState<ArtistSearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [importingArtistId, setImportingArtistId] = useState<string | null>(
+    null
+  );
+  const [error, setError] = useState<string | null>(null);
 
   async function searchArtists(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!query.trim()) return;
+    const trimmedQuery = query.trim();
+
+    if (!trimmedQuery) {
+      return;
+    }
 
     try {
-      setLoading(true);
+      setSearchLoading(true);
+      setError(null);
 
-      const result = await artistAPI.searchArtists(query);
+      const result = await artistAPI.searchArtists(trimmedQuery);
 
       setArtists(result);
+    } catch (err) {
+      console.error('Failed to search artists:', err);
+
+      setArtists([]);
+      setError('Unable to search artists. Please try again.');
     } finally {
-      setLoading(false);
+      setSearchLoading(false);
     }
   }
 
   async function selectArtist(artist: ArtistSearchResult) {
-    let target = artist;
+    if (importingArtistId) {
+      return;
+    }
 
-    if (!artist.is_imported) {
-      target = await artistAPI.importArtist(
+    try {
+      setError(null);
+
+      if (artist.is_imported && artist.slug) {
+        router.push(`/artists/${artist.slug}`);
+        return;
+      }
+
+      setImportingArtistId(artist.provider_artist_id);
+
+      const importedArtist = await artistAPI.importArtist(
         artist.provider_artist_id,
         artist.provider,
         artist
       );
-    }
 
-    if (target.slug) {
-      router.push(`/artists/${target.slug}`);
+      if (!importedArtist?.slug) {
+        throw new Error('Artist was imported but no slug was returned.');
+      }
+
+      router.push(`/artists/${importedArtist.slug}`);
+      router.refresh();
+    } catch (err) {
+      console.error('Failed to import artist:', err);
+
+      setError(
+        'Unable to import this artist. Please try again.'
+      );
+    } finally {
+      setImportingArtistId(null);
     }
   }
+
+  const isImporting = importingArtistId !== null;
 
   return (
     <div className="min-h-screen">
@@ -74,20 +112,55 @@ export default function EventsPage() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search artists..."
               className="flex-1"
+              disabled={isImporting}
             />
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Searching...' : 'Search'}
+
+            <Button
+              type="submit"
+              disabled={searchLoading || isImporting}
+            >
+              {searchLoading ? 'Searching...' : 'Search'}
             </Button>
           </div>
         </form>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {artists.map((artist) => (
-            <div key={artist.provider_artist_id} onClick={() => selectArtist(artist)}>
-              <ArtistCard artist={artist} />
-            </div>
-          ))}
-        </div>
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {error}
+          </div>
+        )}
+
+        {searchLoading && (
+          <LoadingState message="Searching artists..." />
+        )}
+
+        {!searchLoading && isImporting && (
+          <LoadingState message="Importing artist and syncing events..." />
+        )}
+
+        {!searchLoading && !isImporting && artists.length === 0 && query.trim() && !error && (
+          <div className="py-16 text-center">
+            <p className="text-gray-400">
+              No artists found.
+            </p>
+          </div>
+        )}
+
+        {!searchLoading && (
+          <div
+            className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${
+              isImporting ? 'pointer-events-none opacity-60' : ''
+            }`}
+          >
+            {artists.map((artist) => (
+              <ArtistCard
+                key={`${artist.provider}-${artist.provider_artist_id}`}
+                artist={artist}
+                onClick={() => selectArtist(artist)}
+              />
+            ))}
+          </div>
+        )}
       </main>
     </div>
   );
