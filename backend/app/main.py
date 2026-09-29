@@ -33,7 +33,8 @@ from app.routes import (
     follows,
     show_logs,
     spotify_auth,
-    user_stats
+    user_stats,
+    community_posts
 )
 from app.config import settings
 
@@ -137,6 +138,8 @@ app.include_router(show_logs.router)
 app.include_router(spotify_auth.router)
 
 app.include_router(user_stats.router)
+
+app.include_router(community_posts.router)
 
 # =====================================================
 # Health Check
