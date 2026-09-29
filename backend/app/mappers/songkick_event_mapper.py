@@ -69,6 +69,7 @@ class SongkickEventMapper:
                 songkick_event_data.get(
                     "start_date"
                 )
+                or songkick_event_data.get("date")  # Support both formats
             )
         )
 
@@ -102,7 +103,7 @@ class SongkickEventMapper:
             )
         )
 
-        if raw_event_type == "festival":
+        if raw_event_type == "festival" or raw_event_type == "FestivalInstance":
 
             event_type = "FestivalInstance"
 
@@ -320,6 +321,20 @@ class SongkickEventMapper:
             location,
             dict,
         ):
+            # Try simple format with venue_name, city_name, country_name at top level
+            location = {
+                "name": songkick_event_data.get("venue_name"),
+                "address": {
+                    "addressLocality": songkick_event_data.get("city_name"),
+                    "addressCountry": songkick_event_data.get("country_name"),
+                },
+                "url": None
+            }
+
+        if not isinstance(
+            location,
+            dict,
+        ):
 
             location = {}
 
@@ -436,13 +451,17 @@ class SongkickEventMapper:
             )
         )
 
+        # Also try to get venue_id from top level
+        if not venue_external_id:
+            venue_external_id = songkick_event_data.get("venue_id")
+
         external_ids = {}
 
         if venue_external_id:
 
             external_ids[
                 "songkick"
-            ] = venue_external_id
+            ] = str(venue_external_id)
 
         slug = generate_slug(
             venue_name

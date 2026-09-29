@@ -6,10 +6,11 @@ def test_client_initialization():
     """Test client initialization with configuration"""
     client = SongkickClient()
     
-    assert client.headless is True
-    assert client.require_navigation is True
-    assert client.base_url == "https://www.songkick.com"
+    assert client.base_url is not None
     assert client.search_endpoint == "/api/universal_search"
+    assert client.timeout == 60
+    assert "user-agent" in client.headers
+    assert "accept" in client.headers
 
 
 def test_client_configuration_from_settings():
@@ -18,9 +19,7 @@ def test_client_configuration_from_settings():
     
     client = SongkickClient()
     
-    assert client.headless == settings.PLAYWRIGHT_HEADLESS
-    assert client.require_navigation == settings.SONGKICK_REQUIRE_NAVIGATION
-    assert client.base_url == settings.SONGKICK_BASE_URL
+    assert client.base_url == settings.SONGKICK_BASE_URL.rstrip("/")
 
 
 @pytest.mark.asyncio

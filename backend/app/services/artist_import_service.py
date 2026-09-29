@@ -119,8 +119,9 @@ class ArtistImportService:
 
         if request.provider == "spotify":
 
-            return await self.import_from_spotify(
-                request.provider_artist_id
+            raise NotImplementedError(
+                "Spotify canonical import is deprecated. "
+                "Use Songkick for canonical artist import."
             )
 
         # --------------------------------------------------

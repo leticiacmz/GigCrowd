@@ -104,9 +104,19 @@ async def test_artist_service_uses_songkick_for_sync():
 async def test_event_import_service_defaults_to_songkick():
     """Verify EventImportService defaults to Songkick"""
     mock_provider_manager = MagicMock()
-    mock_provider_manager.get_provider = MagicMock(return_value=MagicMock(
-        get_artist_events=AsyncMock(return_value=[])
-    ))
+    
+    # Create a proper async mock for get_artist_events
+    from unittest.mock import AsyncMock
+    mock_songkick_provider = MagicMock()
+    mock_songkick_provider.get_artist_events = AsyncMock(return_value={
+        "events": [],
+        "upcoming": [],
+        "upcoming_festivals": [],
+        "past_events": [],
+        "total_events": 0
+    })
+    
+    mock_provider_manager.get_provider = MagicMock(return_value=mock_songkick_provider)
     
     mock_event_repo = AsyncMock()
     mock_venue_repo = AsyncMock()
@@ -235,6 +245,7 @@ async def test_songkick_is_only_canonical_import_path():
     mock_provider_manager = MagicMock()
     mock_artist_repo = AsyncMock()
     mock_artist_repo.get_by_external_id = AsyncMock(return_value=None)
+    mock_artist_repo.get_by_songkick_id = AsyncMock(return_value=None)  # Fix: return None instead of mock
     mock_artist_repo.generate_unique_slug = AsyncMock(return_value="test-artist")
     mock_artist_repo.insert_artist = AsyncMock()
     
