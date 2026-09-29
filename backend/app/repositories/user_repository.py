@@ -33,6 +33,36 @@ class UserRepository(BaseRepository):
         )
 
 
+    async def get_by_ids(
+        self,
+        user_ids: list[str]
+    ):
+
+        object_ids = []
+
+        for user_id in user_ids:
+
+            try:
+                object_ids.append(
+                    ObjectId(user_id)
+                )
+
+            except Exception:
+                continue
+
+        if not object_ids:
+            return []
+
+        return await self.find_many(
+            {
+                "_id": {
+                    "$in": object_ids
+                }
+            },
+            limit=len(object_ids),
+        )
+
+
     async def get_by_username(
         self,
         username: str

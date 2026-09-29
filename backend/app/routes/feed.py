@@ -1,58 +1,59 @@
-from fastapi import APIRouter, Depends
-from app.services.activity_service import ActivityService
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
+
 from app.auth.dependencies import get_current_active_user
+from app.database.connection import get_database
+from app.domain.feed_activity import ActivityType
+from app.repositories.feed_activity_repository import FeedActivityRepository
+from app.repositories.follow_repository import FollowRepository
+from app.repositories.user_repository import UserRepository
+from app.schemas.feed_activity import FeedPage
+from app.services.feed_activity_service import FeedActivityService
 
 router = APIRouter(prefix="/feed", tags=["feed"])
 
 
-@router.get("")
-async def get_feed(
-    skip: int = 0,
-    limit: int = 50,
-    current_user: dict = Depends(get_current_active_user)
-):
-    """Get activity feed from followed users"""
-    activities = await ActivityService.get_followed_activities(current_user["_id"], skip, limit)
-    
-    # Enrich activities with related data
-    from app.database.connection import get_database
+def get_feed_activity_service() -> FeedActivityService:
+
     db = get_database()
-    
-    enriched_activities = []
-    for activity in activities:
-        enriched_activity = {
-            "id": activity["_id"],
-            "user": activity["user"],
-            "activity_type": activity["activity_type"],
-            "target_id": activity.get("target_id"),
-            "target_type": activity.get("target_type"),
-            "metadata": activity.get("metadata"),
-            "created_at": activity["created_at"]
-        }
-        
-        # Add related object data based on target type
-        if activity.get("target_id") and activity.get("target_type"):
-            if activity["target_type"] == "event":
-                event = await db.events.find_one({"_id": activity["target_id"]})
-                if event:
-                    enriched_activity["event"] = {
-                        "id": event["_id"],
-                        "title": event["title"],
-                        "date": event["date"],
-                        "location": event["location"],
-                        "image_url": event.get("image_url")
-                    }
-            elif activity["target_type"] == "post":
-                post = await db.posts.find_one({"_id": activity["target_id"]})
-                if post:
-                    enriched_activity["post"] = {
-                        "id": post["_id"],
-                        "content": post.get("content"),
-                        "media_url": post.get("media_url"),
-                        "media_type": post.get("media_type"),
-                        "created_at": post["created_at"]
-                    }
-        
-        enriched_activities.append(enriched_activity)
-    
-    return enriched_activities
+
+    return FeedActivityService(
+        repository=FeedActivityRepository(db),
+        follow_repository=FollowRepository(db),
+        user_repository=UserRepository(db),
+    )
+
+
+@router.get("", response_model=FeedPage)
+async def get_feed(
+    limit: int = Query(default=20, ge=1, le=100),
+    skip: int = Query(default=0, ge=0),
+    activity_type: Optional[list[ActivityType]] = Query(default=None),
+    current_user: dict = Depends(get_current_active_user),
+    service: FeedActivityService = Depends(get_feed_activity_service),
+):
+    """Chronological activity feed of the current user and the users they follow"""
+
+    return await service.get_user_feed(
+        user_id=current_user["_id"],
+        limit=limit,
+        skip=skip,
+        activity_types=activity_type,
+    )
+
+
+@router.get("/me", response_model=FeedPage)
+async def get_own_feed(
+    limit: int = Query(default=20, ge=1, le=100),
+    skip: int = Query(default=0, ge=0),
+    current_user: dict = Depends(get_current_active_user),
+    service: FeedActivityService = Depends(get_feed_activity_service),
+):
+    """Chronological activity feed of the current user only"""
+
+    return await service.get_actor_feed(
+        actor_id=current_user["_id"],
+        limit=limit,
+        skip=skip,
+    )
