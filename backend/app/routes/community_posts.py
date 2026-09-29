@@ -7,6 +7,8 @@ from app.repositories.user_repository import UserRepository
 from app.repositories.artist_repository import ArtistRepository
 from app.auth.dependencies import get_current_active_user
 from app.database.connection import get_database
+from app.routes.feed import get_feed_activity_service
+from app.services.feed_activity_service import FeedActivityService
 from app.core.logger import get_logger
 
 
@@ -25,6 +27,7 @@ async def create_community_post(
     post: CommunityPostCreate,
     current_user: dict = Depends(get_current_active_user),
     post_repo: CommunityPostRepository = Depends(get_community_post_service),
+    feed_activity_service: FeedActivityService = Depends(get_feed_activity_service),
 ):
     """Create a new community post for an artist"""
     
@@ -45,6 +48,13 @@ async def create_community_post(
         image_url=post.image_url
     )
     
+    await feed_activity_service.record_community_post(
+        actor_id=current_user["_id"],
+        post_id=str(result["_id"]),
+        artist_slug=result["artist_slug"],
+        content=result["content"],
+    )
+
     logger.info(f"User {current_user['username']} created community post for {post.artist_slug}")
     
     return CommunityPostResponse(
