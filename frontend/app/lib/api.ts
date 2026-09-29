@@ -822,6 +822,104 @@ export const communityPostAPI = {
 
 
 
+export const commentAPI = {
+
+  getComments: async (
+    postId: string,
+    params?: any
+  ) => {
+
+    const response =
+      await api.get(
+        `/community/posts/${postId}/comments`,
+        {
+          params,
+        }
+      );
+
+
+    return response.data;
+
+  },
+
+
+  getReplies: async (
+    commentId: string,
+    params?: any
+  ) => {
+
+    const response =
+      await api.get(
+        `/community/comments/${commentId}/replies`,
+        {
+          params,
+        }
+      );
+
+
+    return response.data;
+
+  },
+
+
+  createComment: async (
+    data: {
+      post_id: string;
+      content: string;
+      parent_comment_id?: string;
+    }
+  ) => {
+
+    const response =
+      await api.post(
+        '/community/comments',
+        data
+      );
+
+
+    return response.data;
+
+  },
+
+
+  updateComment: async (
+    commentId: string,
+    data: {
+      content: string;
+    }
+  ) => {
+
+    const response =
+      await api.put(
+        `/community/comments/${commentId}`,
+        data
+      );
+
+
+    return response.data;
+
+  },
+
+
+  deleteComment: async (
+    commentId: string
+  ) => {
+
+    const response =
+      await api.delete(
+        `/community/comments/${commentId}`
+      );
+
+
+    return response.data;
+
+  },
+
+
+};
+
+
+
 export const spotifyAPI = {
 
 

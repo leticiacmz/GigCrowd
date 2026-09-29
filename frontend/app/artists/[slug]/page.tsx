@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { artistAPI, eventAPI, communityPostAPI } from '../../lib/api';
+import { artistAPI, eventAPI, communityPostAPI, commentAPI } from '../../lib/api';
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
 import Badge from '../../../components/ui/Badge';
@@ -73,6 +73,20 @@ interface CommunityPost {
   liked_by_user: boolean;
 }
 
+interface Comment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  parent_comment_id?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  username?: string;
+  user_avatar_url?: string;
+  replies: Comment[];
+  replies_count: number;
+}
+
 export default function ArtistProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -86,6 +100,7 @@ export default function ArtistProfilePage() {
   const [error, setError] = useState('');
   const [following, setFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   // Community posts state
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
@@ -94,6 +109,17 @@ export default function ArtistProfilePage() {
   const [postLoading, setPostLoading] = useState(false);
   const [postError, setPostError] = useState('');
   const [likeLoading, setLikeLoading] = useState<string | null>(null);
+
+  // Comments state
+  const [comments, setComments] = useState<Record<string, Comment[]>>({});
+  const [commentsLoading, setCommentsLoading] = useState<Record<string, boolean>>({});
+  const [commentContent, setCommentContent] = useState<Record<string, string>>({});
+  const [commentLoading, setCommentLoading] = useState<Record<string, boolean>>({});
+  const [replyContent, setReplyContent] = useState<Record<string, string>>({});
+  const [replyLoading, setReplyLoading] = useState<Record<string, boolean>>({});
+  const [editingComment, setEditingComment] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [showReplies, setShowReplies] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (artistSlug) {
@@ -106,6 +132,7 @@ export default function ArtistProfilePage() {
 
     if (token) {
       loadFollowStatus();
+      loadCurrentUser();
     }
   }, [artistSlug]);
 
@@ -191,6 +218,21 @@ export default function ArtistProfilePage() {
         error
       );
 
+    }
+  }
+
+  async function loadCurrentUser() {
+    try {
+      const response = await fetch('http://localhost:8000/users/me', {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+      if (response.ok) {
+        setCurrentUser(await response.json());
+      }
+    } catch (error) {
+      console.error('Failed to load current user:', error);
     }
   }
 
@@ -332,6 +374,88 @@ export default function ArtistProfilePage() {
       console.error('Failed to update like:', error);
     } finally {
       setLikeLoading(null);
+    }
+  }
+
+
+  // ============================================================
+  // COMMENTS
+  // ============================================================
+
+  async function loadComments(postId: string) {
+    try {
+      setCommentsLoading((prev) => ({ ...prev, [postId]: true }));
+      const data = await commentAPI.getComments(postId);
+      setComments((prev) => ({ ...prev, [postId]: data }));
+    } catch (error) {
+      console.error('Failed to load comments:', error);
+    } finally {
+      setCommentsLoading((prev) => ({ ...prev, [postId]: false }));
+    }
+  }
+
+
+  async function handleCreateComment(postId: string) {
+    const content = commentContent[postId];
+    if (!content?.trim()) return;
+
+    try {
+      setCommentLoading((prev) => ({ ...prev, [postId]: true }));
+      await commentAPI.createComment({
+        post_id: postId,
+        content: content.trim(),
+      });
+      setCommentContent((prev) => ({ ...prev, [postId]: '' }));
+      loadComments(postId);
+    } catch (error) {
+      console.error('Failed to create comment:', error);
+    } finally {
+      setCommentLoading((prev) => ({ ...prev, [postId]: false }));
+    }
+  }
+
+
+  async function handleCreateReply(commentId: string, postId: string) {
+    const content = replyContent[commentId];
+    if (!content?.trim()) return;
+
+    try {
+      setReplyLoading((prev) => ({ ...prev, [commentId]: true }));
+      await commentAPI.createComment({
+        post_id: postId,
+        content: content.trim(),
+        parent_comment_id: commentId,
+      });
+      setReplyContent((prev) => ({ ...prev, [commentId]: '' }));
+      loadComments(postId);
+    } catch (error) {
+      console.error('Failed to create reply:', error);
+    } finally {
+      setReplyLoading((prev) => ({ ...prev, [commentId]: false }));
+    }
+  }
+
+
+  async function handleUpdateComment(commentId: string, postId: string) {
+    if (!editContent.trim()) return;
+
+    try {
+      await commentAPI.updateComment(commentId, { content: editContent.trim() });
+      setEditingComment(null);
+      setEditContent('');
+      loadComments(postId);
+    } catch (error) {
+      console.error('Failed to update comment:', error);
+    }
+  }
+
+
+  async function handleDeleteComment(commentId: string, postId: string) {
+    try {
+      await commentAPI.deleteComment(commentId);
+      loadComments(postId);
+    } catch (error) {
+      console.error('Failed to delete comment:', error);
     }
   }
 
@@ -639,10 +763,226 @@ export default function ArtistProfilePage() {
                               <span>{post.liked_by_user ? '♥' : '♡'}</span>
                               <span>{post.likes_count}</span>
                             </button>
-                            <span className="text-sm text-gray-500">
-                              {post.comments_count} comments
-                            </span>
+                            <button
+                              onClick={() => {
+                                if (!comments[post.id]) {
+                                  loadComments(post.id);
+                                }
+                                setShowReplies((prev) => ({
+                                  ...prev,
+                                  [post.id]: !prev[post.id],
+                                }));
+                              }}
+                              className="text-sm text-gray-400 hover:text-accent transition-colors"
+                            >
+                              💬 {post.comments_count} comments
+                            </button>
                           </div>
+
+                          {/* Comments Section */}
+                          {showReplies[post.id] && (
+                            <div className="mt-3 border-t border-border pt-3">
+                              {/* Comment Input */}
+                              <div className="flex gap-2 mb-3">
+                                <input
+                                  type="text"
+                                  value={commentContent[post.id] || ''}
+                                  onChange={(e) =>
+                                    setCommentContent((prev) => ({
+                                      ...prev,
+                                      [post.id]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Write a comment..."
+                                  className="flex-1 rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-foreground placeholder-gray-500 focus:border-accent focus:outline-none"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleCreateComment(post.id);
+                                    }
+                                  }}
+                                />
+                                <Button
+                                  onClick={() => handleCreateComment(post.id)}
+                                  disabled={commentLoading[post.id] || !commentContent[post.id]?.trim()}
+                                  size="sm"
+                                >
+                                  {commentLoading[post.id] ? '...' : 'Post'}
+                                </Button>
+                              </div>
+
+                              {/* Comments List */}
+                              {commentsLoading[post.id] ? (
+                                <p className="text-xs text-gray-500">Loading comments...</p>
+                              ) : comments[post.id]?.length === 0 ? (
+                                <p className="text-xs text-gray-500">No comments yet.</p>
+                              ) : (
+                                <div className="space-y-3">
+                                  {comments[post.id]?.map((comment) => (
+                                    <div key={comment.id} className="flex gap-2">
+                                      <Avatar
+                                        src={comment.user_avatar_url}
+                                        fallback={comment.username?.charAt(0).toUpperCase() || '?'}
+                                        size="sm"
+                                      />
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-semibold text-xs">
+                                            @{comment.username || 'unknown'}
+                                          </span>
+                                          <span className="text-xs text-gray-500">
+                                            {format(new Date(comment.created_at), 'MMM d, yyyy')}
+                                          </span>
+                                        </div>
+
+                                        {editingComment === comment.id ? (
+                                          <div className="mt-1">
+                                            <input
+                                              type="text"
+                                              value={editContent}
+                                              onChange={(e) => setEditContent(e.target.value)}
+                                              className="w-full rounded-lg border border-border bg-card-bg px-2 py-1 text-sm text-foreground focus:border-accent focus:outline-none"
+                                            />
+                                            <div className="mt-1 flex gap-2">
+                                              <button
+                                                onClick={() => handleUpdateComment(comment.id, post.id)}
+                                                className="text-xs text-accent hover:underline"
+                                              >
+                                                Save
+                                              </button>
+                                              <button
+                                                onClick={() => setEditingComment(null)}
+                                                className="text-xs text-gray-400 hover:underline"
+                                              >
+                                                Cancel
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <p className="text-sm text-gray-300 mt-0.5">
+                                            {comment.content}
+                                          </p>
+                                        )}
+
+                                        <div className="mt-1 flex items-center gap-3">
+                                          <button
+                                            onClick={() => {
+                                              setReplyContent((prev) => ({
+                                                ...prev,
+                                                [comment.id]: '',
+                                              }));
+                                              setShowReplies((prev) => ({
+                                                ...prev,
+                                                [comment.id]: !prev[comment.id],
+                                              }));
+                                            }}
+                                            className="text-xs text-gray-400 hover:text-accent"
+                                          >
+                                            Reply
+                                          </button>
+                                          {comment.user_id === currentUser?.id && (
+                                            <>
+                                              <button
+                                                onClick={() => {
+                                                  setEditingComment(comment.id);
+                                                  setEditContent(comment.content);
+                                                }}
+                                                className="text-xs text-gray-400 hover:text-accent"
+                                              >
+                                                Edit
+                                              </button>
+                                              <button
+                                                onClick={() => handleDeleteComment(comment.id, post.id)}
+                                                className="text-xs text-gray-400 hover:text-red-400"
+                                              >
+                                                Delete
+                                              </button>
+                                            </>
+                                          )}
+                                        </div>
+
+                                        {/* Reply Input */}
+                                        {showReplies[comment.id] && (
+                                          <div className="mt-2 flex gap-2">
+                                            <input
+                                              type="text"
+                                              value={replyContent[comment.id] || ''}
+                                              onChange={(e) =>
+                                                setReplyContent((prev) => ({
+                                                  ...prev,
+                                                  [comment.id]: e.target.value,
+                                                }))
+                                              }
+                                              placeholder="Write a reply..."
+                                              className="flex-1 rounded-lg border border-border bg-card-bg px-2 py-1 text-xs text-foreground placeholder-gray-500 focus:border-accent focus:outline-none"
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  handleCreateReply(comment.id, post.id);
+                                                }
+                                              }}
+                                            />
+                                            <Button
+                                              onClick={() => handleCreateReply(comment.id, post.id)}
+                                              disabled={replyLoading[comment.id] || !replyContent[comment.id]?.trim()}
+                                              size="sm"
+                                            >
+                                              {replyLoading[comment.id] ? '...' : 'Reply'}
+                                            </Button>
+                                          </div>
+                                        )}
+
+                                        {/* Replies List */}
+                                        {comment.replies?.length > 0 && (
+                                          <div className="mt-2 space-y-2 pl-4 border-l border-border">
+                                            {comment.replies.map((reply) => (
+                                              <div key={reply.id} className="flex gap-2">
+                                                <Avatar
+                                                  src={reply.user_avatar_url}
+                                                  fallback={reply.username?.charAt(0).toUpperCase() || '?'}
+                                                  size="sm"
+                                                />
+                                                <div className="flex-1">
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="font-semibold text-xs">
+                                                      @{reply.username || 'unknown'}
+                                                    </span>
+                                                    <span className="text-xs text-gray-500">
+                                                      {format(new Date(reply.created_at), 'MMM d, yyyy')}
+                                                    </span>
+                                                  </div>
+                                                  <p className="text-sm text-gray-300 mt-0.5">
+                                                    {reply.content}
+                                                  </p>
+                                                  {reply.user_id === currentUser?.id && (
+                                                    <div className="mt-1 flex items-center gap-3">
+                                                      <button
+                                                        onClick={() => {
+                                                          setEditingComment(reply.id);
+                                                          setEditContent(reply.content);
+                                                        }}
+                                                        className="text-xs text-gray-400 hover:text-accent"
+                                                      >
+                                                        Edit
+                                                      </button>
+                                                      <button
+                                                        onClick={() => handleDeleteComment(reply.id, post.id)}
+                                                        className="text-xs text-gray-400 hover:text-red-400"
+                                                      >
+                                                        Delete
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </Card>
