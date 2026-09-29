@@ -2,6 +2,7 @@ from app.database.connection import get_database
 from app.models.activity import ActivityCreate, ActivityInDB
 from datetime import datetime, UTC
 from typing import Optional, List
+from bson import ObjectId
 
 
 class ActivityService:
@@ -29,22 +30,38 @@ class ActivityService:
         return [ActivityInDB(**activity) for activity in activities]
     
     @staticmethod
-    async def get_followed_activities(user_id: str, skip: int = 0, limit: int = 100) -> List[dict]:
+    async def get_followed_activities(
+        user_id: str,
+        skip: int = 0,
+        limit: int = 100,
+        activity_type: str = None,
+    ) -> List[dict]:
         """Get activities from users that the current user follows"""
         db = get_database()
-        
+
+        try:
+            user_oid = ObjectId(user_id)
+        except Exception:
+            return []
+
         # Get list of followed users
-        follows = await db.follows.find({"follower_id": user_id}).to_list(length=None)
+        follows = await db.follows.find({"follower_id": user_oid}).to_list(length=None)
         following_ids = [follow["following_id"] for follow in follows]
-        
+
         if not following_ids:
             return []
-        
+
+        # Build query for activities from followed users
+        query: dict = {"user_id": {"$in": following_ids}}
+
+        if activity_type:
+            query["activity_type"] = activity_type
+
         # Get activities from followed users
-        cursor = db.activities.find(
-            {"user_id": {"$in": following_ids}}
-        ).sort("created_at", -1).skip(skip).limit(limit)
+        cursor = db.activities.find(query).sort("created_at", -1).skip(skip).limit(limit)
         activities = await cursor.to_list(length=limit)
+
+        print(f"DEBUG: user_id={user_id}, follows={len(follows)}, following_ids={following_ids}, activities={len(activities)}")
         
         # Enrich with user information
         for activity in activities:

@@ -3,6 +3,7 @@
 import {
   useEffect,
   useState,
+  useCallback,
 } from 'react';
 
 import {
@@ -24,7 +25,19 @@ import LoadingState from '../../components/LoadingState';
 import EmptyState from '../../components/EmptyState';
 import Avatar from '../../components/ui/Avatar';
 import Card from '../../components/ui/Card';
+import Button from '../../components/ui/Button';
 
+
+
+const PAGE_SIZE = 10;
+
+const FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'attend_event', label: 'Events' },
+  { key: 'create_post', label: 'Posts' },
+  { key: 'follow', label: 'Follows' },
+  { key: 'like_post', label: 'Likes' },
+];
 
 
 interface Activity {
@@ -60,8 +73,6 @@ interface Activity {
 
 
 
-
-
 export default function FeedPage() {
 
 
@@ -74,12 +85,32 @@ export default function FeedPage() {
   ] = useState<Activity[]>([]);
 
 
-
   const [
     loading,
     setLoading,
   ] = useState(true);
 
+
+  const [
+    loadingMore,
+    setLoadingMore,
+  ] = useState(false);
+
+
+  const [
+    error,
+    setError] = useState<string | null>(null);
+
+
+  const [
+    currentFilter,
+    setCurrentFilter] = useState('all');
+
+
+  const [
+    hasMore,
+    setHasMore
+  ] = useState(false);
 
 
   const [
@@ -88,8 +119,88 @@ export default function FeedPage() {
   ] = useState<any>(null);
 
 
+  const loadFeed = useCallback(
+    async (
+      filter: string,
+      skip: number = 0,
+      append: boolean = false,
+    ) => {
+
+      if (!append) {
+
+        setLoading(true);
+
+        setError(null);
+
+      } else {
+
+        setLoadingMore(true);
+
+      }
 
 
+      try {
+
+        const params: any = {
+          skip,
+          limit: PAGE_SIZE,
+        };
+
+        if (filter !== 'all') {
+
+          params.activity_type = filter;
+
+        }
+
+
+        const data =
+          await feedAPI.getFeed(params);
+
+
+        if (append) {
+
+          setActivities(
+            (prev) => [
+              ...prev,
+              ...data,
+            ]
+          );
+
+        } else {
+
+          setActivities(data);
+
+        }
+
+
+        setHasMore(
+          data.length === PAGE_SIZE
+        );
+
+
+      } catch(err) {
+
+        console.error(
+          'Failed to load feed:',
+          err
+        );
+
+        setError(
+          'Failed to load feed. Please try again.'
+        );
+
+
+      } finally {
+
+        setLoading(false);
+
+        setLoadingMore(false);
+
+      }
+
+    },
+    []
+  );
 
 
   useEffect(() => {
@@ -115,8 +226,7 @@ export default function FeedPage() {
     }
 
 
-
-    loadFeed();
+    loadFeed(currentFilter);
 
     loadCurrentUser();
 
@@ -124,56 +234,17 @@ export default function FeedPage() {
   }, [router]);
 
 
+  useEffect(() => {
 
+    const token = localStorage.getItem('token');
 
+    if (token) {
 
-
-
-
-
-  async function loadFeed() {
-
-
-    try {
-
-
-      const data =
-        await feedAPI.getFeed();
-
-
-
-      setActivities(
-        data
-      );
-
-
-
-    } catch(error) {
-
-
-      console.error(
-        'Failed to load feed:',
-        error
-      );
-
-
-
-    } finally {
-
-
-      setLoading(false);
-
+      loadFeed(currentFilter);
 
     }
 
-
-  }
-
-
-
-
-
-
+  }, [currentFilter, loadFeed]);
 
 
   async function loadCurrentUser() {
@@ -186,11 +257,9 @@ export default function FeedPage() {
         await userAPI.getMe();
 
 
-
       setCurrentUser(
         user
       );
-
 
 
     } catch(error) {
@@ -206,12 +275,6 @@ export default function FeedPage() {
 
 
   }
-
-
-
-
-
-
 
 
   function handleLogout() {
@@ -235,10 +298,37 @@ export default function FeedPage() {
   }
 
 
+  function handleLoadMore() {
+
+    loadFeed(
+      currentFilter,
+      activities.length,
+      true,
+    );
+
+  }
 
 
+  function handleRetry() {
+
+    loadFeed(
+      currentFilter,
+      0,
+      false,
+    );
+
+  }
 
 
+  function handleFilterChange(
+    filter: string
+  ) {
+
+    setCurrentFilter(filter);
+
+    setActivities([]);
+
+  }
 
 
   function getActivityText(
@@ -248,7 +338,6 @@ export default function FeedPage() {
 
     const username =
       activity.user.username;
-
 
 
     switch(
@@ -261,16 +350,13 @@ export default function FeedPage() {
         return `${username} started following someone`;
 
 
-
       case 'attend_event':
 
         const status =
           activity.metadata?.status ||
           'going';
 
-
         return `${username} is ${status} to an event`;
-
 
 
       case 'create_post':
@@ -278,11 +364,9 @@ export default function FeedPage() {
         return `${username} created a post`;
 
 
-
       case 'like_post':
 
         return `${username} liked a post`;
-
 
 
       default:
@@ -296,17 +380,9 @@ export default function FeedPage() {
   }
 
 
-
-
-
-
-
-
-
   return (
 
     <div className="min-h-screen">
-
 
       <main
         className="
@@ -316,7 +392,6 @@ export default function FeedPage() {
           py-8
         "
       >
-
 
         <h1
           className="
@@ -331,9 +406,68 @@ export default function FeedPage() {
         </h1>
 
 
+        <div
+          className="
+            flex
+            gap-2
+            mb-6
+            flex-wrap
+          "
+        >
+
+          {FILTERS.map(
+            (filter) => (
+              <Button
+                key={filter.key}
+                variant={
+                  currentFilter === filter.key
+                    ? 'primary'
+                    : 'ghost'
+                }
+                size="sm"
+                onClick={() =>
+                  handleFilterChange(
+                    filter.key
+                  )
+                }
+              >
+                {filter.label}
+              </Button>
+            )
+          )}
+
+        </div>
 
 
+        {error && (
 
+          <div
+            className="
+              mb-4
+              rounded-lg
+              bg-red-500/20
+              border
+              border-red-500
+              p-4
+              text-center
+            "
+          >
+
+            <p className="text-red-300 mb-3">
+              {error}
+            </p>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRetry}
+            >
+              Retry
+            </Button>
+
+          </div>
+
+        )}
 
 
         {
@@ -343,9 +477,7 @@ export default function FeedPage() {
             <LoadingState message="Loading feed..." />
 
 
-
-          ) : activities.length === 0 ? (
-
+          ) : activities.length === 0 && !error ? (
 
 
             <EmptyState
@@ -355,9 +487,7 @@ export default function FeedPage() {
             />
 
 
-
           ) : (
-
 
 
             <div
@@ -365,7 +495,6 @@ export default function FeedPage() {
                 space-y-4
               "
             >
-
 
               {
                 activities.map(
@@ -378,7 +507,6 @@ export default function FeedPage() {
                       key={activity.id}
                     >
 
-
                       <div
                         className="
                           flex
@@ -386,8 +514,6 @@ export default function FeedPage() {
                           gap-4
                         "
                       >
-
-
 
                         <Link
                           href={`/profile/${activity.user.username}`}
@@ -400,16 +526,11 @@ export default function FeedPage() {
                         </Link>
 
 
-
-
-
-
                         <div
                           className="
                             flex-1
                           "
                         >
-
 
                           <p
                             className="
@@ -417,7 +538,6 @@ export default function FeedPage() {
                               mb-2
                             "
                           >
-
 
                             <Link
 
@@ -436,9 +556,8 @@ export default function FeedPage() {
 
                             </Link>
 
-
                             {' '}
-                            
+
                             {
                               getActivityText(
                                 activity
@@ -449,11 +568,7 @@ export default function FeedPage() {
                               )
                             }
 
-
                           </p>
-
-
-
 
 
 
@@ -470,7 +585,6 @@ export default function FeedPage() {
                                 "
                               >
 
-
                                 <h3
                                   className="
                                     font-semibold
@@ -482,8 +596,6 @@ export default function FeedPage() {
                                   }
 
                                 </h3>
-
-
 
                                 <p
                                   className="
@@ -509,15 +621,10 @@ export default function FeedPage() {
 
                                 </p>
 
-
                               </div>
-
 
                             )
                           }
-
-
-
 
 
 
@@ -535,7 +642,6 @@ export default function FeedPage() {
                               >
 
 
-
                                 {
                                   activity.post.content && (
 
@@ -550,14 +656,10 @@ export default function FeedPage() {
                                         activity.post.content
                                       }
 
-
                                     </p>
 
-
                                   )
-
                                 }
-
 
 
 
@@ -582,19 +684,14 @@ export default function FeedPage() {
 
                                     />
 
-
                                   )
                                 }
 
 
                               </div>
 
-
                             )
                           }
-
-
-
 
 
 
@@ -616,31 +713,39 @@ export default function FeedPage() {
                               )
                             }
 
-
                           </p>
-
 
                         </div>
 
-
                       </div>
 
-
                     </Card>
-
 
                   )
                 )
               }
 
 
+              {hasMore && (
+
+                <div className="text-center pt-4">
+
+                  <Button
+                    variant="outline"
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore ? 'Loading...' : 'Load More'}
+                  </Button>
+
+                </div>
+
+              )}
+
             </div>
 
-
           )
-
         }
-
 
 
       </main>

@@ -5,19 +5,46 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   error?: string;
 }
 
-export default function Input({ label, error, className = '', ...props }: InputProps) {
-  const baseStyles = 'w-full px-4 py-3 rounded-lg bg-card-bg border border-border text-foreground placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-all duration-200';
-  const errorStyles = error ? 'border-red-500 focus:ring-red-500' : '';
-  
+export default function Input({
+  label,
+  error,
+  className = '',
+  id,
+  ...props
+}: InputProps) {
+  const inputId = id || props.name;
+
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-sm font-medium text-gray-400 mb-2">
+        <label
+          htmlFor={inputId}
+          className="mb-1 block text-sm font-medium text-gray-300"
+        >
           {label}
         </label>
       )}
       <input
-        className={`${baseStyles} ${errorStyles} ${className}`}
+        id={inputId}
+        className={`
+          w-full
+          rounded-lg
+          border
+          border-border
+          bg-card-bg
+          px-4
+          py-2.5
+          text-foreground
+          placeholder-gray-500
+          transition-all
+          duration-200
+          focus:border-accent
+          focus:outline-none
+          focus:ring-1
+          focus:ring-accent
+          ${error ? 'border-red-500' : ''}
+          ${className}
+        `}
         {...props}
       />
       {error && (
