@@ -77,6 +77,9 @@ async def get_my_show_logs(
     ),
 
 ):
+    # Validate pagination parameters
+    skip = max(0, min(skip, 10000))
+    limit = max(1, min(limit, 100))
 
     service = get_show_log_service()
 
@@ -355,12 +358,10 @@ async def delete_review(
 
     service = get_show_log_service()
 
-
     show_log = await service.delete_review(
         current_user["_id"],
         event_id,
     )
-
 
     return ShowLogResponse(
         **show_log.model_dump()

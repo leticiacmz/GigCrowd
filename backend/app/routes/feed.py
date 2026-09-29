@@ -14,6 +14,10 @@ async def get_feed(
     current_user: dict = Depends(get_current_active_user)
 ):
     """Get activity feed from followed users"""
+    # Validate pagination parameters
+    skip = max(0, min(skip, 10000))
+    limit = max(1, min(limit, 100))
+
     activities = await ActivityService.get_followed_activities(
         current_user["_id"],
         skip,

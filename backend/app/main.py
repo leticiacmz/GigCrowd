@@ -18,8 +18,9 @@ if sys.platform == "win32":
         # If policy is already set, that's fine
         pass
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.database.connection import db
 
@@ -95,6 +96,76 @@ app.add_middleware(
 
     allow_headers=["*"],
 )
+
+
+# =====================================================
+# Security Headers Middleware
+# =====================================================
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+
+    # Prevent MIME type sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+
+    # Prevent clickjacking
+    response.headers["X-Frame-Options"] = "DENY"
+
+    # XSS protection
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+
+    # Referrer policy
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    # Content Security Policy
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+
+    # Cache control for authenticated responses
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    return response
+
+
+# =====================================================
+# Rate Limiting Middleware
+# =====================================================
+
+# Simple in-memory rate limiter (per IP)
+_rate_limit_store: dict[str, list[float]] = {}
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_REQUESTS = 100  # max requests per window
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Only rate limit auth endpoints
+    if request.url.path.startswith("/auth/"):
+        import time
+        now = time.time()
+
+        if client_ip not in _rate_limit_store:
+            _rate_limit_store[client_ip] = []
+
+        # Remove old entries
+        _rate_limit_store[client_ip] = [
+            t for t in _rate_limit_store[client_ip]
+            if now - t < RATE_LIMIT_WINDOW
+        ]
+
+        if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests. Please try again later."},
+            )
+
+        _rate_limit_store[client_ip].append(now)
+
+    return await call_next(request)
 
 
 

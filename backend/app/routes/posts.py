@@ -3,9 +3,15 @@ from typing import List, Optional
 from app.database.connection import get_database
 from app.auth.dependencies import get_current_active_user
 from datetime import datetime, UTC
+from bson import ObjectId
 import uuid
+import bleach
 
 router = APIRouter(prefix="/posts", tags=["posts"])
+
+# Allowed HTML tags for post content (if rich text is needed)
+ALLOWED_TAGS = ["b", "i", "em", "strong", "p", "br"]
+ALLOWED_ATTRIBUTES = {}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -15,29 +21,66 @@ async def create_post(
     current_user: dict = Depends(get_current_active_user)
 ):
     """Create a new post"""
+    # Validate content
+    if not content or not content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content cannot be empty"
+        )
+
+    if len(content) > 5000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content cannot exceed 5000 characters"
+        )
+
+    # Sanitize content to prevent XSS
+    cleaned_content = bleach.clean(
+        content,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        strip=True
+    )
+
     db = get_database()
-    
+
     post = {
         "_id": str(uuid.uuid4()),
         "user_id": current_user["_id"],
-        "content": content,
+        "content": cleaned_content,
         "image_url": None,
         "created_at": datetime.now(UTC),
         "updated_at": datetime.now(UTC),
         "likes_count": 0,
         "comments_count": 0
     }
-    
+
     # Handle image upload if provided
     if image:
+        # Validate file type
+        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+        if image.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed."
+            )
+
+        # Validate file size (max 5MB)
+        contents = await image.read()
+        if len(contents) > 5 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size cannot exceed 5MB"
+            )
+
         # For now, just store the filename
         # In production, upload to Cloudinary or S3
         post["image_url"] = f"/uploads/{image.filename}"
-    
+
     await db.posts.insert_one(post)
     post["id"] = post["_id"]
     del post["_id"]
-    
+
     return post
 
 
