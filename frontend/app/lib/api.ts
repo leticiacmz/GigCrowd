@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getToken } from './auth';
+import type { FeedPage, FeedParams } from '../types/feed';
 
 
 const API_URL =
@@ -486,15 +487,46 @@ export const feedAPI = {
 
   getFeed: async (
 
-    params?: any
+    params?: FeedParams
 
-  ) => {
+  ): Promise<FeedPage> => {
 
 
     const response =
-      await api.get(
+      await api.get<FeedPage>(
 
         '/feed',
+
+        {
+          params,
+
+          paramsSerializer: {
+            indexes: null,
+          },
+        }
+
+      );
+
+
+    return response.data;
+
+
+  },
+
+
+
+
+  getMyFeed: async (
+
+    params?: Omit<FeedParams, 'activity_type'>
+
+  ): Promise<FeedPage> => {
+
+
+    const response =
+      await api.get<FeedPage>(
+
+        '/feed/me',
 
         {
           params,

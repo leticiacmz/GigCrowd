@@ -87,3 +87,6 @@ htmlcov/
 dist/
 
 /architecture
+
+# Frontend source under app/lib is not a Python build artifact
+!frontend/app/lib/
