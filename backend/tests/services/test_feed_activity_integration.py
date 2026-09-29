@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock
 
+from app.domain.artist import Artist
 from app.services.artist_follow_service import ArtistFollowService
 from app.services.follow_service import FollowService
 
@@ -82,10 +83,11 @@ async def test_follow_artist_records_feed_activity():
     repository.exists.return_value = False
 
     artist_repository = AsyncMock()
-    artist_repository.get_by_slug.return_value = {
-        "slug": "radiohead",
-        "name": "Radiohead",
-    }
+    artist_repository.get_by_slug.return_value = Artist(
+        name="Radiohead",
+        normalized_name="radiohead",
+        slug="radiohead",
+    )
 
     feed_activity_service = AsyncMock()
 
@@ -111,7 +113,11 @@ async def test_follow_artist_twice_does_not_duplicate_activity():
     repository.exists.return_value = True
 
     artist_repository = AsyncMock()
-    artist_repository.get_by_slug.return_value = {"slug": "radiohead"}
+    artist_repository.get_by_slug.return_value = Artist(
+        name="Radiohead",
+        normalized_name="radiohead",
+        slug="radiohead",
+    )
 
     feed_activity_service = AsyncMock()
 

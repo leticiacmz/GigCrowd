@@ -66,7 +66,7 @@ class ArtistFollowService:
                 await self.feed_activity_service.record_artist_follow(
                     actor_id=user_id,
                     artist_slug=artist_slug,
-                    artist_name=artist.get("name"),
+                    artist_name=artist.name,
                 )
 
         return {
