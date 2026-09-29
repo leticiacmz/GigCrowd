@@ -63,10 +63,16 @@ class FollowService:
 
 
 
-        return await self.follow_repository.create(
+        result = await self.follow_repository.create(
             follower_id,
             following_id,
         )
+
+        # Update follower/following counts
+        await self.user_repository.increment_following_count(follower_id)
+        await self.user_repository.increment_followers_count(following_id)
+
+        return result
 
 
 
@@ -95,7 +101,15 @@ class FollowService:
 
 
 
-        return await self.follow_repository.delete(
+        deleted = await self.follow_repository.delete(
             follower_id,
             following_id,
         )
+
+        # Update follower/following counts if deletion succeeded
+        if deleted:
+            await self.user_repository.decrement_following_count(follower_id)
+            await self.user_repository.decrement_followers_count(following_id)
+
+
+        return deleted
