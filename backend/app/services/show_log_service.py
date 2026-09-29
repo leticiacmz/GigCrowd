@@ -9,6 +9,7 @@ from app.models.show_log import (
 )
 from app.repositories.event_repository import EventRepository
 from app.repositories.show_log_repository import ShowLogRepository
+from app.services.feed_activity_service import FeedActivityService
 
 
 class ShowLogService:
@@ -17,10 +18,30 @@ class ShowLogService:
         self,
         show_log_repository: ShowLogRepository,
         event_repository: EventRepository,
+        feed_activity_service: Optional[FeedActivityService] = None,
     ):
 
         self.show_log_repository = show_log_repository
         self.event_repository = event_repository
+        self.feed_activity_service = feed_activity_service
+
+    async def _record_attendance_activity(
+        self,
+        user_id: str,
+        event_id: str,
+        status: Optional[str],
+        event_title: Optional[str] = None,
+    ):
+
+        if not self.feed_activity_service or not status:
+            return
+
+        await self.feed_activity_service.record_event_attendance(
+            actor_id=user_id,
+            event_id=event_id,
+            status=status,
+            event_title=event_title,
+        )
 
     @staticmethod
     def _normalize_id(document: dict):
@@ -98,6 +119,13 @@ class ShowLogService:
                 show_log_data.event_id
             )
 
+            await self._record_attendance_activity(
+                user_id=user_id,
+                event_id=show_log_data.event_id,
+                status=show_log_data.status.value,
+                event_title=event.title,
+            )
+
             return ShowLogInDB(
                 **self._normalize_id(updated)
             )
@@ -119,6 +147,13 @@ class ShowLogService:
 
         await self._refresh_event_counts(
             show_log_data.event_id
+        )
+
+        await self._record_attendance_activity(
+            user_id=user_id,
+            event_id=show_log_data.event_id,
+            status=show_log_data.status.value,
+            event_title=event.title,
         )
 
         return ShowLogInDB(
@@ -213,6 +248,14 @@ class ShowLogService:
             event_id
         )
 
+        if show_log_data.status:
+
+            await self._record_attendance_activity(
+                user_id=user_id,
+                event_id=event_id,
+                status=show_log_data.status.value,
+            )
+
         return ShowLogInDB(
             **self._normalize_id(updated)
         )
@@ -233,6 +276,13 @@ class ShowLogService:
             await self._refresh_event_counts(
                 event_id
             )
+
+            if self.feed_activity_service:
+
+                await self.feed_activity_service.remove_event_attendance(
+                    actor_id=user_id,
+                    event_id=event_id,
+                )
 
         return deleted
 
@@ -279,6 +329,15 @@ class ShowLogService:
             return_document=True,
         )
 
+        if self.feed_activity_service:
+
+            await self.feed_activity_service.record_review(
+                actor_id=user_id,
+                review_id=str(log["_id"]),
+                event_id=event_id,
+                rating=rating,
+            )
+
         return ShowLogInDB(
             **self._normalize_id(updated)
         )
@@ -317,6 +376,13 @@ class ShowLogService:
             },
             return_document=True,
         )
+
+        if self.feed_activity_service:
+
+            await self.feed_activity_service.remove_review(
+                actor_id=user_id,
+                review_id=str(log["_id"]),
+            )
 
         return ShowLogInDB(
             **self._normalize_id(updated)

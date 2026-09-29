@@ -120,6 +120,80 @@ class FeedActivityService:
             payload=payload,
         )
 
+    async def record_event_attendance(
+        self,
+        actor_id: str,
+        event_id: str,
+        status: str,
+        event_title: Optional[str] = None,
+    ) -> dict:
+        """Record attendance, replacing a previous status for the same event"""
+
+        await self.remove_event_attendance(actor_id, event_id)
+
+        payload: dict[str, Any] = {"status": status}
+
+        if event_title:
+            payload["event_title"] = event_title
+
+        return await self.record_activity(
+            actor_id=actor_id,
+            activity_type=ActivityType.EVENT_ATTENDANCE,
+            object_type=ActivityObjectType.EVENT,
+            object_id=event_id,
+            payload=payload,
+        )
+
+    async def remove_event_attendance(
+        self,
+        actor_id: str,
+        event_id: str,
+    ) -> bool:
+
+        return await self.repository.delete_activity(
+            actor_id=str(actor_id),
+            activity_type=ActivityType.EVENT_ATTENDANCE,
+            object_id=str(event_id),
+        )
+
+    async def record_review(
+        self,
+        actor_id: str,
+        review_id: str,
+        event_id: str,
+        rating: Optional[int] = None,
+    ) -> dict:
+        """Record a review, replacing a previous review of the same event"""
+
+        await self.remove_review(actor_id, review_id)
+
+        payload: dict[str, Any] = {"event_id": str(event_id)}
+
+        if rating is not None:
+            payload["rating"] = rating
+
+        return await self.record_activity(
+            actor_id=actor_id,
+            activity_type=ActivityType.REVIEW_CREATED,
+            object_type=ActivityObjectType.REVIEW,
+            object_id=review_id,
+            target_type=ActivityObjectType.EVENT,
+            target_id=event_id,
+            payload=payload,
+        )
+
+    async def remove_review(
+        self,
+        actor_id: str,
+        review_id: str,
+    ) -> bool:
+
+        return await self.repository.delete_activity(
+            actor_id=str(actor_id),
+            activity_type=ActivityType.REVIEW_CREATED,
+            object_id=str(review_id),
+        )
+
     async def remove_user_follow(
         self,
         actor_id: str,
