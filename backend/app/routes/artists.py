@@ -38,8 +38,24 @@ from app.repositories.artist_follow_repository import (
     ArtistFollowRepository,
 )
 
+from app.repositories.feed_activity_repository import (
+    FeedActivityRepository,
+)
+
+from app.repositories.follow_repository import (
+    FollowRepository,
+)
+
+from app.repositories.user_repository import (
+    UserRepository,
+)
+
 from app.services.artist_follow_service import (
     ArtistFollowService,
+)
+
+from app.services.feed_activity_service import (
+    FeedActivityService,
 )
 
 from app.schemas.artist_follow_response import (
@@ -151,9 +167,17 @@ event_service = EventService(
 
 
 
+feed_activity_service = FeedActivityService(
+    repository=FeedActivityRepository(db),
+    follow_repository=FollowRepository(db),
+    user_repository=UserRepository(db),
+)
+
+
 artist_follow_service = ArtistFollowService(
     repository=artist_follow_repository,
     artist_repository=artist_repository,
+    feed_activity_service=feed_activity_service,
 )
 
 

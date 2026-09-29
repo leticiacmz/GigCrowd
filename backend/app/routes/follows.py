@@ -25,6 +25,10 @@ from app.services.follow_service import (
     FollowService,
 )
 
+from app.routes.feed import (
+    get_feed_activity_service,
+)
+
 
 router = APIRouter(
     prefix="/follows",
@@ -46,6 +50,8 @@ def get_follow_service():
         user_repository=UserRepository(
             db
         ),
+
+        feed_activity_service=get_feed_activity_service(),
 
     )
 

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import HTTPException
 
 from app.repositories.artist_repository import (
@@ -8,6 +10,10 @@ from app.repositories.artist_follow_repository import (
     ArtistFollowRepository,
 )
 
+from app.services.feed_activity_service import (
+    FeedActivityService,
+)
+
 
 class ArtistFollowService:
 
@@ -15,11 +21,14 @@ class ArtistFollowService:
         self,
         repository: ArtistFollowRepository,
         artist_repository: ArtistRepository,
+        feed_activity_service: Optional[FeedActivityService] = None,
     ):
 
         self.repository = repository
 
         self.artist_repository = artist_repository
+
+        self.feed_activity_service = feed_activity_service
 
     async def follow(
         self,
@@ -52,6 +61,14 @@ class ArtistFollowService:
                 artist_slug,
             )
 
+            if self.feed_activity_service:
+
+                await self.feed_activity_service.record_artist_follow(
+                    actor_id=user_id,
+                    artist_slug=artist_slug,
+                    artist_name=artist.name,
+                )
+
         return {
             "following": True,
         }
@@ -66,6 +83,13 @@ class ArtistFollowService:
             user_id,
             artist_slug,
         )
+
+        if self.feed_activity_service:
+
+            await self.feed_activity_service.remove_artist_follow(
+                actor_id=user_id,
+                artist_slug=artist_slug,
+            )
 
         return {
             "following": False,

@@ -35,6 +35,10 @@ from app.services.show_log_service import (
     ShowLogService,
 )
 
+from app.routes.feed import (
+    get_feed_activity_service,
+)
+
 
 router = APIRouter(
     prefix="/show-logs",
@@ -57,6 +61,7 @@ def get_show_log_service():
     return ShowLogService(
         show_log_repository,
         event_repository,
+        feed_activity_service=get_feed_activity_service(),
     )
 
 

@@ -30,7 +30,11 @@ class CommunityPostRepository(BaseRepository):
             "updated_at": None,
         }
 
-        return await self.insert_one(document)
+        result = await self.insert_one(document)
+
+        document["_id"] = result.inserted_id
+
+        return document
 
     async def get_posts_by_artist(
         self,

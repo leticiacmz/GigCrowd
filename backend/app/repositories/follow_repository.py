@@ -141,6 +141,32 @@ class FollowRepository(BaseRepository):
 
         return follows
 
+    async def get_following_ids(
+        self,
+        user_id: str,
+    ) -> List[str]:
+        """Ids of every user followed by this user"""
+
+        follows = await (
+            self.collection
+            .find(
+                {
+                    "follower_id": user_id
+                },
+                {
+                    "following_id": 1
+                },
+            )
+            .to_list(
+                length=None
+            )
+        )
+
+        return [
+            str(follow["following_id"])
+            for follow in follows
+        ]
+
     async def count_followers(
         self,
         user_id: str,

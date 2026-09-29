@@ -11,6 +11,8 @@ class BaseRepository:
         collection: str,
     ):
 
+        self.db = db
+
         self.collection = db[collection]
 
     async def insert_one(
