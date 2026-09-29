@@ -18,7 +18,7 @@ class CommunityPostRepository(BaseRepository):
         image_url: Optional[str] = None,
     ):
         """Create a new community post for an artist"""
-        
+
         document = {
             "artist_slug": artist_slug,
             "user_id": ObjectId(user_id),
@@ -30,7 +30,9 @@ class CommunityPostRepository(BaseRepository):
             "updated_at": None,
         }
 
-        return await self.insert_one(document)
+        result = await self.insert_one(document)
+        document["_id"] = result.inserted_id
+        return document
 
     async def get_posts_by_artist(
         self,
@@ -157,7 +159,7 @@ class CommunityPostRepository(BaseRepository):
         post_id: str,
     ):
         """Decrement comments count for a post"""
-        
+
         try:
             object_id = ObjectId(post_id)
         except:
@@ -169,3 +171,96 @@ class CommunityPostRepository(BaseRepository):
         )
 
         return result.modified_count > 0
+
+    async def like_post(
+        self,
+        post_id: str,
+        user_id: str,
+    ):
+        """Like a post (prevents duplicate likes)"""
+
+        try:
+            post_oid = ObjectId(post_id)
+            user_oid = ObjectId(user_id)
+        except:
+            return False
+
+        db = self.collection.database
+
+        # Check if user already liked this post
+        existing = await db.post_likes.find_one({
+            "post_id": post_oid,
+            "user_id": user_oid
+        })
+
+        if existing:
+            return False  # Already liked
+
+        # Create like record
+        await db.post_likes.insert_one({
+            "post_id": post_oid,
+            "user_id": user_oid,
+            "created_at": datetime.now(timezone.utc)
+        })
+
+        # Increment likes count
+        result = await self.collection.update_one(
+            {"_id": post_oid},
+            {"$inc": {"likes_count": 1}}
+        )
+
+        return result.modified_count > 0
+
+    async def unlike_post(
+        self,
+        post_id: str,
+        user_id: str,
+    ):
+        """Unlike a post"""
+
+        try:
+            post_oid = ObjectId(post_id)
+            user_oid = ObjectId(user_id)
+        except:
+            return False
+
+        db = self.collection.database
+
+        # Remove like record
+        result = await db.post_likes.delete_one({
+            "post_id": post_oid,
+            "user_id": user_oid
+        })
+
+        if result.deleted_count == 0:
+            return False  # Wasn't liked
+
+        # Decrement likes count
+        await self.collection.update_one(
+            {"_id": post_oid},
+            {"$inc": {"likes_count": -1}}
+        )
+
+        return True
+
+    async def get_like_status(
+        self,
+        post_id: str,
+        user_id: str,
+    ):
+        """Check if a user has liked a post"""
+
+        try:
+            post_oid = ObjectId(post_id)
+            user_oid = ObjectId(user_id)
+        except:
+            return False
+
+        db = self.collection.database
+
+        existing = await db.post_likes.find_one({
+            "post_id": post_oid,
+            "user_id": user_oid
+        })
+
+        return existing is not None

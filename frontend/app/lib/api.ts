@@ -732,6 +732,96 @@ export const artistAPI = {
 
 
 
+export const communityPostAPI = {
+
+  getPosts: async (
+    artistSlug: string,
+    params?: any
+  ) => {
+
+    const response =
+      await api.get(
+        `/community/posts/${artistSlug}`,
+        {
+          params,
+        }
+      );
+
+
+    return response.data;
+
+  },
+
+
+  createPost: async (
+    postData: {
+      artist_slug: string;
+      content: string;
+      image_url?: string;
+    }
+  ) => {
+
+    const response =
+      await api.post(
+        '/community/posts',
+        postData
+      );
+
+
+    return response.data;
+
+  },
+
+
+  likePost: async (
+    postId: string
+  ) => {
+
+    const response =
+      await api.post(
+        `/community/posts/${postId}/like`
+      );
+
+
+    return response.data;
+
+  },
+
+
+  unlikePost: async (
+    postId: string
+  ) => {
+
+    const response =
+      await api.delete(
+        `/community/posts/${postId}/like`
+      );
+
+
+    return response.data;
+
+  },
+
+
+  deletePost: async (
+    postId: string
+  ) => {
+
+    const response =
+      await api.delete(
+        `/community/posts/${postId}`
+      );
+
+
+    return response.data;
+
+  },
+
+
+};
+
+
+
 export const spotifyAPI = {
 
 

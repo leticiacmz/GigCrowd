@@ -19,7 +19,10 @@ class CommunityPostResponse(BaseModel):
     comments_count: int = 0
     created_at: datetime
     updated_at: Optional[datetime] = None
-    
+
     # Optional: include user info in response
     username: Optional[str] = None
     user_avatar_url: Optional[str] = None
+
+    # Whether the current user has liked this post
+    liked_by_user: bool = False

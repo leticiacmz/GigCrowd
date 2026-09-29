@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { artistAPI, eventAPI } from '../../lib/api';
+import { artistAPI, eventAPI, communityPostAPI } from '../../lib/api';
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
 import Badge from '../../../components/ui/Badge';
 import LoadingState from '../../../components/LoadingState';
 import EventCard from '../../../components/EventCard';
+import Avatar from '../../../components/ui/Avatar';
+import { format } from 'date-fns';
 
 interface ArtistProfile {
   id?: string;
@@ -57,6 +59,20 @@ interface ArtistEvent {
   went_count?: number;
 }
 
+interface CommunityPost {
+  id: string;
+  artist_slug: string;
+  user_id: string;
+  content: string;
+  image_url?: string;
+  likes_count: number;
+  comments_count: number;
+  created_at: string;
+  username?: string;
+  user_avatar_url?: string;
+  liked_by_user: boolean;
+}
+
 export default function ArtistProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -71,10 +87,19 @@ export default function ArtistProfilePage() {
   const [following, setFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
 
+  // Community posts state
+  const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [postContent, setPostContent] = useState('');
+  const [postLoading, setPostLoading] = useState(false);
+  const [postError, setPostError] = useState('');
+  const [likeLoading, setLikeLoading] = useState<string | null>(null);
+
   useEffect(() => {
     if (artistSlug) {
       loadArtist();
       loadArtistEvents();
+      loadCommunityPosts();
     }
 
     const token = localStorage.getItem('token');
@@ -233,6 +258,80 @@ export default function ArtistProfilePage() {
 
       setFollowLoading(false);
 
+    }
+  }
+
+
+  async function loadCommunityPosts() {
+    try {
+      setPostsLoading(true);
+      const data = await communityPostAPI.getPosts(artistSlug);
+      setCommunityPosts(data);
+    } catch (error) {
+      console.error('Failed to load community posts:', error);
+    } finally {
+      setPostsLoading(false);
+    }
+  }
+
+
+  async function handleCreatePost() {
+    if (!postContent.trim()) {
+      setPostError('Post content cannot be empty');
+      return;
+    }
+
+    try {
+      setPostLoading(true);
+      setPostError('');
+
+      await communityPostAPI.createPost({
+        artist_slug: artistSlug,
+        content: postContent.trim(),
+      });
+
+      setPostContent('');
+      loadCommunityPosts();
+
+    } catch (error: any) {
+      setPostError(
+        error.response?.data?.detail ?? 'Failed to create post'
+      );
+    } finally {
+      setPostLoading(false);
+    }
+  }
+
+
+  async function handleLikePost(postId: string, currentlyLiked: boolean) {
+    try {
+      setLikeLoading(postId);
+
+      if (currentlyLiked) {
+        await communityPostAPI.unlikePost(postId);
+      } else {
+        await communityPostAPI.likePost(postId);
+      }
+
+      // Update local state
+      setCommunityPosts((prev) =>
+        prev.map((post) =>
+          post.id === postId
+            ? {
+                ...post,
+                liked_by_user: !currentlyLiked,
+                likes_count: currentlyLiked
+                  ? post.likes_count - 1
+                  : post.likes_count + 1,
+              }
+            : post
+        )
+      );
+
+    } catch (error) {
+      console.error('Failed to update like:', error);
+    } finally {
+      setLikeLoading(null);
     }
   }
 
@@ -459,6 +558,97 @@ export default function ArtistProfilePage() {
 
               )}
 
+            </section>
+
+            {/* ============================================================ */}
+            {/* COMMUNITY POSTS */}
+            {/* ============================================================ */}
+
+            <section className="mt-12">
+              <h2 className="text-[24px] font-bold mb-5">
+                Community Posts
+              </h2>
+
+              {/* Create Post Form */}
+              <div className="mb-6">
+                <textarea
+                  value={postContent}
+                  onChange={(e) => setPostContent(e.target.value)}
+                  placeholder={`Share something about ${artist.name}...`}
+                  className="w-full rounded-lg border border-border bg-card-bg px-4 py-3 text-foreground placeholder-gray-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent min-h-[100px] resize-y"
+                  maxLength={2000}
+                />
+                {postError && (
+                  <p className="mt-2 text-sm text-red-500">{postError}</p>
+                )}
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    onClick={handleCreatePost}
+                    disabled={postLoading || !postContent.trim()}
+                    size="sm"
+                  >
+                    {postLoading ? 'Posting...' : 'Post'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Posts List */}
+              {postsLoading ? (
+                <p className="text-gray-400">Loading posts...</p>
+              ) : communityPosts.length === 0 ? (
+                <p className="text-gray-400">No community posts yet. Be the first to share!</p>
+              ) : (
+                <div className="space-y-4">
+                  {communityPosts.map((post) => (
+                    <Card key={post.id} className="p-4">
+                      <div className="flex items-start gap-3">
+                        <Avatar
+                          src={post.user_avatar_url}
+                          fallback={post.username?.charAt(0).toUpperCase() || '?'}
+                          size="sm"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-sm">
+                              @{post.username || 'unknown'}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {format(new Date(post.created_at), 'MMM d, yyyy')}
+                            </span>
+                          </div>
+                          <p className="text-gray-300 text-sm whitespace-pre-wrap">
+                            {post.content}
+                          </p>
+                          {post.image_url && (
+                            <img
+                              src={post.image_url}
+                              alt="Post media"
+                              className="mt-2 rounded-lg max-w-full"
+                            />
+                          )}
+                          <div className="mt-3 flex items-center gap-4">
+                            <button
+                              onClick={() => handleLikePost(post.id, post.liked_by_user)}
+                              disabled={likeLoading === post.id}
+                              className={`flex items-center gap-1 text-sm transition-colors ${
+                                post.liked_by_user
+                                  ? 'text-accent'
+                                  : 'text-gray-400 hover:text-accent'
+                              }`}
+                            >
+                              <span>{post.liked_by_user ? '♥' : '♡'}</span>
+                              <span>{post.likes_count}</span>
+                            </button>
+                            <span className="text-sm text-gray-500">
+                              {post.comments_count} comments
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </section>
 
             {relatedArtists.length > 0 && (
