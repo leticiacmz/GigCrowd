@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from bson import ObjectId
 
 from app.repositories.base import BaseRepository
 
@@ -18,6 +19,12 @@ class ArtistFollowRepository(BaseRepository):
         artist_slug: str,
     ):
 
+        # Convert user_id to ObjectId if it's a string
+        try:
+            user_id = ObjectId(user_id)
+        except:
+            pass  # Already an ObjectId or invalid
+
         document = {
 
             "user_id": user_id,
@@ -30,9 +37,23 @@ class ArtistFollowRepository(BaseRepository):
 
         }
 
-        return await self.insert_one(
+        result = await self.insert_one(
             document
         )
+
+        # Update artist followers count
+        await self.db.artists.update_one(
+            {"slug": artist_slug},
+            {"$inc": {"followers_count": 1}}
+        )
+
+        # Update user followed artists count
+        await self.db.users.update_one(
+            {"_id": user_id},
+            {"$inc": {"followed_artists_count": 1}}
+        )
+
+        return result
 
     async def delete_follow(
         self,
@@ -40,18 +61,45 @@ class ArtistFollowRepository(BaseRepository):
         artist_slug: str,
     ):
 
-        return await self.collection.delete_one(
+        # Convert user_id to ObjectId if it's a string
+        try:
+            user_id = ObjectId(user_id)
+        except:
+            pass  # Already an ObjectId or invalid
+
+        result = await self.collection.delete_one(
             {
                 "user_id": user_id,
                 "artist_slug": artist_slug,
             }
         )
 
+        # Update artist followers count if a document was deleted
+        if result.deleted_count > 0:
+            await self.db.artists.update_one(
+                {"slug": artist_slug},
+                {"$inc": {"followers_count": -1}}
+            )
+
+            # Update user followed artists count
+            await self.db.users.update_one(
+                {"_id": user_id},
+                {"$inc": {"followed_artists_count": -1}}
+            )
+
+        return result
+
     async def exists(
         self,
         user_id: str,
         artist_slug: str,
     ):
+
+        # Convert user_id to ObjectId if it's a string
+        try:
+            user_id = ObjectId(user_id)
+        except:
+            pass  # Already an ObjectId or invalid
 
         document = await self.find_one(
             {
@@ -78,3 +126,23 @@ class ArtistFollowRepository(BaseRepository):
                 "artist_slug": artist_slug,
             }
         )
+
+    async def get_following_artists(
+        self,
+        user_id: str,
+        limit: int = 50,
+        skip: int = 0,
+    ):
+        """Get list of artists that a user follows"""
+
+        # Convert user_id to ObjectId if it's a string
+        try:
+            user_id = ObjectId(user_id)
+        except:
+            pass  # Already an ObjectId or invalid
+
+        cursor = self.collection.find({
+            "user_id": user_id,
+        }).skip(skip).limit(limit)
+
+        return await cursor.to_list(length=limit)

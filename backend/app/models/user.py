@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 
@@ -80,6 +80,8 @@ class UserInDB(UserBase):
 
     following_count: int = 0
 
+    followed_artists_count: int = 0  # Count of artists this user follows
+
 
     created_at: datetime
 
@@ -103,6 +105,8 @@ class UserResponse(UserBase):
     followers_count: int = 0
 
     following_count: int = 0
+
+    followed_artists_count: int = 0  # Count of artists this user follows
 
 
     created_at: datetime

@@ -95,6 +95,32 @@ class UserRepository(BaseRepository):
         return result.modified_count > 0
 
 
+    async def increment_followed_artists_count(
+        self,
+        user_id: str
+    ):
+        """Increment the count of artists this user follows"""
+
+        try:
+            object_id = ObjectId(user_id)
+
+        except Exception:
+            return False
+
+        result = await self.collection.update_one(
+            {
+                "_id": object_id
+            },
+            {
+                "$inc": {
+                    "followed_artists_count": 1
+                }
+            }
+        )
+
+        return result.modified_count > 0
+
+
     async def decrement_following_count(
         self,
         user_id: str
@@ -138,6 +164,32 @@ class UserRepository(BaseRepository):
             {
                 "$inc": {
                     "followers_count": -1
+                }
+            }
+        )
+
+        return result.modified_count > 0
+
+
+    async def decrement_followed_artists_count(
+        self,
+        user_id: str
+    ):
+        """Decrement the count of artists this user follows"""
+
+        try:
+            object_id = ObjectId(user_id)
+
+        except Exception:
+            return False
+
+        result = await self.collection.update_one(
+            {
+                "_id": object_id
+            },
+            {
+                "$inc": {
+                    "followed_artists_count": -1
                 }
             }
         )

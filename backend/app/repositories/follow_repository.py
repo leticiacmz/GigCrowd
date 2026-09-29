@@ -140,3 +140,23 @@ class FollowRepository(BaseRepository):
 
 
         return follows
+
+    async def count_followers(
+        self,
+        user_id: str,
+    ) -> int:
+        """Count how many users follow this user"""
+
+        return await self.collection.count_documents({
+            "following_id": user_id
+        })
+
+    async def count_following(
+        self,
+        user_id: str,
+    ) -> int:
+        """Count how many users this user follows"""
+
+        return await self.collection.count_documents({
+            "follower_id": user_id
+        })

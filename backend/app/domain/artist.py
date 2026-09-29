@@ -30,3 +30,5 @@ class Artist(Entity):
     sync_status: str | None = None
 
     last_synced_at: datetime | None = None
+
+    followers_count: int = Field(default=0)
