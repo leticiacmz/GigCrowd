@@ -281,6 +281,280 @@ class SongkickClient:
         }
 
     # ============================================================
+    # CALENDAR (COMPLETE UPCOMING EVENTS)
+    # ============================================================
+
+    async def get_calendar_page(
+        self,
+        artist_url: str,
+    ) -> dict:
+        """
+        Fetch the artist /calendar page which contains the
+        complete upcoming gigography (not just the #coming-up preview).
+        """
+
+        calendar_url = (
+            artist_url.rstrip("/")
+            + "/calendar"
+        )
+
+        logger.info(
+            "Fetching Songkick calendar page: "
+            f"{calendar_url}"
+        )
+
+        response = await self._request(
+            calendar_url
+        )
+
+        if response.status_code != 200:
+            logger.warning(
+                "Songkick calendar page error: "
+                f"{response.status_code}"
+            )
+            return {
+                "url": calendar_url,
+                "status": response.status_code,
+                "events": [],
+                "pages": 0,
+            }
+
+        events = self._parse_calendar_page(
+            response.text,
+            calendar_url,
+        )
+
+        logger.info(
+            "Calendar page parsed: "
+            f"{len(events)} unique events"
+        )
+
+        return {
+            "url": calendar_url,
+            "status": response.status_code,
+            "events": events,
+            "pages": 1,
+        }
+
+    @classmethod
+    def _parse_calendar_page(
+        cls,
+        html: str,
+        source_url: str,
+    ) -> list[dict]:
+        """
+        Parse the /calendar page and extract all upcoming events.
+
+        The calendar page renders each event twice (duplicate entries),
+        so we deduplicate by Songkick event ID.
+        """
+
+        soup = BeautifulSoup(
+            html,
+            "html.parser",
+        )
+
+        events = []
+        seen_ids = set()
+
+        # Extract events from li.event-listing-item elements
+        for item in soup.select("li.event-listing-item"):
+            link = item.find("a", href=True)
+            if not link:
+                continue
+
+            href = link.get("href", "")
+            if not href:
+                continue
+
+            absolute_url = urljoin(
+                source_url,
+                href,
+            )
+
+            reference = cls.extract_event_reference(
+                absolute_url
+            )
+
+            event_id = reference.get("event_id")
+
+            if not event_id:
+                continue
+
+            # Deduplicate by Songkick event ID
+            if event_id in seen_ids:
+                continue
+
+            seen_ids.add(event_id)
+
+            # Extract date from time element
+            time_elem = item.find("time")
+            start_date = None
+            if time_elem:
+                start_date = time_elem.get("datetime")
+
+            # Extract event name and venue from link text
+            text = link.get_text(" ", strip=True)
+
+            # Parse venue from text (format: "City, Country Venue Name")
+            venue_name = None
+            city = None
+            country = None
+
+            if text:
+                # Try to split by common patterns
+                parts = text.split()
+                if len(parts) >= 2:
+                    # Look for venue name (usually after city/country)
+                    # Format is typically: "City, Country Venue Name"
+                    # or "City, Country Venue Name"
+                    venue_name = text
+
+            event_type = reference.get("event_type") or "concert"
+            is_festival = event_type == "festival"
+
+            event = {
+                "id": event_id,
+                "songkick_id": event_id,
+                "event_type": event_type,
+                "url": absolute_url.split("?")[0],
+                "name": text or None,
+                "original_name": text or None,
+                "start_date": start_date,
+                "end_date": None,
+                "event_status": None,
+                "event_attendance_mode": None,
+                "description": None,
+                "venue": {
+                    "name": venue_name,
+                } if venue_name else None,
+                "performers": [],
+                "offers": [],
+                "songkick_image": None,
+                "source_page": source_url,
+                "raw": None,
+                "festival": None,
+                "is_festival": is_festival,
+                "is_live_stream": (
+                    "/live-stream-concerts/"
+                    in absolute_url
+                ),
+                "source": "songkick_calendar",
+            }
+
+            events.append(event)
+
+        return events
+
+    # ============================================================
+    # FESTIVAL LINEUP
+    # ============================================================
+
+    async def get_festival_lineup(
+        self,
+        festival_url: str,
+    ) -> dict:
+        """
+        Fetch a festival page and extract the complete lineup
+        from .lineup-list .artist-profile .artist-name.
+        """
+
+        logger.info(
+            "Fetching festival lineup: "
+            f"{festival_url}"
+        )
+
+        response = await self._request(
+            festival_url
+        )
+
+        if response.status_code != 200:
+            logger.warning(
+                "Festival page error: "
+                f"{response.status_code}"
+            )
+            return {
+                "url": festival_url,
+                "status": response.status_code,
+                "lineup": [],
+                "festival_name": None,
+                "date_range": None,
+                "venue": None,
+                "location": None,
+            }
+
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser",
+        )
+
+        # Extract festival name
+        h1 = soup.find("h1")
+        festival_name = (
+            h1.get_text(strip=True)
+            if h1 else None
+        )
+
+        # Extract lineup from .lineup-list
+        lineup = []
+        seen_names = set()
+
+        lineup_list = soup.select_one(".lineup-list")
+        if lineup_list:
+            artists = lineup_list.select(
+                ".artist-profile"
+            )
+
+            for artist in artists:
+                name_elem = artist.select_one(
+                    ".artist-name"
+                )
+                if not name_elem:
+                    continue
+
+                name = name_elem.get_text(strip=True)
+                if not name:
+                    continue
+
+                # Deduplicate by normalized name
+                normalized = name.lower().strip()
+                if normalized in seen_names:
+                    continue
+
+                seen_names.add(normalized)
+
+                # Try to extract artist link/slug
+                link = artist.find("a", href=True)
+                artist_url = None
+                if link:
+                    href = link.get("href", "")
+                    if href:
+                        artist_url = urljoin(
+                            festival_url,
+                            href,
+                        ).split("?")[0]
+
+                lineup.append({
+                    "name": name,
+                    "url": artist_url,
+                })
+
+        logger.info(
+            f"Festival lineup extracted: "
+            f"{len(lineup)} artists"
+        )
+
+        return {
+            "url": festival_url,
+            "status": response.status_code,
+            "lineup": lineup,
+            "festival_name": festival_name,
+            "date_range": None,
+            "venue": None,
+            "location": None,
+        }
+
+    # ============================================================
     # GIGOGRAPHY
     # ============================================================
 
@@ -460,19 +734,40 @@ class SongkickClient:
             )
         )
 
+        # Fetch the calendar page for complete upcoming events
+        calendar = (
+            await self.get_calendar_page(
+                artist_url
+            )
+        )
+
         gigography = (
             await self.get_gigography(
                 artist_url
             )
         )
 
-        upcoming_events = (
-            artist_page["upcoming_events"]
-        )
+        # Use calendar page as primary source for upcoming events
+        # Fall back to artist page preview if calendar fails
+        if calendar["events"]:
+            upcoming_events = calendar["events"]
+            logger.info(
+                f"Using calendar page: "
+                f"{len(upcoming_events)} events"
+            )
+        else:
+            upcoming_events = (
+                artist_page["upcoming_events"]
+            )
+            logger.info(
+                f"Calendar unavailable, using artist page "
+                f"preview: {len(upcoming_events)} events"
+            )
 
-        upcoming_festivals = (
-            artist_page["upcoming_festivals"]
-        )
+        upcoming_festivals = [
+            e for e in upcoming_events
+            if e.get("is_festival")
+        ]
 
         raw_gigography_events = (
             gigography["events"]
@@ -948,30 +1243,47 @@ class SongkickClient:
         # --------------------------------------------------------
         # Dates
         #
-        # Keep the artist-page dates when universal_search does
-        # not provide them.
+        # CRITICAL: The festival's overall date range is NOT the
+        # artist's performance date. Only use a specific artist
+        # performance date when Songkick exposes reliable evidence
+        # for that specific performance.
+        #
+        # If the specific performance date cannot be determined
+        # reliably, leave the artist performance date unavailable
+        # rather than presenting incorrect dates.
         # --------------------------------------------------------
 
-        search_start = (
-            cls._first_non_empty(
-                search_document.get("date"),
-                search_document.get("start_date"),
-                search_document.get("startDate"),
+        # Check if this event already has a specific performance
+        # date from the calendar page (artist-specific event)
+        existing_start = event.get("start_date")
+        existing_end = event.get("end_date")
+
+        # Only use search dates if the event doesn't already have
+        # a specific performance date from the calendar page
+        if not existing_start:
+            # Try to find a specific performance date in the
+            # search document (not the festival date range)
+            performance_date = (
+                cls._first_non_empty(
+                    search_document.get(
+                        "performance_date"
+                    ),
+                    search_document.get(
+                        "artist_performance_date"
+                    ),
+                )
             )
-        )
 
-        search_end = (
-            cls._first_non_empty(
-                search_document.get("end_date"),
-                search_document.get("endDate"),
-            )
-        )
+            if performance_date:
+                enriched["start_date"] = performance_date
+            # If no specific performance date is available,
+            # leave start_date as None (do NOT use festival
+            # date range as the artist's performance date)
 
-        if search_start:
-            enriched["start_date"] = search_start
-
-        if search_end:
-            enriched["end_date"] = search_end
+        if not existing_end:
+            # Same logic for end date - do NOT use festival
+            # end date as the artist's performance end date
+            pass
 
         # --------------------------------------------------------
         # URL
