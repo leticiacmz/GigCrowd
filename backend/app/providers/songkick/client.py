@@ -291,6 +291,8 @@ class SongkickClient:
         """
         Fetch the artist /calendar page which contains the
         complete upcoming gigography (not just the #coming-up preview).
+
+        Follows pagination links until all pages are processed.
         """
 
         calendar_url = (
@@ -303,38 +305,140 @@ class SongkickClient:
             f"{calendar_url}"
         )
 
-        response = await self._request(
-            calendar_url
-        )
+        all_events = []
+        seen_ids = set()
+        page_number = 1
+        current_url = calendar_url
 
-        if response.status_code != 200:
-            logger.warning(
-                "Songkick calendar page error: "
-                f"{response.status_code}"
+        while current_url:
+            logger.info(
+                f"Fetching calendar page {page_number}: "
+                f"{current_url}"
             )
-            return {
-                "url": calendar_url,
-                "status": response.status_code,
-                "events": [],
-                "pages": 0,
-            }
 
-        events = self._parse_calendar_page(
-            response.text,
-            calendar_url,
-        )
+            response = await self._request(
+                current_url
+            )
+
+            if response.status_code != 200:
+                logger.warning(
+                    "Songkick calendar page error: "
+                    f"{response.status_code}"
+                )
+                break
+
+            page_events = self._parse_calendar_page(
+                response.text,
+                current_url,
+            )
+
+            new_events = 0
+            duplicates = 0
+
+            for event in page_events:
+                event_id = event.get("songkick_id")
+                if event_id and event_id in seen_ids:
+                    duplicates += 1
+                    continue
+
+                if event_id:
+                    seen_ids.add(event_id)
+
+                all_events.append(event)
+                new_events += 1
+
+            logger.info(
+                f"Calendar page {page_number}: "
+                f"{len(page_events)} events, "
+                f"{new_events} new, "
+                f"{duplicates} duplicates"
+            )
+
+            # Check for next page
+            next_url = self._extract_calendar_next_page(
+                response.text,
+                current_url,
+                page_number,
+            )
+
+            if not next_url:
+                break
+
+            current_url = next_url
+            page_number += 1
 
         logger.info(
-            "Calendar page parsed: "
-            f"{len(events)} unique events"
+            f"Calendar complete: {page_number} pages, "
+            f"{len(all_events)} unique events"
         )
 
         return {
             "url": calendar_url,
-            "status": response.status_code,
-            "events": events,
-            "pages": 1,
+            "status": 200,
+            "events": all_events,
+            "pages": page_number,
         }
+
+    @classmethod
+    def _extract_calendar_next_page(
+        cls,
+        html: str,
+        source_url: str,
+        page_number: int,
+    ) -> str | None:
+        """
+        Extract the next page URL from a calendar page.
+        """
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Check for rel="next" link
+        for link in soup.find_all("a", href=True):
+            rel = link.get("rel")
+            if isinstance(rel, str):
+                rel_values = [rel.lower()]
+            else:
+                rel_values = [
+                    str(v).lower()
+                    for v in (rel or [])
+                ]
+
+            if "next" in rel_values:
+                return urljoin(
+                    source_url,
+                    link["href"],
+                )
+
+        # Check for explicit page parameter
+        candidates = []
+        for link in soup.find_all("a", href=True):
+            href = link.get("href", "")
+            if not href:
+                continue
+
+            absolute = urljoin(source_url, href)
+
+            if "/calendar" not in absolute:
+                continue
+
+            match = re.search(
+                r"[?&]page=(\d+)",
+                absolute,
+            )
+
+            if not match:
+                continue
+
+            page = int(match.group(1))
+
+            if page > page_number:
+                candidates.append((page, absolute))
+
+        if candidates:
+            candidates.sort(key=lambda item: item[0])
+            return candidates[0][1]
+
+        return None
 
     @classmethod
     def _parse_calendar_page(
@@ -553,6 +657,238 @@ class SongkickClient:
             "venue": None,
             "location": None,
         }
+
+    @staticmethod
+    def normalize_artist_name(name: str) -> str:
+        """
+        Normalize an artist name for matching.
+        """
+        if not name:
+            return ""
+
+        # Lowercase, strip whitespace, remove extra spaces
+        normalized = name.lower().strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+
+        # Remove common suffixes/prefixes for matching
+        normalized = re.sub(
+            r"\s*\(.*?\)\s*",
+            " ",
+            normalized,
+        )
+
+        return normalized.strip()
+
+    @classmethod
+    def resolve_lineup_artists(
+        cls,
+        lineup: list[dict],
+        existing_artists: list[dict],
+    ) -> list[dict]:
+        """
+        Resolve lineup artists against existing GigCrowd artists.
+
+        - Prefer exact Songkick ID matches
+        - Fall back to normalized name matches
+        - Preserve unresolved entries (do NOT invent IDs)
+        - Keep the full lineup regardless of resolution status
+        """
+
+        resolved = []
+
+        # Build lookup indexes from existing artists
+        by_songkick_id = {}
+        by_normalized_name = {}
+
+        for artist in existing_artists:
+            # Index by Songkick ID
+            songkick_id = (
+                artist.get("external_ids", {}).get("songkick")
+                or artist.get("songkick_id")
+            )
+            if songkick_id:
+                by_songkick_id[str(songkick_id)] = artist
+
+            # Index by normalized name
+            name = artist.get("name")
+            if name:
+                normalized = cls.normalize_artist_name(name)
+                if normalized:
+                    by_normalized_name[normalized] = artist
+
+        for entry in lineup:
+            name = entry.get("name", "")
+            url = entry.get("url")
+
+            resolved_entry = dict(entry)
+            resolved_entry["resolved"] = False
+            resolved_entry["gigcrowd_artist_id"] = None
+
+            # Try to resolve by Songkick ID from URL
+            if url:
+                reference = cls.extract_event_reference(url)
+                # For artist URLs, extract the artist ID
+                match = re.search(
+                    r"/artists/(\d+)",
+                    url,
+                )
+                if match:
+                    songkick_id = match.group(1)
+                    if songkick_id in by_songkick_id:
+                        artist = by_songkick_id[songkick_id]
+                        resolved_entry["resolved"] = True
+                        resolved_entry["gigcrowd_artist_id"] = (
+                            artist.get("id")
+                            or artist.get("_id")
+                        )
+
+            # Try to resolve by normalized name
+            if not resolved_entry["resolved"] and name:
+                normalized = cls.normalize_artist_name(name)
+                if normalized in by_normalized_name:
+                    artist = by_normalized_name[normalized]
+                    resolved_entry["resolved"] = True
+                    resolved_entry["gigcrowd_artist_id"] = (
+                        artist.get("id")
+                        or artist.get("_id")
+                    )
+
+            resolved.append(resolved_entry)
+
+        return resolved
+
+    # ============================================================
+    # EVENT DETAIL ENRICHMENT
+    # ============================================================
+
+    async def enrich_event_details(
+        self,
+        event: dict,
+    ) -> dict:
+        """
+        Fetch an event page and extract details not available
+        from the calendar page.
+
+        Only fetches unique events (deduplicated by caller).
+        """
+
+        event_url = event.get("url")
+        if not event_url:
+            return event
+
+        logger.info(
+            f"Enriching event details: {event_url}"
+        )
+
+        response = await self._request(event_url)
+
+        if response.status_code != 200:
+            logger.warning(
+                f"Event page error: {response.status_code}"
+            )
+            return event
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        enriched = dict(event)
+
+        # Extract JSON-LD
+        jsonld_scripts = soup.find_all(
+            "script",
+            type="application/ld+json",
+        )
+
+        for script in jsonld_scripts:
+            try:
+                data = json.loads(
+                    script.string or script.get_text()
+                )
+            except Exception:
+                continue
+
+            if not isinstance(data, dict):
+                continue
+
+            if data.get("@type") != "MusicEvent":
+                continue
+
+            # Extract ticket URL from offers
+            offers = data.get("offers", [])
+            if isinstance(offers, dict):
+                offers = [offers]
+
+            for offer in offers:
+                if not isinstance(offer, dict):
+                    continue
+
+                offer_url = offer.get("url")
+                if offer_url:
+                    enriched["ticket_url"] = offer_url
+                    break
+
+            # Extract official website
+            official_website = (
+                data.get("officialWebsite")
+                or data.get("eventWebsite")
+            )
+            if official_website:
+                enriched["official_website"] = official_website
+
+            # Extract event image
+            image = data.get("image")
+            if image:
+                if isinstance(image, list) and image:
+                    enriched["songkick_image"] = image[0]
+                elif isinstance(image, str):
+                    enriched["songkick_image"] = image
+
+            # Extract event status
+            event_status = data.get("eventStatus")
+            if event_status:
+                enriched["event_status"] = event_status
+
+            # Extract venue details
+            location = data.get("location", {})
+            if isinstance(location, dict):
+                venue = enriched.get("venue", {})
+                if not isinstance(venue, dict):
+                    venue = {}
+
+                venue_name = location.get("name")
+                if venue_name:
+                    venue["name"] = venue_name
+
+                address = location.get("address", {})
+                if isinstance(address, dict):
+                    street = address.get("streetAddress")
+                    if street:
+                        venue["street"] = street
+
+                    address_locality = address.get("addressLocality")
+                    if address_locality:
+                        venue["city"] = address_locality
+
+                    address_country = address.get("addressCountry")
+                    if address_country:
+                        venue["country"] = address_country
+
+                    postal_code = address.get("postalCode")
+                    if postal_code:
+                        venue["postal_code"] = postal_code
+
+                geo = location.get("geo", {})
+                if isinstance(geo, dict):
+                    lat = geo.get("latitude")
+                    lon = geo.get("longitude")
+                    if lat and lon:
+                        venue["latitude"] = lat
+                        venue["longitude"] = lon
+
+                enriched["venue"] = venue
+
+            break
+
+        return enriched
 
     # ============================================================
     # GIGOGRAPHY
