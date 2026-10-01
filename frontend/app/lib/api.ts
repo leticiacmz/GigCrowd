@@ -190,60 +190,59 @@ export const followAPI = {
 
 export const communityPostAPI = {
   getPosts: async (artistSlug: string, params?: any) => {
-    const response = await api.get(`/community/posts/${artistSlug}`, { params });
+    const response = await api.get(`/artists/${artistSlug}/community/posts`, { params });
     return response.data;
   },
-  getFeed: async (params?: any) => {
-    const response = await api.get('/community/feed', { params });
-    return response.data;
-  },
-  createPost: async (postData: {
-    artist_slug: string;
+
+  createPost: async (artistSlug: string, postData: {
     content: string;
     image_url?: string;
   }) => {
-    const response = await api.post('/community/posts', postData);
+    const response = await api.post(`/artists/${artistSlug}/community/posts`, postData);
     return response.data;
   },
-  likePost: async (postId: string) => {
-    const response = await api.post(`/community/posts/${postId}/like`);
+
+  likePost: async (artistSlug: string, postId: string) => {
+    const response = await api.post(`/artists/${artistSlug}/community/posts/${postId}/like`);
     return response.data;
   },
-  unlikePost: async (postId: string) => {
-    const response = await api.delete(`/community/posts/${postId}/like`);
+
+  unlikePost: async (artistSlug: string, postId: string) => {
+    const response = await api.delete(`/artists/${artistSlug}/community/posts/${postId}/like`);
     return response.data;
   },
-  deletePost: async (postId: string) => {
-    const response = await api.delete(`/community/posts/${postId}`);
+
+  deletePost: async (artistSlug: string, postId: string) => {
+    const response = await api.delete(`/artists/${artistSlug}/community/posts/${postId}`);
     return response.data;
   },
 };
 
 export const commentAPI = {
-  getComments: async (postId: string, params?: any) => {
-    const response = await api.get(`/community/posts/${postId}/comments`, { params });
+  getComments: async (artistSlug: string, postId: string, params?: any) => {
+    const response = await api.get(`/artists/${artistSlug}/community/posts/${postId}/comments`, { params });
     return response.data;
   },
-  getReplies: async (commentId: string, params?: any) => {
-    const response = await api.get(`/community/comments/${commentId}/replies`, { params });
+  getReplies: async (artistSlug: string, commentId: string, params?: any) => {
+    const response = await api.get(`/artists/${artistSlug}/community/comments/${commentId}/replies`, { params });
     return response.data;
   },
-  createComment: async (data: {
+  createComment: async (artistSlug: string, data: {
     post_id: string;
     content: string;
     parent_comment_id?: string;
   }) => {
-    const response = await api.post('/community/comments', data);
+    const response = await api.post(`/artists/${artistSlug}/community/comments`, data);
     return response.data;
   },
-  updateComment: async (commentId: string, data: {
+  updateComment: async (artistSlug: string, commentId: string, data: {
     content: string;
   }) => {
-    const response = await api.put(`/community/comments/${commentId}`, data);
+    const response = await api.put(`/artists/${artistSlug}/community/comments/${commentId}`, data);
     return response.data;
   },
-  deleteComment: async (commentId: string) => {
-    const response = await api.delete(`/community/comments/${commentId}`);
+  deleteComment: async (artistSlug: string, commentId: string) => {
+    const response = await api.delete(`/artists/${artistSlug}/community/comments/${commentId}`);
     return response.data;
   },
 };
