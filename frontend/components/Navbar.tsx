@@ -3,9 +3,10 @@
 import Button from '@/components/ui/Button';
 import { logout, isAuthenticated, getUser, clearStaleAuth } from '@/app/lib/auth';
 import { useTheme } from '@/components/use-theme';
+import { locales, defaultLocale } from '@/app/i18n';
+
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -20,29 +21,29 @@ interface AuthUser {
   role: string;
 }
 
-export default function Navbar({ messages }: { messages?: any }) {
-  const nav = messages?.nav || { 
-    feed: 'Feed', 
-    artists: 'Artists', 
-    events: 'Events', 
-    profile: 'My Profile', 
-    settings: 'Settings', 
-    login: 'Sign In', 
-    register: 'Create Account', 
-    logout: 'Logout' 
-  };
-  const common = messages?.common || { 
-    light: 'Light', 
-    dark: 'Dark' 
-  };
+interface NavbarMessages {
+  nav?: Record<string, string>;
+  common?: Record<string, string>;
+}
 
-  const pathname = usePathname();
+function resolveLocale(pathname: string): string {
+  const segment = pathname.split('/')[1];
+  return locales.includes(segment as (typeof locales)[number])
+    ? segment
+    : defaultLocale;
+}
+
+export default function Navbar({ messages }: { messages?: NavbarMessages }) {
+  const pathname = usePathname() || '';
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  const locale = resolveLocale(pathname);
+  const pathnameWithoutLocale = pathname.replace(new RegExp(`^/${locale}`), '') || '/';
 
   function loadCurrentUser() {
     if (isAuthenticated()) {
@@ -77,31 +78,59 @@ export default function Navbar({ messages }: { messages?: any }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const isLoggedIn = !!currentUser;
-  const isLoginPage = pathname === '/login';
-  const isRegisterPage = pathname === '/register';
-  const isHomePage = pathname === '/';
+  // Close transient menus whenever navigation happens.
+  useEffect(() => {
+    setMobileMenuOpen(false);
+    setUserMenuOpen(false);
+  }, [pathname]);
 
-  const logoHref = isLoggedIn ? '/feed' : '/';
+  const isLoggedIn = !!currentUser;
+  const isLoginPage = pathnameWithoutLocale === '/login';
+  const isRegisterPage = pathnameWithoutLocale === '/register';
+
+  const nav = messages?.nav ?? {};
+  const common = messages?.common ?? {};
+
+  const logoHref = isLoggedIn ? `/${locale}/feed` : `/${locale}`;
 
   const navLinks = isLoggedIn
     ? [
-        { href: '/feed', label: nav.feed ?? 'Feed' },
-        { href: '/artists', label: nav.artists ?? 'Artists' },
-        { href: '/events', label: nav.events ?? 'Events' },
+        { href: `/${locale}/feed`, label: nav.feed ?? 'Feed' },
+        { href: `/${locale}/community`, label: nav.community ?? 'Community' },
+        { href: `/${locale}/artists`, label: nav.artists ?? 'Artists' },
+        { href: `/${locale}/events`, label: nav.events ?? 'Events' },
       ]
-      : isHomePage
-        ? []
-        : [
-            { href: '/artists', label: nav.artists ?? 'Artists' },
-            { href: '/events', label: nav.events ?? 'Events' },
-          ];
+    : [
+        { href: `/${locale}/artists`, label: nav.artists ?? 'Artists' },
+        { href: `/${locale}/events`, label: nav.events ?? 'Events' },
+      ];
+
+  const authLinks = (
+    <>
+      {!isLoginPage && (
+        <Link href={`/${locale}/login`}>
+          <Button variant="outlineGradient" size="sm">
+            {nav.login ?? 'Sign In'}
+          </Button>
+        </Link>
+      )}
+
+      {!isRegisterPage && (
+        <Link href={`/${locale}/register`}>
+          <Button variant="neon" size="sm">
+            {nav.register ?? 'Create Account'}
+          </Button>
+        </Link>
+      )}
+    </>
+  );
 
   function handleLogout() {
     logout();
     setCurrentUser(null);
     setUserMenuOpen(false);
-    router.replace('/login');
+    setMobileMenuOpen(false);
+    router.replace(`/${locale}/login`);
   }
 
   function handleNavigation() {
@@ -110,18 +139,15 @@ export default function Navbar({ messages }: { messages?: any }) {
   }
 
   const baseLinkClass = 'transition-all duration-300';
-  const activeLinkClass = 'font-medium bg-gradient-to-r from-accent to-secondary bg-clip-text text-transparent';
-  const inactiveLinkClass = 'text-gray-400 hover:text-white';
+  const activeLinkClass =
+    'font-medium bg-gradient-to-r from-accent to-secondary bg-clip-text text-transparent';
+  const inactiveLinkClass = 'text-gray-400 hover:text-foreground';
 
   return (
-    <nav
-      className="sticky top-0 z-50 border-b border-border bg-background"
-    >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href={logoHref} onClick={handleNavigation}>
-          <span
-            className="bg-gradient-to-r from-accent to-secondary bg-clip-text text-2xl font-bold text-transparent"
-          >
+    <nav className="sticky top-0 z-50 border-b border-border bg-background">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <Link href={logoHref} onClick={handleNavigation} className="shrink-0">
+          <span className="bg-gradient-to-r from-accent to-secondary bg-clip-text text-2xl font-bold text-transparent">
             GigCrowd
           </span>
         </Link>
@@ -131,89 +157,73 @@ export default function Navbar({ messages }: { messages?: any }) {
             <Link
               key={link.href}
               href={link.href}
-              className={
-                pathname === link.href
-                  ? `${baseLinkClass} ${activeLinkClass}`
-                  : `${baseLinkClass} ${inactiveLinkClass}`
-              }
+              aria-current={pathname === link.href ? 'page' : undefined}
+              className={`${baseLinkClass} ${
+                pathname === link.href ? activeLinkClass : inactiveLinkClass
+              }`}
             >
               {link.label}
             </Link>
           ))}
         </div>
 
-        <div className="hidden items-center md:flex">
+        <div className="hidden items-center gap-3 md:flex">
           {isLoggedIn && currentUser ? (
-            <>
-              <div ref={userMenuRef} className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-1 text-gray-300 hover:text-white"
+            <div ref={userMenuRef} className="relative">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-1 text-gray-300 hover:text-foreground"
+                aria-haspopup="menu"
+                aria-expanded={userMenuOpen}
+              >
+                @{currentUser.username}
+                <span className="text-xs">▾</span>
+              </button>
+
+              {userMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-3 w-48 rounded-xl border border-border bg-card-bg p-2 shadow-xl"
                 >
-                  @{currentUser.username}
-                  <span className="text-xs">▾</span>
-                </button>
-
-                {userMenuOpen && (
-                  <div
-                    className="absolute right-0 mt-3 w-48 rounded-xl border border-border bg-card-bg p-2 shadow-xl"
+                  <Link
+                    href={`/${locale}/profile/${currentUser.username}`}
+                    onClick={handleNavigation}
+                    className="block rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-card-hover hover:text-foreground"
                   >
-                    <Link
-                      href={`/profile/${currentUser.username}`}
-                      onClick={handleNavigation}
-                      className="block rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-card-hover hover:text-white"
-                    >
-                      {nav.profile ?? 'My Profile'}
-                    </Link>
-                    <Link
-                      href="/settings"
-                      onClick={handleNavigation}
-                      className="block rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-card-hover hover:text-white"
-                    >
-                      {nav.settings ?? 'Settings'}
-                    </Link>
-                    <div className="my-2 border-t border-border" />
-                    <button
-                      onClick={handleLogout}
-                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-300 hover:bg-card-hover hover:text-white"
-                    >
-                      {nav.logout ?? 'Logout'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              {!isLoginPage && (
-                <Link href="/login">
-                  <Button variant="outlineGradient" size="sm">{nav.login ?? 'Sign In'}</Button>
-                </Link>
-              )}
+                    {nav.profile ?? 'My Profile'}
+                  </Link>
 
-              {!isRegisterPage && (
-                <Link href="/register">
-                  <Button variant="neon" size="sm">{nav.register ?? 'Create Account'}</Button>
-                </Link>
+                  <div className="my-2 border-t border-border" />
+
+                  <button
+                    onClick={handleLogout}
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-300 hover:bg-card-hover hover:text-foreground"
+                  >
+                    {nav.logout ?? 'Logout'}
+                  </button>
+                </div>
               )}
-            </>
+            </div>
+          ) : (
+            authLinks
           )}
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
+        <button
           onClick={toggleTheme}
-          className="hidden md:block mx-2"
+          data-testid="theme-toggle"
+          aria-label={common.theme ?? 'Theme'}
+          title={theme === 'dark' ? (common.light ?? 'Light') : (common.dark ?? 'Dark')}
+          className="hidden shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm text-gray-300 hover:bg-card-hover md:block"
         >
           {theme === 'dark' ? (common.light ?? 'Light') : (common.dark ?? 'Dark')}
-        </Button>
-
-        <div />
+        </button>
 
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="text-gray-400 hover:text-white md:hidden"
+          aria-label="Toggle navigation menu"
+          aria-expanded={mobileMenuOpen}
+          className="shrink-0 rounded-lg px-2 py-1 text-gray-300 hover:bg-card-hover md:hidden"
         >
           ☰
         </button>
@@ -227,42 +237,46 @@ export default function Navbar({ messages }: { messages?: any }) {
                 key={link.href}
                 href={link.href}
                 onClick={handleNavigation}
-                className="text-gray-300"
+                aria-current={pathname === link.href ? 'page' : undefined}
+                className={pathname === link.href ? 'text-foreground' : 'text-gray-300'}
               >
                 {link.label}
               </Link>
             ))}
 
-            {isLoggedIn && currentUser ? (
-              <>
-                <Link
-                  href={`/profile/${currentUser.username}`}
-                  className="text-gray-300"
-                >
-                  @{currentUser.username}
-                </Link>
-                <Link href="/settings" className="text-gray-300">
-                  {nav.settings ?? 'Settings'}
-                </Link>
-                <button onClick={handleLogout} className="text-left text-gray-300">
-                  {nav.logout ?? 'Logout'}
-                </button>
-              </>
-            ) : (
-              <>
-                {!isLoginPage && (
-                  <Link href="/login">
-                    <Button variant="outlineGradient" size="sm">{nav.login ?? 'Sign In'}</Button>
+            <div className="border-t border-border pt-4">
+              {isLoggedIn && currentUser ? (
+                <div className="flex flex-col gap-4">
+                  <Link
+                    href={`/${locale}/profile/${currentUser.username}`}
+                    onClick={handleNavigation}
+                    className="text-gray-300"
+                  >
+                    @{currentUser.username}
                   </Link>
-                )}
 
-                {!isRegisterPage && (
-                  <Link href="/register">
-                    <Button variant="neon" size="sm">{nav.register ?? 'Create Account'}</Button>
-                  </Link>
-                )}
-              </>
-            )}
+                  <button
+                    onClick={handleLogout}
+                    className="text-left text-gray-300"
+                  >
+                    {nav.logout ?? 'Logout'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">{authLinks}</div>
+              )}
+
+              <button
+                onClick={toggleTheme}
+                data-testid="theme-toggle-mobile"
+                aria-label={common.theme ?? 'Theme'}
+                className="mt-4 w-full rounded-lg border border-border px-3 py-2 text-sm text-gray-300 hover:bg-card-hover"
+              >
+                {theme === 'dark'
+                  ? (common.light ?? 'Light')
+                  : (common.dark ?? 'Dark')}
+              </button>
+            </div>
           </div>
         </div>
       )}
