@@ -32,8 +32,7 @@ class CommentRepository(BaseRepository):
         document["_id"] = result.inserted_id
 
         # Increment comments count on the post
-        db = self.collection.database
-        await db.community_posts.update_one(
+        await self.db.community_posts.update_one(
             {"_id": ObjectId(post_id)},
             {"$inc": {"comments_count": 1}}
         )
@@ -137,8 +136,7 @@ class CommentRepository(BaseRepository):
             return False
 
         # Decrement comments count on the post
-        db = self.collection.database
-        await db.community_posts.update_one(
+        await self.db.community_posts.update_one(
             {"_id": comment["post_id"]},
             {"$inc": {"comments_count": -1}}
         )

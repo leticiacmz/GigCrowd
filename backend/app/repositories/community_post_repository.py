@@ -196,10 +196,8 @@ class CommunityPostRepository(BaseRepository):
         except:
             return False
 
-        db = self.collection.database
-
         # Check if user already liked this post
-        existing = await db.post_likes.find_one({
+        existing = await self.db.post_likes.find_one({
             "post_id": post_oid,
             "user_id": user_oid
         })
@@ -235,10 +233,8 @@ class CommunityPostRepository(BaseRepository):
         except:
             return False
 
-        db = self.collection.database
-
         # Remove like record
-        result = await db.post_likes.delete_one({
+        result = await self.db.post_likes.delete_one({
             "post_id": post_oid,
             "user_id": user_oid
         })
@@ -267,9 +263,7 @@ class CommunityPostRepository(BaseRepository):
         except:
             return False
 
-        db = self.collection.database
-
-        existing = await db.post_likes.find_one({
+        existing = await self.db.post_likes.find_one({
             "post_id": post_oid,
             "user_id": user_oid
         })

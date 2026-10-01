@@ -4,7 +4,6 @@ from datetime import datetime
 
 
 class CommunityPostCreate(BaseModel):
-    artist_slug: str
     content: str = Field(..., min_length=1, max_length=2000)
     image_url: Optional[str] = None
 
