@@ -21,6 +21,8 @@ const config: Config = {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
     },
+    // Enable dark mode class strategy
+    darkMode: 'class',
   },
   plugins: [],
 };

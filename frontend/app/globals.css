@@ -12,6 +12,44 @@
   --card-hover: #27272A;
 }
 
+/* Light mode colors - used when data-theme="light" */
+[data-theme="light"] {
+  --background: #F8F9FA;
+  --foreground: #1E293B;
+  --accent: #FF4D6D;
+  --secondary: #6C63FF;
+  --border: #CBD5E1;
+  --card-bg: #FFFFFF;
+  --card-hover: #F1F5F9;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme=""] {
+    --background: #F8F9FA;
+    --foreground: #1E293B;
+    --card-bg: #FFFFFF;
+  }
+}
+
+/* Dark mode colors - used when data-theme="dark" */
+[data-theme="dark"] {
+  --background: #0F0F12;
+  --foreground: #FFFFFF;
+  --accent: #FF4D6D;
+  --secondary: #6C63FF;
+  --border: #27272A;
+  --card-bg: #18181B;
+  --card-hover: #27272A;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme=""] {
+    --background: #0F0F12;
+    --foreground: #FFFFFF;
+    --card-bg: #18181B;
+  }
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
