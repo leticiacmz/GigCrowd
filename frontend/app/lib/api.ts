@@ -1,5 +1,10 @@
 import axios from 'axios';
-import { getToken, getUser, clearStaleAuth } from './auth';
+import {
+  getToken,
+  clearStaleAuth,
+  getLoginPath,
+  sanitizeNext,
+} from './auth';
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -12,52 +17,69 @@ const api = axios.create({
   },
 });
 
-// Intercept outgoing requests - add auth token, clear stale state if none
+/** Best-effort locale detection for redirect URLs (first path segment). */
+function currentLocale(): string {
+  if (typeof window === 'undefined') {
+    return 'en';
+  }
+
+  const segment = window.location.pathname.split('/')[1];
+
+  return ['en', 'pt-BR', 'es'].includes(segment) ? segment : 'en';
+}
+
+/**
+ * Attach the bearer token when a session exists.
+ *
+ * Requests are deliberately NOT redirected here when there is no token:
+ * public endpoints must stay reachable while logged out. Authorization is
+ * enforced per route/action on the client and by the backend, which remains
+ * the security boundary.
+ */
 api.interceptors.request.use(
   (config) => {
     const token = getToken();
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-    } else if (typeof window !== 'undefined') {
-      // No token - clear any stale state and redirect to login
-      clearStaleAuth();
-      const currentPath = window.location.pathname;
-      if (currentPath !== '/login' && currentPath !== '/register') {
-        window.location.href = '/login';
-      }
     }
 
     return config;
   }
 );
 
-// Intercept API responses - handle auth errors
+/** Send the user to the localized login, preserving where they were. */
+function redirectToLogin() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const { pathname, search } = window.location;
+  const locale = currentLocale();
+
+  const isAuthPage =
+    pathname === `/${locale}/login` ||
+    pathname === `/${locale}/register`;
+
+  if (isAuthPage) {
+    return;
+  }
+
+  const next = sanitizeNext(`${pathname}${search}`);
+
+  window.location.href = getLoginPath(locale, next);
+}
+
+// Intercept API responses - an authenticated endpoint rejected the session
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
 
-    // Handle 401 Unauthorized - token expired or invalid
-    if (status === 401) {
+    // 401 Unauthorized / 403 Forbidden -> the session is no longer valid.
+    if (status === 401 || status === 403) {
       clearStaleAuth();
-      if (typeof window !== 'undefined') {
-        const currentPath = window.location.pathname;
-        if (currentPath !== '/login' && currentPath !== '/register') {
-          window.location.href = '/login';
-        }
-      }
-    }
-
-    // Handle 403 Forbidden - invalid permissions
-    if (status === 403) {
-      clearStaleAuth();
-      if (typeof window !== 'undefined') {
-        const currentPath = window.location.pathname;
-        if (currentPath !== '/login' && currentPath !== '/register') {
-          window.location.href = '/login';
-        }
-      }
+      redirectToLogin();
     }
 
     return Promise.reject(error);
