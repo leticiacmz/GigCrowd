@@ -83,6 +83,14 @@ docker-compose.override.yml
 htmlcov/
 .tox/
 
+# Local verification artifacts
+build_log*.txt
+lint_log.txt
+prod_out.txt
+prod_err.txt
+typecheck_errors.txt
+build_errors.txt
+
 # Distribution
 dist/
 
