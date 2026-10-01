@@ -327,8 +327,7 @@ export default function ArtistProfilePage() {
       setPostLoading(true);
       setPostError('');
 
-      await communityPostAPI.createPost({
-        artist_slug: artistSlug,
+      await communityPostAPI.createPost(artistSlug, {
         content: postContent.trim(),
       });
 
@@ -350,9 +349,9 @@ export default function ArtistProfilePage() {
       setLikeLoading(postId);
 
       if (currentlyLiked) {
-        await communityPostAPI.unlikePost(postId);
+        await communityPostAPI.unlikePost(artistSlug, postId);
       } else {
-        await communityPostAPI.likePost(postId);
+        await communityPostAPI.likePost(artistSlug, postId);
       }
 
       // Update local state
@@ -385,7 +384,7 @@ export default function ArtistProfilePage() {
   async function loadComments(postId: string) {
     try {
       setCommentsLoading((prev) => ({ ...prev, [postId]: true }));
-      const data = await commentAPI.getComments(postId);
+      const data = await commentAPI.getComments(artistSlug, postId);
       setComments((prev) => ({ ...prev, [postId]: data }));
     } catch (error) {
       console.error('Failed to load comments:', error);
@@ -401,7 +400,7 @@ export default function ArtistProfilePage() {
 
     try {
       setCommentLoading((prev) => ({ ...prev, [postId]: true }));
-      await commentAPI.createComment({
+      await commentAPI.createComment(artistSlug, {
         post_id: postId,
         content: content.trim(),
       });
@@ -421,7 +420,7 @@ export default function ArtistProfilePage() {
 
     try {
       setReplyLoading((prev) => ({ ...prev, [commentId]: true }));
-      await commentAPI.createComment({
+      await commentAPI.createComment(artistSlug, {
         post_id: postId,
         content: content.trim(),
         parent_comment_id: commentId,
@@ -440,7 +439,7 @@ export default function ArtistProfilePage() {
     if (!editContent.trim()) return;
 
     try {
-      await commentAPI.updateComment(commentId, { content: editContent.trim() });
+      await commentAPI.updateComment(artistSlug, commentId, { content: editContent.trim() });
       setEditingComment(null);
       setEditContent('');
       loadComments(postId);
@@ -452,7 +451,7 @@ export default function ArtistProfilePage() {
 
   async function handleDeleteComment(commentId: string, postId: string) {
     try {
-      await commentAPI.deleteComment(commentId);
+      await commentAPI.deleteComment(artistSlug, commentId);
       loadComments(postId);
     } catch (error) {
       console.error('Failed to delete comment:', error);
@@ -682,313 +681,6 @@ export default function ArtistProfilePage() {
 
               )}
 
-            </section>
-
-            {/* ============================================================ */}
-            {/* COMMUNITY POSTS */}
-            {/* ============================================================ */}
-
-            <section className="mt-12">
-              <h2 className="text-[24px] font-bold mb-5">
-                Community Posts
-              </h2>
-
-              {/* Create Post Form */}
-              <div className="mb-6">
-                <textarea
-                  value={postContent}
-                  onChange={(e) => setPostContent(e.target.value)}
-                  placeholder={`Share something about ${artist.name}...`}
-                  className="w-full rounded-lg border border-border bg-card-bg px-4 py-3 text-foreground placeholder-gray-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent min-h-[100px] resize-y"
-                  maxLength={2000}
-                />
-                {postError && (
-                  <p className="mt-2 text-sm text-red-500">{postError}</p>
-                )}
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    onClick={handleCreatePost}
-                    disabled={postLoading || !postContent.trim()}
-                    size="sm"
-                  >
-                    {postLoading ? 'Posting...' : 'Post'}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Posts List */}
-              {postsLoading ? (
-                <p className="text-gray-400">Loading posts...</p>
-              ) : communityPosts.length === 0 ? (
-                <p className="text-gray-400">No community posts yet. Be the first to share!</p>
-              ) : (
-                <div className="space-y-4">
-                  {communityPosts.map((post) => (
-                    <Card key={post.id} className="p-4">
-                      <div className="flex items-start gap-3">
-                        <Avatar
-                          src={post.user_avatar_url}
-                          fallback={post.username?.charAt(0).toUpperCase() || '?'}
-                          size="sm"
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold text-sm">
-                              @{post.username || 'unknown'}
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              {format(new Date(post.created_at), 'MMM d, yyyy')}
-                            </span>
-                          </div>
-                          <p className="text-gray-300 text-sm whitespace-pre-wrap">
-                            {post.content}
-                          </p>
-                          {post.image_url && (
-                            <img
-                              src={post.image_url}
-                              alt="Post media"
-                              className="mt-2 rounded-lg max-w-full"
-                            />
-                          )}
-                          <div className="mt-3 flex items-center gap-4">
-                            <button
-                              onClick={() => handleLikePost(post.id, post.liked_by_user)}
-                              disabled={likeLoading === post.id}
-                              className={`flex items-center gap-1 text-sm transition-colors ${
-                                post.liked_by_user
-                                  ? 'text-accent'
-                                  : 'text-gray-400 hover:text-accent'
-                              }`}
-                            >
-                              <span>{post.liked_by_user ? '♥' : '♡'}</span>
-                              <span>{post.likes_count}</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (!comments[post.id]) {
-                                  loadComments(post.id);
-                                }
-                                setShowReplies((prev) => ({
-                                  ...prev,
-                                  [post.id]: !prev[post.id],
-                                }));
-                              }}
-                              className="text-sm text-gray-400 hover:text-accent transition-colors"
-                            >
-                              💬 {post.comments_count} comments
-                            </button>
-                          </div>
-
-                          {/* Comments Section */}
-                          {showReplies[post.id] && (
-                            <div className="mt-3 border-t border-border pt-3">
-                              {/* Comment Input */}
-                              <div className="flex gap-2 mb-3">
-                                <input
-                                  type="text"
-                                  value={commentContent[post.id] || ''}
-                                  onChange={(e) =>
-                                    setCommentContent((prev) => ({
-                                      ...prev,
-                                      [post.id]: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="Write a comment..."
-                                  className="flex-1 rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-foreground placeholder-gray-500 focus:border-accent focus:outline-none"
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      handleCreateComment(post.id);
-                                    }
-                                  }}
-                                />
-                                <Button
-                                  onClick={() => handleCreateComment(post.id)}
-                                  disabled={commentLoading[post.id] || !commentContent[post.id]?.trim()}
-                                  size="sm"
-                                >
-                                  {commentLoading[post.id] ? '...' : 'Post'}
-                                </Button>
-                              </div>
-
-                              {/* Comments List */}
-                              {commentsLoading[post.id] ? (
-                                <p className="text-xs text-gray-500">Loading comments...</p>
-                              ) : comments[post.id]?.length === 0 ? (
-                                <p className="text-xs text-gray-500">No comments yet.</p>
-                              ) : (
-                                <div className="space-y-3">
-                                  {comments[post.id]?.map((comment) => (
-                                    <div key={comment.id} className="flex gap-2">
-                                      <Avatar
-                                        src={comment.user_avatar_url}
-                                        fallback={comment.username?.charAt(0).toUpperCase() || '?'}
-                                        size="sm"
-                                      />
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-semibold text-xs">
-                                            @{comment.username || 'unknown'}
-                                          </span>
-                                          <span className="text-xs text-gray-500">
-                                            {format(new Date(comment.created_at), 'MMM d, yyyy')}
-                                          </span>
-                                        </div>
-
-                                        {editingComment === comment.id ? (
-                                          <div className="mt-1">
-                                            <input
-                                              type="text"
-                                              value={editContent}
-                                              onChange={(e) => setEditContent(e.target.value)}
-                                              className="w-full rounded-lg border border-border bg-card-bg px-2 py-1 text-sm text-foreground focus:border-accent focus:outline-none"
-                                            />
-                                            <div className="mt-1 flex gap-2">
-                                              <button
-                                                onClick={() => handleUpdateComment(comment.id, post.id)}
-                                                className="text-xs text-accent hover:underline"
-                                              >
-                                                Save
-                                              </button>
-                                              <button
-                                                onClick={() => setEditingComment(null)}
-                                                className="text-xs text-gray-400 hover:underline"
-                                              >
-                                                Cancel
-                                              </button>
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <p className="text-sm text-gray-300 mt-0.5">
-                                            {comment.content}
-                                          </p>
-                                        )}
-
-                                        <div className="mt-1 flex items-center gap-3">
-                                          <button
-                                            onClick={() => {
-                                              setReplyContent((prev) => ({
-                                                ...prev,
-                                                [comment.id]: '',
-                                              }));
-                                              setShowReplies((prev) => ({
-                                                ...prev,
-                                                [comment.id]: !prev[comment.id],
-                                              }));
-                                            }}
-                                            className="text-xs text-gray-400 hover:text-accent"
-                                          >
-                                            Reply
-                                          </button>
-                                          {comment.user_id === currentUser?.id && (
-                                            <>
-                                              <button
-                                                onClick={() => {
-                                                  setEditingComment(comment.id);
-                                                  setEditContent(comment.content);
-                                                }}
-                                                className="text-xs text-gray-400 hover:text-accent"
-                                              >
-                                                Edit
-                                              </button>
-                                              <button
-                                                onClick={() => handleDeleteComment(comment.id, post.id)}
-                                                className="text-xs text-gray-400 hover:text-red-400"
-                                              >
-                                                Delete
-                                              </button>
-                                            </>
-                                          )}
-                                        </div>
-
-                                        {/* Reply Input */}
-                                        {showReplies[comment.id] && (
-                                          <div className="mt-2 flex gap-2">
-                                            <input
-                                              type="text"
-                                              value={replyContent[comment.id] || ''}
-                                              onChange={(e) =>
-                                                setReplyContent((prev) => ({
-                                                  ...prev,
-                                                  [comment.id]: e.target.value,
-                                                }))
-                                              }
-                                              placeholder="Write a reply..."
-                                              className="flex-1 rounded-lg border border-border bg-card-bg px-2 py-1 text-xs text-foreground placeholder-gray-500 focus:border-accent focus:outline-none"
-                                              onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                  handleCreateReply(comment.id, post.id);
-                                                }
-                                              }}
-                                            />
-                                            <Button
-                                              onClick={() => handleCreateReply(comment.id, post.id)}
-                                              disabled={replyLoading[comment.id] || !replyContent[comment.id]?.trim()}
-                                              size="sm"
-                                            >
-                                              {replyLoading[comment.id] ? '...' : 'Reply'}
-                                            </Button>
-                                          </div>
-                                        )}
-
-                                        {/* Replies List */}
-                                        {comment.replies?.length > 0 && (
-                                          <div className="mt-2 space-y-2 pl-4 border-l border-border">
-                                            {comment.replies.map((reply) => (
-                                              <div key={reply.id} className="flex gap-2">
-                                                <Avatar
-                                                  src={reply.user_avatar_url}
-                                                  fallback={reply.username?.charAt(0).toUpperCase() || '?'}
-                                                  size="sm"
-                                                />
-                                                <div className="flex-1">
-                                                  <div className="flex items-center gap-2">
-                                                    <span className="font-semibold text-xs">
-                                                      @{reply.username || 'unknown'}
-                                                    </span>
-                                                    <span className="text-xs text-gray-500">
-                                                      {format(new Date(reply.created_at), 'MMM d, yyyy')}
-                                                    </span>
-                                                  </div>
-                                                  <p className="text-sm text-gray-300 mt-0.5">
-                                                    {reply.content}
-                                                  </p>
-                                                  {reply.user_id === currentUser?.id && (
-                                                    <div className="mt-1 flex items-center gap-3">
-                                                      <button
-                                                        onClick={() => {
-                                                          setEditingComment(reply.id);
-                                                          setEditContent(reply.content);
-                                                        }}
-                                                        className="text-xs text-gray-400 hover:text-accent"
-                                                      >
-                                                        Edit
-                                                      </button>
-                                                      <button
-                                                        onClick={() => handleDeleteComment(reply.id, post.id)}
-                                                        className="text-xs text-gray-400 hover:text-red-400"
-                                                      >
-                                                        Delete
-                                                      </button>
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
             </section>
 
             {relatedArtists.length > 0 && (
