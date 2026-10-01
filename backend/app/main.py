@@ -12,11 +12,15 @@ from contextlib import asynccontextmanager
 # This must be set at module level before any async operations.
 if sys.platform == "win32":
     os.environ["PYTHONUNBUFFERED"] = "1"
+
     try:
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    except Exception as e:
-        # If policy is already set, that's fine
+        asyncio.set_event_loop_policy(
+            asyncio.WindowsProactorEventLoopPolicy()
+        )
+    except Exception:
+        # If policy is already set, that's fine.
         pass
+
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,14 +39,14 @@ from app.routes import (
     show_logs,
     spotify_auth,
     user_stats,
-    community_posts
+    artist_community,
 )
+
 from app.config import settings
 
 from app.providers.registry import registry
 from app.providers.spotify.provider import SpotifyProvider
 from app.providers.songkick.provider import SongkickProvider
-
 
 
 # =====================================================
@@ -58,16 +62,13 @@ async def lifespan(app: FastAPI):
 
     print("GigCrowd API started")
 
-
     yield
-
 
     # Shutdown
 
     await db.disconnect()
 
     print("GigCrowd API stopped")
-
 
 
 # =====================================================
@@ -80,7 +81,6 @@ app = FastAPI(
 )
 
 
-
 # =====================================================
 # CORS
 # =====================================================
@@ -88,7 +88,22 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
 
+    # Keep the explicitly configured origins from the environment.
     allow_origins=settings.CORS_ORIGINS,
+
+    # Allow local network development without hardcoding
+    # the machine's current IP address.
+    #
+    # Examples:
+    # http://localhost:3000
+    # http://127.0.0.1:3000
+    # http://192.168.15.8:3000
+    # http://192.168.15.13:3000
+    allow_origin_regex=(
+        r"^https?://"
+        r"(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)"
+        r":3000$"
+    ),
 
     allow_credentials=True,
 
@@ -103,7 +118,10 @@ app.add_middleware(
 # =====================================================
 
 @app.middleware("http")
-async def security_headers_middleware(request: Request, call_next):
+async def security_headers_middleware(
+    request: Request,
+    call_next,
+):
     response = await call_next(request)
 
     # Prevent MIME type sniffing
@@ -116,13 +134,19 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
 
     # Referrer policy
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Referrer-Policy"] = (
+        "strict-origin-when-cross-origin"
+    )
 
     # Content Security Policy
-    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'"
+    )
 
     # Cache control for authenticated responses
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
 
@@ -135,17 +159,26 @@ async def security_headers_middleware(request: Request, call_next):
 
 # Simple in-memory rate limiter (per IP)
 _rate_limit_store: dict[str, list[float]] = {}
+
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX_REQUESTS = 100  # max requests per window
 
 
 @app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    client_ip = request.client.host if request.client else "unknown"
+async def rate_limit_middleware(
+    request: Request,
+    call_next,
+):
+    client_ip = (
+        request.client.host
+        if request.client
+        else "unknown"
+    )
 
     # Only rate limit auth endpoints
     if request.url.path.startswith("/auth/"):
         import time
+
         now = time.time()
 
         if client_ip not in _rate_limit_store:
@@ -153,20 +186,28 @@ async def rate_limit_middleware(request: Request, call_next):
 
         # Remove old entries
         _rate_limit_store[client_ip] = [
-            t for t in _rate_limit_store[client_ip]
-            if now - t < RATE_LIMIT_WINDOW
+            timestamp
+            for timestamp in _rate_limit_store[client_ip]
+            if now - timestamp < RATE_LIMIT_WINDOW
         ]
 
-        if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
+        if (
+            len(_rate_limit_store[client_ip])
+            >= RATE_LIMIT_MAX_REQUESTS
+        ):
             return JSONResponse(
                 status_code=429,
-                content={"detail": "Too many requests. Please try again later."},
+                content={
+                    "detail": (
+                        "Too many requests. "
+                        "Please try again later."
+                    )
+                },
             )
 
         _rate_limit_store[client_ip].append(now)
 
     return await call_next(request)
-
 
 
 # =====================================================
@@ -178,12 +219,10 @@ registry.register(
     SpotifyProvider(),
 )
 
-
 registry.register(
     "songkick",
     SongkickProvider(),
 )
-
 
 
 # =====================================================
@@ -210,15 +249,23 @@ app.include_router(spotify_auth.router)
 
 app.include_router(user_stats.router)
 
-app.include_router(community_posts.router)
+app.include_router(artist_community.router)
+
 
 # =====================================================
 # Health Check
 # =====================================================
 
-@app.get("/")
+@app.get("/health")
 async def health():
+    return {
+        "status": "ok",
+        "service": "GigCrowd API",
+    }
 
+
+@app.get("/")
+async def root():
     return {
         "status": "ok",
         "service": "GigCrowd API",
