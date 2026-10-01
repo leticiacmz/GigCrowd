@@ -96,7 +96,6 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
   const navLinks = isLoggedIn
     ? [
         { href: `/${locale}/feed`, label: nav.feed ?? 'Feed' },
-        { href: `/${locale}/community`, label: nav.community ?? 'Community' },
         { href: `/${locale}/artists`, label: nav.artists ?? 'Artists' },
         { href: `/${locale}/events`, label: nav.events ?? 'Events' },
       ]

@@ -339,8 +339,7 @@ export default function ArtistProfilePage() {
       setPostLoading(true);
       setPostError('');
 
-      await communityPostAPI.createPost({
-        artist_slug: artistSlug,
+      await communityPostAPI.createPost(artistSlug, {
         content: postContent.trim(),
       });
 
@@ -362,9 +361,9 @@ export default function ArtistProfilePage() {
       setLikeLoading(postId);
 
       if (currentlyLiked) {
-        await communityPostAPI.unlikePost(postId);
+        await communityPostAPI.unlikePost(artistSlug, postId);
       } else {
-        await communityPostAPI.likePost(postId);
+        await communityPostAPI.likePost(artistSlug, postId);
       }
 
       // Update local state
@@ -397,7 +396,7 @@ export default function ArtistProfilePage() {
   async function loadComments(postId: string) {
     try {
       setCommentsLoading((prev) => ({ ...prev, [postId]: true }));
-      const data = await commentAPI.getComments(postId);
+      const data = await commentAPI.getComments(artistSlug, postId);
       setComments((prev) => ({ ...prev, [postId]: data }));
     } catch (error) {
       console.error('Failed to load comments:', error);
@@ -413,7 +412,7 @@ export default function ArtistProfilePage() {
 
     try {
       setCommentLoading((prev) => ({ ...prev, [postId]: true }));
-      await commentAPI.createComment({
+      await commentAPI.createComment(artistSlug, {
         post_id: postId,
         content: content.trim(),
       });
@@ -433,7 +432,7 @@ export default function ArtistProfilePage() {
 
     try {
       setReplyLoading((prev) => ({ ...prev, [commentId]: true }));
-      await commentAPI.createComment({
+      await commentAPI.createComment(artistSlug, {
         post_id: postId,
         content: content.trim(),
         parent_comment_id: commentId,
@@ -452,7 +451,7 @@ export default function ArtistProfilePage() {
     if (!editContent.trim()) return;
 
     try {
-      await commentAPI.updateComment(commentId, { content: editContent.trim() });
+      await commentAPI.updateComment(artistSlug, commentId, { content: editContent.trim() });
       setEditingComment(null);
       setEditContent('');
       loadComments(postId);
@@ -464,7 +463,7 @@ export default function ArtistProfilePage() {
 
   async function handleDeleteComment(commentId: string, postId: string) {
     try {
-      await commentAPI.deleteComment(commentId);
+      await commentAPI.deleteComment(artistSlug, commentId);
       loadComments(postId);
     } catch (error) {
       console.error('Failed to delete comment:', error);
