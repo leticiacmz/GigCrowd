@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
 import { authAPI } from '../../lib/api';
-import { saveAuth } from '../../lib/auth';
+import { saveAuth, getNextParam } from '../../lib/auth';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
@@ -41,7 +41,11 @@ export default function RegisterPage() {
 
       saveAuth(response);
 
-      router.replace(`/${locale}/feed`);
+      // Return the user to the page they were trying to reach,
+      // preserving the active locale.
+      const next = getNextParam();
+
+      router.replace(next ?? `/${locale}/feed`);
     } catch (err: any) {
       setError(err.response?.data?.detail ?? t('registerFailed'));
     } finally {

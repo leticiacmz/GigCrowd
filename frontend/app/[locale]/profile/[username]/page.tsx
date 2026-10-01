@@ -6,6 +6,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
 import { userAPI } from '@/app/lib/api';
+import { isAuthenticated } from '@/app/lib/auth';
+import { useAuthAction } from '@/app/lib/use-auth-action';
 import FollowButton from '@/components/profile/FollowButton';
 import ProfileStats from '@/components/profile/ProfileStats';
 import Button from '@/components/ui/Button';
@@ -49,6 +51,8 @@ export default function ProfilePage() {
   const locale = localeParam || 'en';
   const t = useTranslations('profile');
 
+  const runAuthAction = useAuthAction({ locale });
+
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [stats, setStats] = useState<ProfileStatsType | null>(null);
@@ -72,11 +76,21 @@ export default function ProfilePage() {
 
     try {
 
-      try {
-        const me = await userAPI.getMe();
-        setCurrentUser(me);
-      } catch {
+      // `getMe` is a protected endpoint. Public profiles stay viewable
+      // while signed out, so the session is only requested when one exists.
+      if (isAuthenticated()) {
+
+        try {
+          const me = await userAPI.getMe();
+          setCurrentUser(me);
+        } catch {
+          setCurrentUser(null);
+        }
+
+      } else {
+
         setCurrentUser(null);
+
       }
 
 
@@ -126,6 +140,9 @@ export default function ProfilePage() {
   }
 
 
+  // Editing a profile is a session-bound mutation.
+  await runAuthAction(async () => {
+
   const response = await userAPI.updateMe(form);
 
 
@@ -136,6 +153,8 @@ export default function ProfilePage() {
 
 
   setEditing(false);
+
+  });
 
 }
 

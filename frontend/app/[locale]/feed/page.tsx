@@ -8,7 +8,10 @@ import {
 
 import {
   useRouter,
+  useParams,
 } from 'next/navigation';
+
+import RequireAuth from '../../../components/auth/RequireAuth';
 
 import Link from 'next/link';
 
@@ -16,6 +19,8 @@ import {
   feedAPI,
   userAPI,
 } from '../../lib/api';
+
+import { logout } from '../../lib/auth';
 
 import {
   format,
@@ -66,8 +71,10 @@ interface Activity {
 
 
 
-export default function FeedPage() {
+function FeedContent() {
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
   const t = useTranslations('feed');
   const tCommon = useTranslations('common');
   const tActivity = useTranslations('feed.activityTypes');
@@ -207,43 +214,17 @@ export default function FeedPage() {
   useEffect(() => {
 
 
-    const token =
-      localStorage.getItem(
-        'token'
-      );
-
-
-    if (!token) {
-
-
-      router.push(
-        '/login'
-      );
-
-
-      return;
-
-
-    }
-
-
     loadFeed(currentFilter);
 
     loadCurrentUser();
 
 
-  }, [router]);
+  }, []);
 
 
   useEffect(() => {
 
-    const token = localStorage.getItem('token');
-
-    if (token) {
-
-      loadFeed(currentFilter);
-
-    }
+    loadFeed(currentFilter);
 
   }, [currentFilter, loadFeed]);
 
@@ -281,18 +262,13 @@ export default function FeedPage() {
   function handleLogout() {
 
 
-    localStorage.removeItem(
-      'token'
-    );
-
-
-    localStorage.removeItem(
-      'user'
-    );
+    // Uses the shared logout helper so the auth-changed event fires and
+    // any active route guard reacts, then returns to the localized home.
+    logout();
 
 
     router.push(
-      '/login'
+      `/${locale}`
     );
 
 
@@ -756,5 +732,26 @@ export default function FeedPage() {
 
   );
 
+
+}
+
+
+/**
+ * The feed is personalized, so it requires a session. Signed-out visitors
+ * are sent to the localized home page.
+ */
+export default function FeedPage() {
+
+  const params = useParams();
+
+  const locale =
+    (params?.locale as string) || 'en';
+
+
+  return (
+    <RequireAuth locale={locale}>
+      <FeedContent />
+    </RequireAuth>
+  );
 
 }

@@ -93,7 +93,8 @@
     "notFound": "Artista não encontrado.",
     "loadError": "Não foi possível carregar o perfil do artista.",
     "followLoginRequired": "Entre para seguir artistas.",
-    "loadingRelated": "Carregando artistas relacionados..."
+    "loadingRelated": "Carregando artistas relacionados...",
+    "signInToSeePosts": "Entre para ver e publicar sobre este artista."
   },
   "event": {
     "going": "Vou",
@@ -153,7 +154,10 @@
     "avatar": "Avatar",
     "changeAvatar": "Alterar Avatar",
     "removeAvatar": "Remover Avatar",
-    "notFound": "Usuário não encontrado."
+    "notFound": "Usuário não encontrado.",
+    "followLabel": "Seguir",
+    "followingLabel": "Seguindo",
+    "loading": "Carregando..."
   },
   "notifications": {
     "title": "Notificações",

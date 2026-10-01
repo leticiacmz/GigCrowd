@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { communityPostAPI } from '../../lib/api';
+import RequireAuth from '../../../components/auth/RequireAuth';
 import LoadingState from '../../../components/LoadingState';
 import EmptyState from '../../../components/EmptyState';
 import Avatar from '../../../components/ui/Avatar';
@@ -26,10 +27,9 @@ interface CommunityPost {
   liked_by_user: boolean;
 }
 
-export default function CommunityPage() {
+function CommunityContent() {
   const t = useTranslations('community');
   const params = useParams();
-  const router = useRouter();
   const locale = (params?.locale as string) || 'en';
 
   const [posts, setPosts] = useState<CommunityPost[]>([]);
@@ -51,18 +51,8 @@ export default function CommunityPage() {
   }, [t]);
 
   useEffect(() => {
-    // Browser-only: guard the auth redirect for the client runtime.
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    if (!window.localStorage.getItem('token')) {
-      router.replace(`/${locale}/login`);
-      return;
-    }
-
     loadCommunityPosts();
-  }, [router, locale, loadCommunityPosts]);
+  }, [loadCommunityPosts]);
 
   function handleLike(postId: string, liked: boolean) {
     const request = liked
@@ -201,4 +191,24 @@ export default function CommunityPage() {
       </main>
     </div>
   );
+}
+
+/**
+ * The community feed shows posts across all followed artists and is
+ * therefore session-bound. Signed-out visitors go to the localized home.
+ */
+export default function CommunityPage() {
+
+  const params = useParams();
+
+  const locale =
+    (params?.locale as string) || 'en';
+
+
+  return (
+    <RequireAuth locale={locale}>
+      <CommunityContent />
+    </RequireAuth>
+  );
+
 }

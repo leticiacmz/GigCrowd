@@ -93,7 +93,8 @@
     "notFound": "Artist not found.",
     "loadError": "Could not load artist profile.",
     "followLoginRequired": "Sign in to follow artists.",
-    "loadingRelated": "Loading related artists..."
+    "loadingRelated": "Loading related artists...",
+    "signInToSeePosts": "Sign in to see and share posts about this artist."
   },
   "event": {
     "going": "Going",
@@ -153,7 +154,10 @@
     "avatar": "Avatar",
     "changeAvatar": "Change Avatar",
     "removeAvatar": "Remove Avatar",
-    "notFound": "User not found."
+    "notFound": "User not found.",
+    "followLabel": "Follow",
+    "followingLabel": "Following",
+    "loading": "Loading..."
   },
   "notifications": {
     "title": "Notifications",

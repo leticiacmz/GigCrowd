@@ -20,6 +20,9 @@ import {
   showLogAPI,
 } from '../../../lib/api';
 
+import { isAuthenticated } from '../../../lib/auth';
+import { useAuthAction } from '../../../lib/use-auth-action';
+
 import Button from '../../../../components/ui/Button';
 import Card from '../../../../components/ui/Card';
 import LoadingState from '../../../../components/LoadingState';
@@ -89,7 +92,10 @@ export default function EventDetailPage() {
   const router = useRouter();
   const params = useParams();
   const eventId = params.id as string;
+  const locale = (params.locale as string) || 'en';
   const t = useTranslations('event');
+
+  const runAuthAction = useAuthAction({ locale });
   const tArtist = useTranslations('artist');
 
   const [event, setEvent] = useState<Event | null>(null);
@@ -118,9 +124,7 @@ export default function EventDetailPage() {
   }
 
   async function loadShowLog() {
-    const token = localStorage.getItem('token');
-
-    if (!token) {
+    if (!isAuthenticated()) {
       setShowLog(null);
       return;
     }
@@ -256,15 +260,11 @@ export default function EventDetailPage() {
     ? `${linkedArtists[0].name} @ ${festivalName}`
     : event?.title || '';
 
+  // Marking attendance changes user-specific data. Signed-out visitors are
+  // sent to the localized login (preserving locale and current page) instead
+  // of firing a protected request.
   function requireLogin(callback: () => void) {
-    const token = localStorage.getItem('token');
-
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    callback();
+    runAuthAction(callback);
   }
 
   function handleTabChange(tab: EventTab) {

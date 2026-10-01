@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { artistAPI, eventAPI, communityPostAPI, commentAPI } from '../../../lib/api';
+import { artistAPI, eventAPI, communityPostAPI, commentAPI, userAPI } from '../../../lib/api';
+import { isAuthenticated } from '../../../lib/auth';
+import { useAuthAction } from '../../../lib/use-auth-action';
 import Button from '../../../../components/ui/Button';
 import Card from '../../../../components/ui/Card';
 import Badge from '../../../../components/ui/Badge';
@@ -95,6 +97,8 @@ export default function ArtistProfilePage() {
   const locale = (params?.locale as string) || 'en';
 
   const t = useTranslations('artist');
+
+  const runAuthAction = useAuthAction({ locale });
   const tEvent = useTranslations('event');
 
   const [artist, setArtist] = useState<ArtistProfile | null>(null);
@@ -125,19 +129,28 @@ export default function ArtistProfilePage() {
   const [editingComment, setEditingComment] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [showReplies, setShowReplies] = useState<Record<string, boolean>>({});
+  const [sessionActive, setSessionActive] = useState(false);
 
   useEffect(() => {
     if (artistSlug) {
       loadArtist();
       loadArtistEvents();
-      loadCommunityPosts();
     }
 
-    const token = localStorage.getItem('token');
+    // Session-bound data is only requested when signed in; the rest of
+    // the page stays publicly viewable. `/community/posts/{slug}` and the
+    // follow status are both protected endpoints, so requesting them without
+    // a session would fail with 401 on an otherwise public page.
+    const signedIn = isAuthenticated();
 
-    if (token) {
+    setSessionActive(signedIn);
+
+    if (signedIn) {
+      loadCommunityPosts();
       loadFollowStatus();
       loadCurrentUser();
+    } else {
+      setCommunityPosts([]);
     }
   }, [artistSlug]);
 
@@ -228,14 +241,8 @@ export default function ArtistProfilePage() {
 
   async function loadCurrentUser() {
     try {
-      const response = await fetch('http://localhost:8000/users/me', {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      if (response.ok) {
-        setCurrentUser(await response.json());
-      }
+      const me = await userAPI.getMe();
+      setCurrentUser(me);
     } catch (error) {
       console.error('Failed to load current user:', error);
     }
@@ -561,25 +568,7 @@ export default function ArtistProfilePage() {
               </div>
 
               <Button
-                onClick={() => {
-
-                  const token =
-                    localStorage.getItem(
-                      'token'
-                    );
-
-                  if (!token) {
-
-                    router.push(
-                      '/login'
-                    );
-
-                    return;
-                  }
-
-                  handleFollow();
-
-                }}
+                onClick={() => runAuthAction(handleFollow)}
                 disabled={followLoading}
               >
                 {followLoading
@@ -700,17 +689,21 @@ export default function ArtistProfilePage() {
                 )}
                 <div className="mt-3 flex justify-end">
                   <Button
-                    onClick={handleCreatePost}
+                    onClick={() => runAuthAction(handleCreatePost)}
                     disabled={postLoading || !postContent.trim()}
                     size="sm"
                   >
-                    {postLoading ? 'Posting...' : 'Post'}
+                    {postLoading ? t('posting') : t('post')}
                   </Button>
                 </div>
               </div>
 
               {/* Posts List */}
-              {postsLoading ? (
+              {!sessionActive ? (
+                // Posts are session-bound, so the composer stays visible as a
+                // discoverable action while signed out.
+                <p className="text-gray-400">{t('signInToSeePosts')}</p>
+              ) : postsLoading ? (
                 <p className="text-gray-400">{t('loadingPosts')}</p>
               ) : communityPosts.length === 0 ? (
                 <p className="text-gray-400">{t('noPostsYet')}</p>
@@ -745,8 +738,9 @@ export default function ArtistProfilePage() {
                           )}
                           <div className="mt-3 flex items-center gap-4">
                             <button
-                              onClick={() => handleLikePost(post.id, post.liked_by_user)}
+                              onClick={() => runAuthAction(() => handleLikePost(post.id, post.liked_by_user))}
                               disabled={likeLoading === post.id}
+                              data-testid="like-button"
                               className={`flex items-center gap-1 text-sm transition-colors ${
                                 post.liked_by_user
                                   ? 'text-accent'
@@ -795,7 +789,7 @@ export default function ArtistProfilePage() {
                                   }}
                                 />
                                 <Button
-                                  onClick={() => handleCreateComment(post.id)}
+                                  onClick={() => runAuthAction(() => handleCreateComment(post.id))}
                                   disabled={commentLoading[post.id] || !commentContent[post.id]?.trim()}
                                   size="sm"
                                 >
@@ -837,7 +831,7 @@ export default function ArtistProfilePage() {
                                             />
                                             <div className="mt-1 flex gap-2">
                                               <button
-                                                onClick={() => handleUpdateComment(comment.id, post.id)}
+                                                onClick={() => runAuthAction(() => handleUpdateComment(comment.id, post.id))}
                                                 className="text-xs text-accent hover:underline"
                                               >{t('save')}</button>
                                               <button
@@ -876,7 +870,7 @@ export default function ArtistProfilePage() {
                                                 className="text-xs text-gray-400 hover:text-accent"
                                               >{t('edit')}</button>
                                               <button
-                                                onClick={() => handleDeleteComment(comment.id, post.id)}
+                                                onClick={() => runAuthAction(() => handleDeleteComment(comment.id, post.id))}
                                                 className="text-xs text-gray-400 hover:text-red-400"
                                               >{t('delete')}</button>
                                             </>
@@ -904,7 +898,7 @@ export default function ArtistProfilePage() {
                                               }}
                                             />
                                             <Button
-                                              onClick={() => handleCreateReply(comment.id, post.id)}
+                                              onClick={() => runAuthAction(() => handleCreateReply(comment.id, post.id))}
                                               disabled={replyLoading[comment.id] || !replyContent[comment.id]?.trim()}
                                               size="sm"
                                             >
