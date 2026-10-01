@@ -130,6 +130,59 @@ class ArtistImportService:
 
         if request.provider == "songkick":
 
+            # `provider_artist_id` is the canonical Songkick
+            # artist id for Songkick requests. It is the single
+            # source of truth and must never be inferred.
+            songkick_id = (
+                request.provider_artist_id
+            )
+
+            if not songkick_id:
+
+                raise ValueError(
+                    "Songkick import requires "
+                    "provider_artist_id."
+                )
+
+            artist_data = dict(
+                request.artist_data or {}
+            )
+
+            artist_name = (
+                artist_data.get("name")
+            )
+
+            if not artist_name:
+
+                raise ValueError(
+                    "Songkick import requires "
+                    "artist_data.name"
+                )
+
+            # Guarantee the canonical id is present and
+            # authoritative regardless of client payload.
+            artist_data["id"] = str(
+                songkick_id
+            )
+
+            if not artist_data.get("image"):
+
+                artist_data["image"] = (
+                    request.image
+                )
+
+            return await self.import_songkick_artist(
+                artist_name=artist_name,
+                songkick_artist_data=artist_data,
+                spotify_image=request.image,
+            )
+
+        # --------------------------------------------------
+        # SPOTIFY (for discovery - resolve on Songkick)
+        # --------------------------------------------------
+
+        if request.provider == "spotify":
+
             artist_name = None
 
             if request.artist_data:
@@ -143,15 +196,93 @@ class ArtistImportService:
             if not artist_name:
 
                 raise ValueError(
-                    "Songkick import requires "
+                    "Spotify import requires "
                     "artist_data.name"
                 )
 
-            return await self.import_songkick_artist(
-                artist_name=artist_name,
-                songkick_artist_data=(
-                    request.artist_data
+            # Resolve on Songkick to get canonical artist
+            logger.info(
+                f"Resolving Spotify artist '{artist_name}' "
+                "on Songkick for canonical import"
+            )
+
+            songkick_results = (
+                await self.provider_manager.search_artist(
+                    artist_name,
+                    provider="songkick",
+                )
+            )
+
+            if not songkick_results:
+
+                raise ValueError(
+                    f"Artist '{artist_name}' "
+                    "was not found on Songkick. "
+                    "Cannot import artist without Songkick identity."
+                )
+
+            # Find exact name match
+            normalized_name = (
+                artist_name.strip().casefold()
+            )
+
+            exact_match = None
+
+            for result in songkick_results:
+
+                if not result.name:
+                    continue
+
+                if (
+                    result.name.strip().casefold()
+                    == normalized_name
+                ):
+
+                    exact_match = result
+
+                    break
+
+            if not exact_match:
+
+                raise ValueError(
+                    f"Could not find an exact "
+                    f"Songkick match for "
+                    f"'{artist_name}'. "
+                    "Cannot import artist without exact Songkick match."
+                )
+
+            songkick_id = exact_match.provider_artist_id
+
+            if not songkick_id:
+
+                raise ValueError(
+                    f"Songkick match for "
+                    f"'{artist_name}' has no ID. "
+                    "Cannot import artist."
+                )
+
+            logger.info(
+                f"Resolved '{artist_name}' to "
+                f"Songkick ID {songkick_id}"
+            )
+
+            # Build Songkick artist data for import
+            songkick_artist_data = {
+                "id": str(songkick_id),
+                "name": exact_match.name,
+                "image": exact_match.image,
+                "genres": exact_match.genres or [],
+                "popularity": (
+                    exact_match.popularity / 100
+                    if exact_match.popularity is not None
+                    else None
                 ),
+                "is_valid": exact_match.verified,
+            }
+
+            return await self.import_songkick_artist(
+                artist_name=exact_match.name,
+                songkick_artist_data=songkick_artist_data,
                 spotify_image=request.image,
             )
 

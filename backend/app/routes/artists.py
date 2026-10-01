@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.config import settings
 from app.services.artist_search_service import ArtistSearchService
@@ -179,9 +179,49 @@ async def import_artist(
     data: ArtistImportRequest,
 ):
 
-    result = await artist_import_service.import_artist(
-        data
-    )
+    # Artists are discovered through Spotify, but the canonical
+    # identity must always be resolved from Songkick. Spotify is
+    # used only to enrich (image, genres, popularity).
+    #
+    # `ArtistImportService.import_artist` intentionally rejects
+    # Spotify as a canonical source, so resolution is delegated to
+    # `import_from_spotify`, which requires an exact Songkick name
+    # match before creating any canonical artist.
+    try:
+
+        if data.provider == "spotify":
+
+            result = (
+                await artist_import_service
+                .import_from_spotify(
+                    spotify_artist_id=(
+                        data.provider_artist_id
+                    )
+                )
+            )
+
+        else:
+
+            result = (
+                await artist_import_service
+                .import_artist(data)
+            )
+
+    except NotImplementedError as error:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
+    except ValueError as error:
+
+        # Unresolvable / mismatched identity is a controlled
+        # client error, never a silent fallback to another artist.
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
     artist = result["artist"]
 
@@ -332,7 +372,6 @@ async def get_related_artists(
     artist = await artist_repository.get_by_slug(artist_slug)
     
     if not artist:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Artist not found")
     
     # Use RecommendationService to get related artists from Spotify
