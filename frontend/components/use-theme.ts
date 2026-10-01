@@ -1,40 +1,98 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
-export type ThemeMode = 'system' | 'light' | 'dark';
+export type ResolvedTheme = 'light' | 'dark';
 
-export function useTheme() {
-  const [theme, setTheme] = useState<ThemeMode>('system');
+const STORAGE_KEY = 'gigcrowd-theme';
 
-  // Check for persisted preference
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('gigcrowd-theme');
-    const systemMatch = window.matchMedia('(prefers-color-scheme: dark)').matches;
+function getSystemTheme(): ResolvedTheme {
+  if (typeof window === 'undefined') {
+    return 'dark';
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light';
+}
 
-    if (savedTheme) {
-      setTheme(savedTheme as ThemeMode);
-    } else if (systemMatch) {
-      setTheme('dark');
-    } else {
-      setTheme('light');
+function readStoredTheme(): ResolvedTheme {
+  if (typeof window === 'undefined') {
+    return 'dark';
+  }
+
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (stored === 'light' || stored === 'dark') {
+      return stored;
     }
+  } catch {
+    // Ignore storage access errors (private mode, blocked cookies, etc.)
+  }
+
+  return getSystemTheme();
+}
+
+function applyTheme(theme: ResolvedTheme) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  document.documentElement.setAttribute('data-theme', theme);
+}
+
+/**
+ * Keeps the resolved theme in sync with the pre-paint bootstrap script
+ * injected by `app/layout.tsx`, so there is no flash and no hydration conflict.
+ */
+export function useTheme() {
+  const [theme, setTheme] = useState<ResolvedTheme>('dark');
+
+  // Adopt the theme already applied to <html> by the bootstrap script.
+  useEffect(() => {
+    const applied = document.documentElement.getAttribute('data-theme');
+    setTheme(applied === 'light' ? 'light' : 'dark');
   }, []);
 
-  // Persist changes
-  useEffect(() => {
-    const themeToSave = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;
-    localStorage.setItem('gigcrowd-theme', themeToSave);
-  }, [theme]);
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next: ResolvedTheme = current === 'dark' ? 'light' : 'dark';
 
-  const toggleTheme = () => {
-    setTheme(prev => {
-      if (prev === 'system') {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark';
+      applyTheme(next);
+
+      try {
+        window.localStorage.setItem(STORAGE_KEY, next);
+      } catch {
+        // Persisting is best-effort only.
       }
-      return prev === 'light' ? 'dark' : 'light';
+
+      return next;
     });
-  };
+  }, []);
+
+  // Follow the OS preference while the user has no explicit choice stored.
+  useEffect(() => {
+    let hasExplicitChoice = false;
+    try {
+      hasExplicitChoice =
+        window.localStorage.getItem(STORAGE_KEY) === 'light' ||
+        window.localStorage.getItem(STORAGE_KEY) === 'dark';
+    } catch {
+      hasExplicitChoice = false;
+    }
+
+    if (hasExplicitChoice) {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (event: MediaQueryListEvent) => {
+      const next: ResolvedTheme = event.matches ? 'dark' : 'light';
+      applyTheme(next);
+      setTheme(next);
+    };
+
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   return { theme, toggleTheme };
 }
