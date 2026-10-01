@@ -171,6 +171,10 @@ export const communityPostAPI = {
     const response = await api.get(`/community/posts/${artistSlug}`, { params });
     return response.data;
   },
+  getFeed: async (params?: any) => {
+    const response = await api.get('/community/feed', { params });
+    return response.data;
+  },
   createPost: async (postData: {
     artist_slug: string;
     content: string;

@@ -26,18 +26,11 @@ import EmptyState from '../../../components/EmptyState';
 import Avatar from '../../../components/ui/Avatar';
 import Card from '../../../components/ui/Card';
 import Button from '../../../components/ui/Button';
+import { useTranslations } from 'next-intl';
 
 
 
 const PAGE_SIZE = 10;
-
-const FILTERS = [
-  { key: 'all', label: 'All' },
-  { key: 'attend_event', label: 'Events' },
-  { key: 'create_post', label: 'Posts' },
-  { key: 'follow', label: 'Follows' },
-  { key: 'like_post', label: 'Likes' },
-];
 
 
 interface Activity {
@@ -74,9 +67,10 @@ interface Activity {
 
 
 export default function FeedPage() {
-
-
   const router = useRouter();
+  const t = useTranslations('feed');
+  const tCommon = useTranslations('common');
+  const tActivity = useTranslations('feed.activityTypes');
 
 
   const [
@@ -118,6 +112,13 @@ export default function FeedPage() {
     setCurrentUser,
   ] = useState<any>(null);
 
+  const FILTERS = [
+    { key: 'all', label: t('allActivity') },
+    { key: 'attend_event', label: t('events') },
+    { key: 'create_post', label: t('posts') },
+    { key: 'follow', label: t('follows') },
+    { key: 'like_post', label: t('likes') },
+  ];
 
   const loadFeed = useCallback(
     async (
@@ -186,7 +187,7 @@ export default function FeedPage() {
         );
 
         setError(
-          'Failed to load feed. Please try again.'
+          t('errorLoading')
         );
 
 
@@ -347,7 +348,7 @@ export default function FeedPage() {
 
       case 'follow':
 
-        return `${username} started following someone`;
+        return tActivity('follow');
 
 
       case 'attend_event':
@@ -356,17 +357,17 @@ export default function FeedPage() {
           activity.metadata?.status ||
           'going';
 
-        return `${username} is ${status} to an event`;
+        return tActivity('attend_event');
 
 
       case 'create_post':
 
-        return `${username} created a post`;
+        return tActivity('create_post');
 
 
       case 'like_post':
 
-        return `${username} liked a post`;
+        return tActivity('like_post');
 
 
       default:
@@ -401,7 +402,7 @@ export default function FeedPage() {
           "
         >
 
-          Your Feed
+          {t('title')}
 
         </h1>
 
@@ -462,7 +463,7 @@ export default function FeedPage() {
               size="sm"
               onClick={handleRetry}
             >
-              Retry
+              {tCommon('retry')}
             </Button>
 
           </div>
@@ -474,7 +475,7 @@ export default function FeedPage() {
           loading ? (
 
 
-            <LoadingState message="Loading feed..." />
+            <LoadingState message={t('loading')} />
 
 
           ) : activities.length === 0 && !error ? (
@@ -482,8 +483,8 @@ export default function FeedPage() {
 
             <EmptyState
               icon="🎵"
-              title="No activity yet"
-              description="Follow some users to see their activity here!"
+              title={t('noActivity')}
+              description={t('followUsers')}
             />
 
 
@@ -735,7 +736,7 @@ export default function FeedPage() {
                     onClick={handleLoadMore}
                     disabled={loadingMore}
                   >
-                    {loadingMore ? 'Loading...' : 'Load More'}
+                    {loadingMore ? t('loading') : t('loadMore')}
                   </Button>
 
                 </div>

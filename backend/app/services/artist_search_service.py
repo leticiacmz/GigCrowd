@@ -44,24 +44,24 @@ class ArtistSearchService:
     ) -> list[ArtistSearchItem]:
 
         logger.info(
-            f"Searching artist on Songkick: {query}"
+            f"Searching artist on Spotify for discovery: {query}"
         )
 
-        songkick_results = (
+        spotify_results = (
             await self.provider_manager.search_artist(
                 query,
-                provider="songkick",
+                provider="spotify",
             )
         )
 
         results = []
 
-        for artist in songkick_results:
+        for artist in spotify_results:
 
             existing = (
                 await self.artist_repository
                 .get_by_external_id(
-                    "songkick",
+                    "spotify",
                     artist.provider_artist_id,
                 )
             )

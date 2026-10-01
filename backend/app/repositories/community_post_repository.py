@@ -55,7 +55,7 @@ class CommunityPostRepository(BaseRepository):
         skip: int = 0,
     ):
         """Get community posts by a specific user"""
-        
+
         try:
             user_id = ObjectId(user_id)
         except:
@@ -64,6 +64,17 @@ class CommunityPostRepository(BaseRepository):
         cursor = self.collection.find({
             "user_id": user_id
         }).sort("created_at", -1).skip(skip).limit(limit)
+
+        return await cursor.to_list(length=limit)
+
+    async def get_all_posts(
+        self,
+        limit: int = 50,
+        skip: int = 0,
+    ):
+        """Get all community posts (for community feed)"""
+
+        cursor = self.collection.find({}).sort("created_at", -1).skip(skip).limit(limit)
 
         return await cursor.to_list(length=limit)
 

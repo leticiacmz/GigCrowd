@@ -143,6 +143,48 @@ async def get_user_community_posts(
     return enriched_posts
 
 
+@router.get("/feed", response_model=list[CommunityPostResponse])
+async def get_community_feed(
+    current_user: dict = Depends(get_current_active_user),
+    post_repo: CommunityPostRepository = Depends(get_community_post_service),
+    limit: int = 50,
+    skip: int = 0,
+):
+    """Get a feed of community posts from all artists (for community page)"""
+
+    # Get all recent community posts
+    posts = await post_repo.get_all_posts(limit=limit, skip=skip)
+
+    # Enrich with user info
+    user_repo = UserRepository(get_database())
+    artist_repo = ArtistRepository(get_database())
+    enriched_posts = []
+    for post in posts:
+        user = await user_repo.get_by_id(str(post["user_id"]))
+        artist = await artist_repo.get_by_slug(post["artist_slug"])
+
+        # Check if current user liked this post
+        liked_by_user = await post_repo.get_like_status(post["_id"], current_user["_id"])
+
+        enriched_posts.append(CommunityPostResponse(
+            id=str(post["_id"]),
+            artist_slug=post["artist_slug"],
+            user_id=str(post["user_id"]),
+            content=post["content"],
+            image_url=post.get("image_url"),
+            likes_count=post["likes_count"],
+            comments_count=post["comments_count"],
+            created_at=post["created_at"],
+            updated_at=post.get("updated_at"),
+            username=user.get("username") if user else None,
+            user_avatar_url=user.get("avatar_url") if user else None,
+            liked_by_user=liked_by_user,
+            artist_name=artist.name if artist else None,
+        ))
+
+    return enriched_posts
+
+
 @router.delete("/posts/{post_id}")
 async def delete_community_post(
     post_id: str,
