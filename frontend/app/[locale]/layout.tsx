@@ -1,18 +1,18 @@
-import { Inter } from 'next/font/google';
-import { getMessages } from 'next-intl/server';
+import { NextIntlClientProvider } from 'next-intl';
+import { getMessages, setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import Navbar from '@/components/Navbar';
-import '../globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
+import { locales, type Locale } from '../i18n';
 
 interface LocaleLayoutProps {
   children: React.ReactNode;
-  params: { locale: string };
+  params: {
+    locale: string;
+  };
 }
 
-export async function generateStaticParams() {
-  return [{ locale: 'en' }, { locale: 'pt-BR' }, { locale: 'es' }];
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale }));
 }
 
 export default async function LocaleLayout({
@@ -21,20 +21,18 @@ export default async function LocaleLayout({
 }: LocaleLayoutProps) {
   const locale = params.locale;
 
-  try {
-    const messages = await getMessages({ locale });
-    return (
-      <html lang={locale}>
-        <head>
-          <link rel="manifest" href="/manifest.json" />
-        </head>
-        <body className={inter.className}>
-          <Navbar messages={messages} />
-          {children}
-        </body>
-      </html>
-    );
-  } catch {
+  if (!locales.includes(locale as Locale)) {
     notFound();
   }
+
+  setRequestLocale(locale);
+
+  const messages = await getMessages({ locale });
+
+  return (
+    <NextIntlClientProvider locale={locale} messages={messages}>
+      <Navbar messages={messages} />
+      {children}
+    </NextIntlClientProvider>
+  );
 }
