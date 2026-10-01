@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { artistAPI, eventAPI, communityPostAPI, commentAPI } from '../../lib/api';
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
@@ -89,6 +90,7 @@ interface Comment {
 
 export default function ArtistProfilePage() {
   const params = useParams();
+  const locale = (params?.locale as string) || 'en';
   const router = useRouter();
   const artistSlug = params.slug as string;
 
@@ -584,6 +586,27 @@ export default function ArtistProfilePage() {
                   ? 'Following ✓'
                   : 'Follow'}
               </Button>
+
+              <div className="flex gap-6 border-b border-border mb-8">
+                <Link
+                  href={`/${locale}/artists/${artistSlug}`}
+                  className="pb-3 text-sm font-medium text-accent border-b-2 border-accent"
+                >
+                  Overview
+                </Link>
+                <Link
+                  href={`/${locale}/artists/${artistSlug}/events`}
+                  className="pb-3 text-sm font-medium text-gray-400 hover:text-foreground"
+                >
+                  Events
+                </Link>
+                <Link
+                  href={`/${locale}/artists/${artistSlug}/community`}
+                  className="pb-3 text-sm font-medium text-gray-400 hover:text-foreground"
+                >
+                  Community
+                </Link>
+              </div>
 
             </div>
 

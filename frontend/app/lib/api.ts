@@ -7,8 +7,9 @@ import {
 } from './auth';
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  'http://localhost:8000';
+  typeof window !== 'undefined'
+    ? `http://${window.location.hostname}:8000`
+    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -70,17 +71,47 @@ function redirectToLogin() {
   window.location.href = getLoginPath(locale, next);
 }
 
-// Intercept API responses - an authenticated endpoint rejected the session
+// Intercept API responses - handle auth and permission errors
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
 
-    // 401 Unauthorized / 403 Forbidden -> the session is no longer valid.
-    if (status === 401 || status === 403) {
+    // 401 Unauthorized -> session invalid, redirect to login
+    if (status === 401) {
       clearStaleAuth();
       redirectToLogin();
+      return Promise.reject(error);
     }
+
+    // 403 Forbidden -> check if it's a permission issue (not following artist)
+    // rather than an auth issue. If the error detail indicates the user doesn't
+    // follow the artist, show a permission message instead of redirecting.
+    if (status === 403) {
+      const errorDetail = error.response?.data?.detail || '';
+
+      // If this is a "must follow artist" permission error, don't redirect
+      if (
+        errorDetail &&
+        (errorDetail.toLowerCase().includes('follow') ||
+          errorDetail.toLowerCase().includes('participate') ||
+          errorDetail.toLowerCase().includes('community'))
+      ) {
+        // Allow the error to propagate so the component can show a permission message
+        return Promise.reject(error);
+      }
+
+      // Otherwise, treat as auth failure and redirect to login
+      clearStaleAuth();
+      redirectToLogin();
+      return Promise.reject(error);
+    }
+
+    // 401 Unauthorized / 403 Forbidden -> the session is no longer valid.
+    // if (status === 401 || status === 403) {
+    //   clearStaleAuth();
+    //   redirectToLogin();
+    // }
 
     return Promise.reject(error);
   }
