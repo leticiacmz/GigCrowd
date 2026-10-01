@@ -9,13 +9,15 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "^14.0.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "axios": "^1.6.2",
-    "date-fns": "^3.0.0"
+    "date-fns": "^3.0.0",
+    "next": "^14.0.4",
+    "next-intl": "^4.14.8",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@serwist/next": "^9.5.12",
     "@types/node": "^20.10.6",
     "@types/react": "^18.2.46",
     "@types/react-dom": "^18.2.18",
@@ -24,6 +26,7 @@
     "eslint-config-next": "^14.0.4",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "workbox-build": "^7.4.1"
   }
 }
