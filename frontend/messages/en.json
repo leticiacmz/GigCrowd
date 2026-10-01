@@ -1,13 +1,19 @@
 {
   "nav": {
     "feed": "Feed",
+    "community": "Community",
     "artists": "Artists",
     "events": "Events",
     "profile": "Profile",
     "settings": "Settings",
     "login": "Sign In",
     "register": "Create Account",
-    "logout": "Logout"
+    "logout": "Logout",
+    "discoverArtists": "Discover Artists",
+    "trackShows": "Track Shows",
+    "shareStories": "Share Stories",
+    "exploreEvents": "Explore Events",
+    "joinGigCrowd": "Join GigCrowd"
   },
   "auth": {
     "welcomeBack": "Welcome Back",
@@ -27,7 +33,9 @@
     "emailPlaceholder": "Email",
     "passwordPlaceholder": "Password",
     "usernamePlaceholder": "Username",
-    "fullNamePlaceholder": "Full Name"
+    "fullNamePlaceholder": "Full Name",
+    "signInFailed": "Unable to sign in. Please check your credentials.",
+    "registerFailed": "Unable to create your account. Please try again."
   },
   "feed": {
     "title": "Your Feed",
@@ -80,7 +88,12 @@
     "noPostsYet": "No community posts yet. Be the first to share!",
     "noCommentsYet": "No comments yet.",
     "loadingComments": "Loading comments...",
-    "loadingPosts": "Loading posts..."
+    "loadingPosts": "Loading posts...",
+    "loadingArtist": "Loading artist...",
+    "notFound": "Artist not found.",
+    "loadError": "Could not load artist profile.",
+    "followLoginRequired": "Sign in to follow artists.",
+    "loadingRelated": "Loading related artists..."
   },
   "event": {
     "going": "Going",
@@ -94,7 +107,33 @@
     "rating": "Rating",
     "review": "Review",
     "noReviewsYet": "No reviews yet.",
-    "beFirstToReview": "Be the first to review this event!"
+    "beFirstToReview": "Be the first to review this event!",
+    "notFound": "Event not found.",
+    "artist": "Artist",
+    "date": "Date",
+    "venue": "Venue",
+    "information": "Information",
+    "posts": "Posts",
+    "artists": "Artists",
+    "eventInformation": "Event information",
+    "startTime": "Start time",
+    "type": "Type",
+    "status": "Status",
+    "about": "About",
+    "festival": "Festival",
+    "location": "Location",
+    "backToEvents": "Back to events",
+    "backToArtists": "Back to artists",
+    "lineupHint": "See the complete lineup and festival details.",
+    "yourAttendance": "Your attendance",
+    "tickets": "Tickets",
+    "freeEvent": "Free event",
+    "soldOut": "Sold out",
+    "getTickets": "Get tickets",
+    "ticketUnavailable": "Ticket information unavailable",
+    "postsAboutEvent": "Posts about this event",
+    "festivalLineup": "Festival lineup",
+    "lineupUnavailable": "The festival lineup is not available yet."
   },
   "profile": {
     "myProfile": "My Profile",
@@ -113,7 +152,8 @@
     "website": "Website",
     "avatar": "Avatar",
     "changeAvatar": "Change Avatar",
-    "removeAvatar": "Remove Avatar"
+    "removeAvatar": "Remove Avatar",
+    "notFound": "User not found."
   },
   "notifications": {
     "title": "Notifications",
@@ -156,5 +196,47 @@
     "privacy": "Privacy Policy",
     "contact": "Contact",
     "copyright": "© {year} GigCrowd. All rights reserved."
+  },
+  "home": {
+    "tagline": "Every concert tells a story.",
+    "subtitle": "Discover artists, track live events, and share the concerts that become unforgettable memories.",
+    "discoverArtistsBody": "Find artists and explore upcoming live events.",
+    "trackShowsBody": "Save concerts you attended or want to experience.",
+    "shareStoriesBody": "Turn every concert into a memory worth sharing."
+  },
+  "community": {
+    "title": "Community",
+    "loading": "Loading community...",
+    "emptyTitle": "No community posts yet",
+    "emptyDescription": "Be the first to share about your favorite artists!",
+    "aboutArtist": "about",
+    "error": "Failed to load community posts. Please try again."
+  },
+  "artists": {
+    "title": "Artists",
+    "loadingArtists": "Loading artists...",
+    "noArtistsFound": "No artists found.",
+    "searchTitle": "Search artists",
+    "searchPlaceholder": "Search artists...",
+    "search": "Search",
+    "searching": "Searching...",
+    "noSearchResults": "No artists found.",
+    "searchError": "Unable to search artists. Please try again.",
+    "importError": "Unable to import this artist. Please try again.",
+    "importing": "Importing artist and syncing events...",
+    "loadError": "Could not load artists.",
+    "emptyDescription": "Start following artists to see them here!"
+  },
+  "artistEvents": {
+    "allYears": "All years",
+    "noEvents": "No events found."
+  },
+  "festivals": {
+    "notFound": "Festival not found.",
+    "title": "Festival",
+    "dates": "Dates",
+    "venue": "Venue",
+    "location": "Location",
+    "lineup": "Lineup"
   }
 }

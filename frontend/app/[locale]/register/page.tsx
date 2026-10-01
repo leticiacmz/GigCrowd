@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 
 import { authAPI } from '../../lib/api';
 import { saveAuth } from '../../lib/auth';
@@ -11,96 +12,61 @@ import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
 
 export default function RegisterPage() {
+  const t = useTranslations('auth');
+  const params = useParams();
   const router = useRouter();
+  const locale = (params?.locale as string) || 'en';
 
   const [formData, setFormData] = useState({
     email: '',
     username: '',
     password: '',
-    full_name: '',
+    full_name: ''
   });
-
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const [loading, setLoading] =
-    useState(false);
-
-  function handleChange(
-    e: React.ChangeEvent<HTMLInputElement>
-  ) {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   }
 
-  async function handleSubmit(
-    e: React.FormEvent
-  ) {
-
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
     setLoading(true);
-
     setError('');
 
     try {
-
-      const response =
-        await authAPI.register(
-          formData
-        );
+      const response = await authAPI.register(formData);
 
       saveAuth(response);
 
-      router.push('/feed');
-
+      router.replace(`/${locale}/feed`);
     } catch (err: any) {
-
-      setError(
-        err.response?.data?.detail ??
-          'Registration failed'
-      );
-
+      setError(err.response?.data?.detail ?? t('registerFailed'));
     } finally {
-
       setLoading(false);
-
     }
-
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-background">
-
-      <Card className="max-w-md w-full p-8">
-
-        <div className="text-center mb-8">
-
-          <h1 className="text-[36px] font-bold mb-2 bg-gradient-to-r from-accent to-secondary bg-clip-text text-transparent">
-
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
+      <Card className="w-full max-w-md p-8">
+        <div className="mb-8 text-center">
+          <h1 className="mb-2 bg-gradient-to-r from-accent to-secondary bg-clip-text text-[36px] font-bold text-transparent">
             GigCrowd
-
           </h1>
 
-          <p className="text-[18px] text-gray-400">
-
-            Create your account
-
-          </p>
-
+          <p className="text-[18px] text-gray-400">{t('createAccount')}</p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-4"
-        >
-
+        <form onSubmit={handleSubmit} className="space-y-4">
           <Input
             id="email"
             name="email"
             type="email"
-            label="Email"
+            autoComplete="email"
+            label={t('email')}
             value={formData.email}
             onChange={handleChange}
             required
@@ -110,7 +76,8 @@ export default function RegisterPage() {
             id="username"
             name="username"
             type="text"
-            label="Username"
+            autoComplete="username"
+            label={t('username')}
             value={formData.username}
             onChange={handleChange}
             required
@@ -121,7 +88,8 @@ export default function RegisterPage() {
             id="full_name"
             name="full_name"
             type="text"
-            label="Full Name"
+            autoComplete="name"
+            label={t('fullName')}
             value={formData.full_name}
             onChange={handleChange}
           />
@@ -130,7 +98,8 @@ export default function RegisterPage() {
             id="password"
             name="password"
             type="password"
-            label="Password"
+            autoComplete="new-password"
+            label={t('password')}
             value={formData.password}
             onChange={handleChange}
             required
@@ -138,7 +107,7 @@ export default function RegisterPage() {
           />
 
           {error && (
-            <div className="text-red-500 text-sm">
+            <div role="alert" className="text-sm text-red-500">
               {error}
             </div>
           )}
@@ -149,30 +118,20 @@ export default function RegisterPage() {
             className="w-full"
             size="lg"
           >
-            {loading
-              ? 'Creating account...'
-              : 'Register'}
+            {loading ? t('creatingAccount') : t('registerButton')}
           </Button>
-
         </form>
 
-        <p className="text-center mt-6 text-gray-400">
-
-          Already have an account?{' '}
-
+        <p className="mt-6 text-center text-sm text-gray-400">
+          {t('alreadyHaveAccount')}{' '}
           <Link
-            href="/login"
-            className="text-accent hover:text-accent/80 transition-colors"
+            href={`/${locale}/login`}
+            className="text-accent transition-colors hover:text-accent/80"
           >
-            Login
+            {t('loginLink')}
           </Link>
-
         </p>
-
       </Card>
-
     </div>
-
   );
-
 }

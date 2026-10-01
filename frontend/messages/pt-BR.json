@@ -1,13 +1,19 @@
 {
   "nav": {
     "feed": "Feed",
+    "community": "Comunidade",
     "artists": "Artistas",
     "events": "Eventos",
     "profile": "Perfil",
     "settings": "Configurações",
     "login": "Entrar",
     "register": "Criar Conta",
-    "logout": "Sair"
+    "logout": "Sair",
+    "discoverArtists": "Descubra Artistas",
+    "trackShows": "Acompanhe Shows",
+    "shareStories": "Compartilhe Histórias",
+    "exploreEvents": "Explorar Eventos",
+    "joinGigCrowd": "Junte-se ao GigCrowd"
   },
   "auth": {
     "welcomeBack": "Bem-vindo de Volta",
@@ -27,7 +33,9 @@
     "emailPlaceholder": "E-mail",
     "passwordPlaceholder": "Senha",
     "usernamePlaceholder": "Nome de usuário",
-    "fullNamePlaceholder": "Nome completo"
+    "fullNamePlaceholder": "Nome completo",
+    "signInFailed": "Não foi possível entrar. Verifique suas credenciais.",
+    "registerFailed": "Não foi possível criar sua conta. Tente novamente."
   },
   "feed": {
     "title": "Seu Feed",
@@ -80,7 +88,12 @@
     "noPostsYet": "Nenhum post da comunidade ainda. Seja o primeiro a compartilhar!",
     "noCommentsYet": "Nenhum comentário ainda.",
     "loadingComments": "Carregando comentários...",
-    "loadingPosts": "Carregando posts..."
+    "loadingPosts": "Carregando posts...",
+    "loadingArtist": "Carregando artista...",
+    "notFound": "Artista não encontrado.",
+    "loadError": "Não foi possível carregar o perfil do artista.",
+    "followLoginRequired": "Entre para seguir artistas.",
+    "loadingRelated": "Carregando artistas relacionados..."
   },
   "event": {
     "going": "Vou",
@@ -94,7 +107,33 @@
     "rating": "Avaliação",
     "review": "Avaliação",
     "noReviewsYet": "Nenhuma avaliação ainda.",
-    "beFirstToReview": "Seja o primeiro a avaliar este evento!"
+    "beFirstToReview": "Seja o primeiro a avaliar este evento!",
+    "notFound": "Evento não encontrado.",
+    "artist": "Artista",
+    "date": "Data",
+    "venue": "Local",
+    "information": "Informações",
+    "posts": "Posts",
+    "artists": "Artistas",
+    "eventInformation": "Informações do evento",
+    "startTime": "Horário de início",
+    "type": "Tipo",
+    "status": "Status",
+    "about": "Sobre",
+    "festival": "Festival",
+    "location": "Cidade",
+    "backToEvents": "Voltar para eventos",
+    "backToArtists": "Voltar para artistas",
+    "lineupHint": "Veja o line-up completo e os detalhes do festival.",
+    "yourAttendance": "Sua participação",
+    "tickets": "Ingressos",
+    "freeEvent": "Evento gratuito",
+    "soldOut": "Esgotado",
+    "getTickets": "Comprar ingressos",
+    "ticketUnavailable": "Informações de ingresso indisponíveis",
+    "postsAboutEvent": "Posts sobre este evento",
+    "festivalLineup": "Line-up do festival",
+    "lineupUnavailable": "O line-up do festival ainda não está disponível."
   },
   "profile": {
     "myProfile": "Meu Perfil",
@@ -113,7 +152,8 @@
     "website": "Site",
     "avatar": "Avatar",
     "changeAvatar": "Alterar Avatar",
-    "removeAvatar": "Remover Avatar"
+    "removeAvatar": "Remover Avatar",
+    "notFound": "Usuário não encontrado."
   },
   "notifications": {
     "title": "Notificações",
@@ -156,5 +196,47 @@
     "privacy": "Política de Privacidade",
     "contact": "Contato",
     "copyright": "© {year} GigCrowd. Todos os direitos reservados."
+  },
+  "home": {
+    "tagline": "Todo show conta uma história.",
+    "subtitle": "Descubra artistas, acompanhe eventos ao vivo e compartilhe os shows que viram memórias inesquecíveis.",
+    "discoverArtistsBody": "Encontre artistas e explore próximos eventos ao vivo.",
+    "trackShowsBody": "Salve shows que você foi ou quer experimentar.",
+    "shareStoriesBody": "Transforme cada show em uma memória que vale a pena compartilhar."
+  },
+  "community": {
+    "title": "Comunidade",
+    "loading": "Carregando comunidade...",
+    "emptyTitle": "Nenhum post da comunidade ainda",
+    "emptyDescription": "Seja o primeiro a compartilhar sobre seus artistas favoritos!",
+    "aboutArtist": "sobre",
+    "error": "Falha ao carregar os posts da comunidade. Tente novamente."
+  },
+  "artists": {
+    "title": "Artistas",
+    "loadingArtists": "Carregando artistas...",
+    "noArtistsFound": "Nenhum artista encontrado.",
+    "searchTitle": "Buscar artistas",
+    "searchPlaceholder": "Buscar artistas...",
+    "search": "Buscar",
+    "searching": "Buscando...",
+    "noSearchResults": "Nenhum artista encontrado.",
+    "searchError": "Não foi possível buscar artistas. Tente novamente.",
+    "importError": "Não foi possível importar este artista. Tente novamente.",
+    "importing": "Importando artista e sincronizando eventos...",
+    "loadError": "Não foi possível carregar os artistas.",
+    "emptyDescription": "Siga artistas para vê-los aqui!"
+  },
+  "artistEvents": {
+    "allYears": "Todos os anos",
+    "noEvents": "Nenhum evento encontrado."
+  },
+  "festivals": {
+    "notFound": "Festival não encontrado.",
+    "title": "Festival",
+    "dates": "Datas",
+    "venue": "Local",
+    "location": "Cidade",
+    "lineup": "Line-up"
   }
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -41,7 +42,12 @@ interface ProfileStatsType {
 
 export default function ProfilePage() {
 
-  const { username } = useParams<{ username: string }>();
+  const { username, locale: localeParam } = useParams<{
+    username: string;
+    locale: string;
+  }>();
+  const locale = localeParam || 'en';
+  const t = useTranslations('profile');
 
 
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -174,9 +180,7 @@ export default function ProfilePage() {
 
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-400">
-          User not found.
-        </p>
+        <p className="text-gray-400">{t('notFound')}</p>
       </div>
     );
 
@@ -248,17 +252,13 @@ export default function ProfilePage() {
                     <Button
                       onClick={handleSave}
                       variant="primary"
-                    >
-                      Save
-                    </Button>
+                    >{t('saveChanges')}</Button>
 
 
                     <Button
                       onClick={handleCancel}
                       variant="outline"
-                    >
-                      Cancel
-                    </Button>
+                    >{t('cancel')}</Button>
 
                   </div>
 
@@ -267,9 +267,7 @@ export default function ProfilePage() {
                   <Button
                     onClick={() => setEditing(true)}
                     variant="outline"
-                  >
-                    Edit Profile
-                  </Button>
+                  >{t('editProfile')}</Button>
 
                 )
 
@@ -298,9 +296,7 @@ export default function ProfilePage() {
                 {stats?.followers_count ?? 0}
               </p>
 
-              <p className="text-gray-400">
-                Followers
-              </p>
+              <p className="text-gray-400">{t('followers')}</p>
 
             </div>
 
@@ -312,9 +308,7 @@ export default function ProfilePage() {
                 {stats?.following_count ?? 0}
               </p>
 
-              <p className="text-gray-400">
-                Following
-              </p>
+              <p className="text-gray-400">{t('following')}</p>
 
             </div>
 

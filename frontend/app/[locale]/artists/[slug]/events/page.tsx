@@ -11,6 +11,7 @@ import {
 } from 'next/navigation';
 
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
 import {
   eventAPI,
@@ -78,6 +79,15 @@ export default function ArtistEventsPage(){
 
   const artistSlug =
     params.slug as string;
+
+  const locale =
+    (params.locale as string) || 'en';
+
+  const t =
+    useTranslations('artistEvents');
+
+  const tArtist =
+    useTranslations('artist');
 
 
 
@@ -489,11 +499,7 @@ export default function ArtistEventsPage(){
             >
 
 
-              <option value="all">
-
-                All years
-
-              </option>
+              <option value="all">{t('allYears')}</option>
 
 
 
@@ -558,11 +564,7 @@ export default function ArtistEventsPage(){
             filteredEvents.length === 0 ? (
 
 
-              <p className="text-gray-400">
-
-                No events found.
-
-              </p>
+              <p className="text-gray-400">{t('noEvents')}</p>
 
 
             ) : (

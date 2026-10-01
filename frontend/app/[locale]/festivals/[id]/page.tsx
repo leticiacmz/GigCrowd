@@ -12,6 +12,7 @@ import {
 } from 'next/navigation';
 
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
 import {
   artistAPI,
@@ -66,6 +67,7 @@ export default function FestivalPage() {
   const router = useRouter();
   const params = useParams();
   const festivalId = params.id as string;
+  const t = useTranslations('festivals');
 
   const [event, setEvent] = useState<FestivalEvent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -193,9 +195,7 @@ export default function FestivalPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="text-center">
-          <p className="text-gray-400 mb-4">
-            Festival not found.
-          </p>
+          <p className="text-gray-400 mb-4">{t('notFound')}</p>
 
           <button
             type="button"
@@ -223,9 +223,7 @@ export default function FestivalPage() {
         </Link>
 
         <section className="mt-6 rounded-2xl border border-border bg-card-bg p-6 md:p-8">
-          <p className="text-xs uppercase tracking-wide text-accent mb-3">
-            Festival
-          </p>
+          <p className="text-xs uppercase tracking-wide text-accent mb-3">{t('title')}</p>
 
           <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
             {festivalName}
@@ -233,9 +231,7 @@ export default function FestivalPage() {
 
           <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                Dates
-              </p>
+              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('dates')}</p>
 
               <p className="text-gray-200">
                 {startDate}
@@ -244,9 +240,7 @@ export default function FestivalPage() {
             </div>
 
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                Venue
-              </p>
+              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('venue')}</p>
 
               <p className="text-gray-200">
                 {event.venue?.name ||
@@ -256,9 +250,7 @@ export default function FestivalPage() {
             </div>
 
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                Location
-              </p>
+              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('location')}</p>
 
               <p className="text-gray-200">
                 {event.location?.city || event.venue?.city || 'Unknown city'}
@@ -290,9 +282,7 @@ export default function FestivalPage() {
           <Card className="p-6 md:p-8">
             <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5">
               <div>
-                <p className="text-xs uppercase tracking-wide text-accent mb-2">
-                  Lineup
-                </p>
+                <p className="text-xs uppercase tracking-wide text-accent mb-2">{t('lineup')}</p>
 
                 <h2 className="text-2xl font-bold">
                   {lineup.length > 0

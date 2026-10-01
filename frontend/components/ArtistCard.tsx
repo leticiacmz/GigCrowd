@@ -12,19 +12,23 @@ interface ArtistCardProps {
     genres?: string[];
   };
   onClick?: () => void;
+  /** Locale-aware path prefix, e.g. "/pt-BR". */
+  basePath?: string;
 }
 
 export default function ArtistCard({
   artist,
   onClick,
+  basePath = '',
 }: ArtistCardProps) {
-  const href = `/artists/${artist.slug || artist.provider_artist_id}`;
+  const href = `${basePath}/artists/${artist.slug || artist.provider_artist_id}`;
 
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     if (!onClick) {
       return;
     }
 
+    // Let callers drive navigation (e.g. import) instead of the anchor.
     e.preventDefault();
     onClick();
   }

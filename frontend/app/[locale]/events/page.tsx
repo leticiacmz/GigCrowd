@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 
 import { artistAPI } from '../../lib/api';
 import Input from '../../../components/ui/Input';
@@ -21,8 +22,11 @@ interface ArtistSearchResult {
   id?: string;
 }
 
-export default function EventsPage() {
+export default function ArtistsPage() {
+  const t = useTranslations('artists');
+  const params = useParams();
   const router = useRouter();
+  const locale = (params?.locale as string) || 'en';
 
   const [query, setQuery] = useState('');
   const [artists, setArtists] = useState<ArtistSearchResult[]>([]);
@@ -45,14 +49,10 @@ export default function EventsPage() {
       setSearchLoading(true);
       setError(null);
 
-      const result = await artistAPI.searchArtists(trimmedQuery);
-
-      setArtists(result);
-    } catch (err) {
-      console.error('Failed to search artists:', err);
-
+      setArtists(await artistAPI.searchArtists(trimmedQuery));
+    } catch {
       setArtists([]);
-      setError('Unable to search artists. Please try again.');
+      setError(t('searchError'));
     } finally {
       setSearchLoading(false);
     }
@@ -67,7 +67,7 @@ export default function EventsPage() {
       setError(null);
 
       if (artist.is_imported && artist.slug) {
-        router.push(`/artists/${artist.slug}`);
+        router.push(`/${locale}/artists/${artist.slug}`);
         return;
       }
 
@@ -76,21 +76,27 @@ export default function EventsPage() {
       const importedArtist = await artistAPI.importArtist(
         artist.provider_artist_id,
         artist.provider,
-        artist
+        {
+          name: artist.name,
+          image: artist.image,
+          genres: artist.genres
+        }
       );
 
       if (!importedArtist?.slug) {
-        throw new Error('Artist was imported but no slug was returned.');
+        throw new Error('Import did not return a slug.');
       }
 
-      router.push(`/artists/${importedArtist.slug}`);
+      router.push(`/${locale}/artists/${importedArtist.slug}`);
       router.refresh();
     } catch (err) {
-      console.error('Failed to import artist:', err);
+      // Surface the backend reason (e.g. no exact Songkick match)
+      // instead of hiding it behind a generic message.
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? t('importError');
 
-      setError(
-        'Unable to import this artist. Please try again.'
-      );
+      setError(detail);
     } finally {
       setImportingArtistId(null);
     }
@@ -100,55 +106,53 @@ export default function EventsPage() {
 
   return (
     <div className="min-h-screen">
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        <h1 className="text-[28px] font-bold mb-6">
-          Search artists
-        </h1>
+      <main className="mx-auto max-w-4xl px-4 py-8">
+        <h1 className="mb-6 text-[28px] font-bold">{t('searchTitle')}</h1>
 
         <form onSubmit={searchArtists} className="mb-8">
           <div className="flex gap-3">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search artists..."
+              placeholder={t('searchPlaceholder')}
               className="flex-1"
               disabled={isImporting}
             />
 
-            <Button
-              type="submit"
-              disabled={searchLoading || isImporting}
-            >
-              {searchLoading ? 'Searching...' : 'Search'}
+            <Button type="submit" disabled={searchLoading || isImporting}>
+              {searchLoading ? t('searching') : t('search')}
             </Button>
           </div>
         </form>
 
         {error && (
-          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div
+            role="alert"
+            className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+          >
             {error}
           </div>
         )}
 
-        {searchLoading && (
-          <LoadingState message="Searching artists..." />
-        )}
+        {searchLoading && <LoadingState message={t('searching')} />}
 
         {!searchLoading && isImporting && (
-          <LoadingState message="Importing artist and syncing events..." />
+          <LoadingState message={t('importing')} />
         )}
 
-        {!searchLoading && !isImporting && artists.length === 0 && query.trim() && !error && (
-          <div className="py-16 text-center">
-            <p className="text-gray-400">
-              No artists found.
-            </p>
-          </div>
-        )}
+        {!searchLoading &&
+          !isImporting &&
+          artists.length === 0 &&
+          query.trim() &&
+          !error && (
+            <div className="py-16 text-center">
+              <p className="text-gray-400">{t('noSearchResults')}</p>
+            </div>
+          )}
 
         {!searchLoading && (
           <div
-            className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${
+            className={`grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 ${
               isImporting ? 'pointer-events-none opacity-60' : ''
             }`}
           >
@@ -156,6 +160,7 @@ export default function EventsPage() {
               <ArtistCard
                 key={`${artist.provider}-${artist.provider_artist_id}`}
                 artist={artist}
+                basePath={`/${locale}`}
                 onClick={() => selectArtist(artist)}
               />
             ))}

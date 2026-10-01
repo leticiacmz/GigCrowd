@@ -11,6 +11,7 @@ import LoadingState from '../../../../components/LoadingState';
 import EventCard from '../../../../components/EventCard';
 import Avatar from '../../../../components/ui/Avatar';
 import { format } from 'date-fns';
+import { useTranslations } from 'next-intl';
 
 interface ArtistProfile {
   id?: string;
@@ -91,6 +92,10 @@ export default function ArtistProfilePage() {
   const params = useParams();
   const router = useRouter();
   const artistSlug = params.slug as string;
+  const locale = (params?.locale as string) || 'en';
+
+  const t = useTranslations('artist');
+  const tEvent = useTranslations('event');
 
   const [artist, setArtist] = useState<ArtistProfile | null>(null);
   const [events, setEvents] = useState<ArtistEvent[]>([]);
@@ -463,7 +468,7 @@ export default function ArtistProfilePage() {
 
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingState message="Loading artist..." />
+        <LoadingState message={t('loadingArtist')} />
       </div>
     );
   }
@@ -480,9 +485,7 @@ export default function ArtistProfilePage() {
         <Link
           href="/artists"
           className="text-accent hover:text-accent/80"
-        >
-          Back to artists
-        </Link>
+        >{tEvent('backToArtists')}</Link>
 
       </div>
     );
@@ -592,9 +595,7 @@ export default function ArtistProfilePage() {
 
               <div className="mb-8">
 
-                <h2 className="text-[14px] text-gray-400 mb-2">
-                  Genres
-                </h2>
+                <h2 className="text-[14px] text-gray-400 mb-2">{t('genres')}</h2>
 
                 <div className="flex flex-wrap gap-2">
 
@@ -621,19 +622,15 @@ export default function ArtistProfilePage() {
 
               <div className="flex items-center justify-between mb-5">
 
-                <h2 className="text-[24px] font-bold">
-                  Upcoming Events
-                </h2>
+                <h2 className="text-[24px] font-bold">{t('upcomingEvents')}</h2>
 
                 {artist.events &&
                   artist.events.total > 6 && (
 
                     <Link
-                      href={`/artists/${artistSlug}/events`}
+                      href={`/${locale}/artists/${artistSlug}/events`}
                       className="text-sm text-accent hover:text-accent/80"
-                    >
-                      See all events →
-                    </Link>
+                    >{t('seeAllEvents')}</Link>
 
                   )}
 
@@ -641,9 +638,7 @@ export default function ArtistProfilePage() {
 
               {upcomingEvents.length === 0 ? (
 
-                <p className="text-gray-400">
-                  No upcoming events.
-                </p>
+                <p className="text-gray-400">{t('noUpcomingEvents')}</p>
 
               ) : (
 
@@ -689,9 +684,7 @@ export default function ArtistProfilePage() {
             {/* ============================================================ */}
 
             <section className="mt-12">
-              <h2 className="text-[24px] font-bold mb-5">
-                Community Posts
-              </h2>
+              <h2 className="text-[24px] font-bold mb-5">{t('community')}</h2>
 
               {/* Create Post Form */}
               <div className="mb-6">
@@ -718,9 +711,9 @@ export default function ArtistProfilePage() {
 
               {/* Posts List */}
               {postsLoading ? (
-                <p className="text-gray-400">Loading posts...</p>
+                <p className="text-gray-400">{t('loadingPosts')}</p>
               ) : communityPosts.length === 0 ? (
-                <p className="text-gray-400">No community posts yet. Be the first to share!</p>
+                <p className="text-gray-400">{t('noPostsYet')}</p>
               ) : (
                 <div className="space-y-4">
                   {communityPosts.map((post) => (
@@ -812,9 +805,9 @@ export default function ArtistProfilePage() {
 
                               {/* Comments List */}
                               {commentsLoading[post.id] ? (
-                                <p className="text-xs text-gray-500">Loading comments...</p>
+                                <p className="text-xs text-gray-500">{t('loadingComments')}</p>
                               ) : comments[post.id]?.length === 0 ? (
-                                <p className="text-xs text-gray-500">No comments yet.</p>
+                                <p className="text-xs text-gray-500">{t('noCommentsYet')}</p>
                               ) : (
                                 <div className="space-y-3">
                                   {comments[post.id]?.map((comment) => (
@@ -846,15 +839,11 @@ export default function ArtistProfilePage() {
                                               <button
                                                 onClick={() => handleUpdateComment(comment.id, post.id)}
                                                 className="text-xs text-accent hover:underline"
-                                              >
-                                                Save
-                                              </button>
+                                              >{t('save')}</button>
                                               <button
                                                 onClick={() => setEditingComment(null)}
                                                 className="text-xs text-gray-400 hover:underline"
-                                              >
-                                                Cancel
-                                              </button>
+                                              >{t('cancel')}</button>
                                             </div>
                                           </div>
                                         ) : (
@@ -876,9 +865,7 @@ export default function ArtistProfilePage() {
                                               }));
                                             }}
                                             className="text-xs text-gray-400 hover:text-accent"
-                                          >
-                                            Reply
-                                          </button>
+                                          >{t('reply')}</button>
                                           {comment.user_id === currentUser?.id && (
                                             <>
                                               <button
@@ -887,15 +874,11 @@ export default function ArtistProfilePage() {
                                                   setEditContent(comment.content);
                                                 }}
                                                 className="text-xs text-gray-400 hover:text-accent"
-                                              >
-                                                Edit
-                                              </button>
+                                              >{t('edit')}</button>
                                               <button
                                                 onClick={() => handleDeleteComment(comment.id, post.id)}
                                                 className="text-xs text-gray-400 hover:text-red-400"
-                                              >
-                                                Delete
-                                              </button>
+                                              >{t('delete')}</button>
                                             </>
                                           )}
                                         </div>
@@ -960,15 +943,11 @@ export default function ArtistProfilePage() {
                                                           setEditContent(reply.content);
                                                         }}
                                                         className="text-xs text-gray-400 hover:text-accent"
-                                                      >
-                                                        Edit
-                                                      </button>
+                                                      >{t('edit')}</button>
                                                       <button
                                                         onClick={() => handleDeleteComment(reply.id, post.id)}
                                                         className="text-xs text-gray-400 hover:text-red-400"
-                                                      >
-                                                        Delete
-                                                      </button>
+                                                      >{t('delete')}</button>
                                                     </div>
                                                   )}
                                                 </div>
@@ -995,15 +974,11 @@ export default function ArtistProfilePage() {
 
               <section className="mt-12">
 
-                <h2 className="text-[24px] font-bold mb-5">
-                  Related Artists
-                </h2>
+                <h2 className="text-[24px] font-bold mb-5">{t('relatedArtists')}</h2>
 
                 {relatedLoading ? (
 
-                  <p className="text-gray-400">
-                    Loading related artists...
-                  </p>
+                  <p className="text-gray-400">{t('loadingRelated')}</p>
 
                 ) : (
 

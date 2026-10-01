@@ -12,6 +12,7 @@ import {
 } from 'next/navigation';
 
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
 import {
   artistAPI,
@@ -88,6 +89,8 @@ export default function EventDetailPage() {
   const router = useRouter();
   const params = useParams();
   const eventId = params.id as string;
+  const t = useTranslations('event');
+  const tArtist = useTranslations('artist');
 
   const [event, setEvent] = useState<Event | null>(null);
   const [showLog, setShowLog] = useState<any>(null);
@@ -371,9 +374,7 @@ export default function EventDetailPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="text-center">
-          <p className="text-gray-400 mb-4">
-            Event not found.
-          </p>
+          <p className="text-gray-400 mb-4">{t('notFound')}</p>
 
           <Link
             href="/events"
@@ -426,9 +427,7 @@ export default function EventDetailPage() {
 
             {isFestival && linkedArtists.length > 0 && (
               <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-gray-500">
-                  Artist
-                </span>
+                <span className="text-gray-500">{t('artist')}</span>
 
                 {linkedArtists.map((artist, index) => (
                   <span key={artist.slug}>
@@ -451,9 +450,7 @@ export default function EventDetailPage() {
 
             <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl">
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                  Date
-                </p>
+                <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('date')}</p>
 
                 <p className="text-gray-200">
                   {formattedDate}
@@ -467,9 +464,7 @@ export default function EventDetailPage() {
               </div>
 
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                  Venue
-                </p>
+                <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('venue')}</p>
 
                 <p className="text-gray-200">
                   {event.venue?.name ||
@@ -514,9 +509,7 @@ export default function EventDetailPage() {
                   ? 'border-accent text-foreground'
                   : 'border-transparent text-gray-500 hover:text-gray-300'
               }`}
-            >
-              Information
-            </button>
+            >{t('information')}</button>
 
             <button
               type="button"
@@ -529,9 +522,7 @@ export default function EventDetailPage() {
                     ? 'border-transparent text-gray-500 hover:text-gray-300'
                     : 'border-transparent text-gray-700 cursor-not-allowed'
               }`}
-            >
-              Posts
-            </button>
+            >{t('posts')}</button>
 
             {isFestival && isEventPast && (
               <button
@@ -542,9 +533,7 @@ export default function EventDetailPage() {
                     ? 'border-accent text-foreground'
                     : 'border-transparent text-gray-500 hover:text-gray-300'
                 }`}
-              >
-                Artists
-              </button>
+              >{t('artists')}</button>
             )}
           </div>
         </div>
@@ -553,15 +542,11 @@ export default function EventDetailPage() {
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-8">
               <Card className="p-6">
-                <h2 className="text-xl font-bold mb-6">
-                  Event information
-                </h2>
+                <h2 className="text-xl font-bold mb-6">{t('eventInformation')}</h2>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                      Date
-                    </p>
+                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('date')}</p>
 
                     <p className="text-gray-200">
                       {formattedDate}
@@ -570,9 +555,7 @@ export default function EventDetailPage() {
 
                   {!isFestival && (
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                        Start time
-                      </p>
+                      <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('startTime')}</p>
 
                       <p className="text-gray-200">
                         {formattedTime}
@@ -581,9 +564,7 @@ export default function EventDetailPage() {
                   )}
 
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                      Type
-                    </p>
+                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('type')}</p>
 
                     <p className="text-gray-200">
                       {eventTypeLabel}
@@ -591,9 +572,7 @@ export default function EventDetailPage() {
                   </div>
 
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                      Status
-                    </p>
+                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('status')}</p>
 
                     <p className="text-gray-200">
                       {statusLabel}
@@ -603,9 +582,7 @@ export default function EventDetailPage() {
 
                 {event.description && (
                   <div className="mt-8 border-t border-border pt-6">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">
-                      About
-                    </p>
+                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">{t('about')}</p>
 
                     <p className="text-gray-400 leading-relaxed">
                       {event.description}
@@ -616,9 +593,7 @@ export default function EventDetailPage() {
 
               {isFestival && event.festival && (
                 <Card className="p-6">
-                  <p className="text-xs uppercase tracking-wide text-accent mb-2">
-                    Festival
-                  </p>
+                  <p className="text-xs uppercase tracking-wide text-accent mb-2">{t('festival')}</p>
 
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
@@ -626,9 +601,7 @@ export default function EventDetailPage() {
                         {event.festival.name || event.title}
                       </h2>
 
-                      <p className="text-sm text-gray-500 mt-1">
-                        See the complete lineup and festival details.
-                      </p>
+                      <p className="text-sm text-gray-500 mt-1">{t('lineupHint')}</p>
                     </div>
 
                     <Link
@@ -642,9 +615,7 @@ export default function EventDetailPage() {
               )}
 
               <Card className="p-6">
-                <h2 className="text-xl font-bold mb-5">
-                  Location
-                </h2>
+                <h2 className="text-xl font-bold mb-5">{t('location')}</h2>
 
                 <div className="space-y-2">
                   <p className="text-lg font-semibold">
@@ -688,9 +659,7 @@ export default function EventDetailPage() {
             <aside>
               <Card className="p-6 space-y-6 lg:sticky lg:top-6">
                 <div>
-                  <h2 className="text-lg font-bold mb-4">
-                    Your attendance
-                  </h2>
+                  <h2 className="text-lg font-bold mb-4">{t('yourAttendance')}</h2>
 
                   <div className="space-y-3">
                     {!isEventPast && (
@@ -754,18 +723,12 @@ export default function EventDetailPage() {
 
                 {!isEventPast && (
                   <div className="border-t border-border pt-6">
-                    <h2 className="text-lg font-bold mb-3">
-                      Tickets
-                    </h2>
+                    <h2 className="text-lg font-bold mb-3">{t('tickets')}</h2>
 
                     {event.free ? (
-                      <p className="text-accent">
-                        Free event
-                      </p>
+                      <p className="text-accent">{t('freeEvent')}</p>
                     ) : event.sold_out ? (
-                      <p className="text-gray-500">
-                        Sold out
-                      </p>
+                      <p className="text-gray-500">{t('soldOut')}</p>
                     ) : event.ticket_url ? (
                       <a
                         href={event.ticket_url}
@@ -776,14 +739,10 @@ export default function EventDetailPage() {
                         <Button
                           variant="primary"
                           className="w-full"
-                        >
-                          Get tickets
-                        </Button>
+                        >{t('getTickets')}</Button>
                       </a>
                     ) : (
-                      <p className="text-gray-500">
-                        Ticket information unavailable
-                      </p>
+                      <p className="text-gray-500">{t('ticketUnavailable')}</p>
                     )}
                   </div>
                 )}
@@ -794,27 +753,21 @@ export default function EventDetailPage() {
                       <strong className="text-lg">
                         {event.going_count ?? 0}
                       </strong>
-                      <p className="text-xs text-gray-500">
-                        Going
-                      </p>
+                      <p className="text-xs text-gray-500">{t('going')}</p>
                     </div>
 
                     <div>
                       <strong className="text-lg">
                         {event.maybe_count ?? 0}
                       </strong>
-                      <p className="text-xs text-gray-500">
-                        Maybe
-                      </p>
+                      <p className="text-xs text-gray-500">{t('maybe')}</p>
                     </div>
 
                     <div>
                       <strong className="text-lg">
                         {event.went_count ?? 0}
                       </strong>
-                      <p className="text-xs text-gray-500">
-                        Went
-                      </p>
+                      <p className="text-xs text-gray-500">{t('went')}</p>
                     </div>
                   </div>
                 </div>
@@ -831,9 +784,7 @@ export default function EventDetailPage() {
                   ✦
                 </div>
 
-                <h2 className="text-xl font-bold mb-2">
-                  Posts about this event
-                </h2>
+                <h2 className="text-xl font-bold mb-2">{t('postsAboutEvent')}</h2>
 
                 <p className="text-gray-500 leading-relaxed">
                   This is where the GigCrowd community will share photos,
@@ -849,9 +800,7 @@ export default function EventDetailPage() {
             <Card className="p-6 md:p-8">
               <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-accent mb-2">
-                    Festival lineup
-                  </p>
+                  <p className="text-xs uppercase tracking-wide text-accent mb-2">{t('festivalLineup')}</p>
 
                   <h2 className="text-2xl font-bold">
                     {lineup.length} artists
@@ -867,9 +816,7 @@ export default function EventDetailPage() {
               </div>
 
               {lineup.length === 0 ? (
-                <p className="py-12 text-center text-gray-500">
-                  The festival lineup is not available yet.
-                </p>
+                <p className="py-12 text-center text-gray-500">{t('lineupUnavailable')}</p>
               ) : (
                 <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {lineup.map((artist) => {
