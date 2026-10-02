@@ -40,6 +40,7 @@ from app.routes import (
     spotify_auth,
     artist_community,
     notifications,
+    media,
 )
 
 from app.config import settings
@@ -239,6 +240,8 @@ app.include_router(artists.router)
 app.include_router(events.router)
 
 app.include_router(posts.router)
+
+app.include_router(media.router)
 
 app.include_router(feed.router)
 

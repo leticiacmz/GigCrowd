@@ -7,6 +7,9 @@ from bson import ObjectId
 import uuid
 import bleach
 
+from app.routes.media import get_media_upload_service
+from app.services.media_upload_service import MediaUploadError
+
 router = APIRouter(prefix="/posts", tags=["posts"])
 
 # Allowed HTML tags for post content (if rich text is needed)
@@ -57,25 +60,24 @@ async def create_post(
 
     # Handle image upload if provided
     if image:
-        # Validate file type
-        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-        if image.content_type not in allowed_types:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed."
-            )
-
-        # Validate file size (max 5MB)
+        # Validation and storage go through the shared media service, so a
+        # post image and a review photo are held to the same rules and end up
+        # in the same place instead of this route faking a local path.
         contents = await image.read()
-        if len(contents) > 5 * 1024 * 1024:
+
+        try:
+            uploaded = await get_media_upload_service().upload_image(
+                content=contents,
+                content_type=image.content_type,
+                filename=image.filename,
+            )
+        except MediaUploadError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File size cannot exceed 5MB"
+                detail=str(exc)
             )
 
-        # For now, just store the filename
-        # In production, upload to Cloudinary or S3
-        post["image_url"] = f"/uploads/{image.filename}"
+        post["image_url"] = uploaded.url
 
     await db.posts.insert_one(post)
     post["id"] = post["_id"]
