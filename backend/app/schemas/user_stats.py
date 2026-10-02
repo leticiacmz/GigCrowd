@@ -24,6 +24,15 @@ class UserStatsResponse(BaseModel):
     total_posts: int
 
 
+    # The concert profile's figures. Each one is counted from the collection
+    # that backs it, so none of them can be a figure without a row behind it.
+    reviews_count: int = 0
+
+    festivals_count: int = 0
+
+    followed_artists_count: int = 0
+
+
     class Config:
 
         populate_by_name = True

@@ -7,6 +7,8 @@ has, because the events behind the show logs are resolved in one batch.
 """
 from datetime import UTC, datetime
 
+from app.domain.event_schedule import is_upcoming
+from app.domain.festival import festival_key
 from app.utils.ids import id_matches, object_id_variants
 
 
@@ -76,6 +78,10 @@ class UserStatsService:
                 "artist_slug": 1,
                 "artist_slugs": 1,
                 "starts_at": 1,
+                "ends_at": 1,
+                "title": 1,
+                "event_type": 1,
+                "festival": 1,
             },
         )
 
@@ -179,6 +185,8 @@ class UserStatsService:
 
         artists: set[str] = set()
 
+        festivals: set[str] = set()
+
         upcoming = 0
 
         now = datetime.now(UTC)
@@ -189,18 +197,15 @@ class UserStatsService:
                 self._artist_slugs(event)
             )
 
-            starts_at = event.get("starts_at")
+            festival = festival_key(event)
 
-            if not isinstance(starts_at, datetime):
-                continue
+            if festival:
+                festivals.add(festival)
 
-            if starts_at.tzinfo is None:
-
-                starts_at = starts_at.replace(
-                    tzinfo=UTC,
-                )
-
-            if starts_at >= now:
+            # Whether the show is still ahead is the shared schedule rule, so
+            # the count on the profile cannot disagree with the badge on the
+            # event itself.
+            if is_upcoming(event, now):
 
                 upcoming += 1
 
@@ -235,4 +240,23 @@ class UserStatsService:
             "upcoming_events": upcoming,
 
             "total_posts": total_posts,
+
+            # The concert profile's own figures: what the person has seen,
+            # what they wrote about it, and who they follow on stage.
+            "reviews_count": await self.show_log_repository.count_user_reviews(
+                user_id,
+            ),
+
+            "festivals_count": len(
+                festivals
+            ),
+
+            "followed_artists_count": (
+                await self.db.artist_follows.count_documents(
+                    id_matches(
+                        "user_id",
+                        user_id,
+                    )
+                )
+            ),
         }

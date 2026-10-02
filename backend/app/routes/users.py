@@ -30,8 +30,19 @@ from app.services.user_stats_service import (
     UserStatsService,
 )
 
+from app.services.user_concert_service import (
+    UserConcertService,
+)
+
 from app.repositories.show_log_repository import (
     ShowLogRepository,
+)
+
+from app.schemas.user_concert import (
+    ProfileArtistsResponse,
+    ProfileEventsResponse,
+    ProfileFestivalsResponse,
+    ProfileReviewsResponse,
 )
 
 from app.schemas.user_stats import (
@@ -66,6 +77,45 @@ def get_user_stats_service():
         follow_repository=FollowRepository(db),
         db=db,
     )
+
+
+def get_user_concert_service():
+
+    db = get_database()
+
+    return UserConcertService(
+        user_repository=UserRepository(db),
+        show_log_repository=ShowLogRepository(db),
+        db=db,
+    )
+
+
+async def _require_profile(
+    service: UserProfileService,
+    username: str,
+) -> dict:
+
+    """Resolve a profile or fail with a 404.
+
+    Every list below is about a person, so a missing person is a 404 rather
+    than an empty list that would read as "this user has done nothing".
+    """
+
+    profile = await service.get_profile(
+        username
+    )
+
+    if not profile:
+
+        raise HTTPException(
+
+            status_code=status.HTTP_404_NOT_FOUND,
+
+            detail="User not found",
+
+        )
+
+    return profile
 
 
 @router.get("/me")
@@ -143,6 +193,139 @@ async def get_public_user_stats(
     return await stats_service.get_user_stats(
         username
     )
+
+
+@router.get(
+    "/profile/{username}/reviews",
+    response_model=ProfileReviewsResponse,
+)
+async def get_profile_reviews(
+
+    username: str,
+
+    limit: int = 12,
+
+    service: UserConcertService = Depends(
+        get_user_concert_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    """The reviews a user wrote about the shows they attended.
+
+    Public, because a review is already published to the timeline of everyone
+    who follows the artist.
+    """
+
+    await _require_profile(profile_service, username)
+
+    result = await service.get_reviews(
+        username,
+        limit=max(1, min(limit, 50)),
+    )
+
+    return ProfileReviewsResponse(**result)
+
+
+@router.get(
+    "/profile/{username}/events",
+    response_model=ProfileEventsResponse,
+)
+async def get_profile_events(
+
+    username: str,
+
+    limit: int = 12,
+
+    service: UserConcertService = Depends(
+        get_user_concert_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    """The shows a user says they attended, most recent first."""
+
+    await _require_profile(profile_service, username)
+
+    result = await service.get_events(
+        username,
+        limit=max(1, min(limit, 50)),
+    )
+
+    return ProfileEventsResponse(**result)
+
+
+@router.get(
+    "/profile/{username}/festivals",
+    response_model=ProfileFestivalsResponse,
+)
+async def get_profile_festivals(
+
+    username: str,
+
+    service: UserConcertService = Depends(
+        get_user_concert_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    """The festivals a user has been to, one row per festival.
+
+    Editions of the same festival collapse into one row, so the count is the
+    number of festivals and not the number of tickets.
+    """
+
+    await _require_profile(profile_service, username)
+
+    result = await service.get_festivals(
+        username
+    )
+
+    return ProfileFestivalsResponse(**result)
+
+
+@router.get(
+    "/profile/{username}/artists",
+    response_model=ProfileArtistsResponse,
+)
+async def get_profile_artists(
+
+    username: str,
+
+    limit: int = 12,
+
+    service: UserConcertService = Depends(
+        get_user_concert_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    """The artists a user follows, which are the communities they belong to."""
+
+    await _require_profile(profile_service, username)
+
+    result = await service.get_artists(
+        username,
+        limit=max(1, min(limit, 50)),
+    )
+
+    return ProfileArtistsResponse(**result)
 
 
 @router.get(
