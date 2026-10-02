@@ -80,6 +80,23 @@ class TestCollection:
         assert [document["_id"] for document in found] == [1]
 
     @pytest.mark.asyncio
+    async def test_inclusion_projection_keeps_only_named_fields(self, collection):
+        found = await collection.find(
+            {"kind": "a"}, {"score": 1}
+        ).to_list()
+
+        assert all(set(document) == {"_id", "score"} for document in found)
+        assert {document["score"] for document in found} == {5, 9}
+
+    @pytest.mark.asyncio
+    async def test_exclusion_projection_drops_named_fields(self, collection):
+        found = await collection.find(
+            {"_id": 1}, {"score": 0}
+        ).to_list()
+
+        assert set(found[0]) == {"_id", "kind"}
+
+    @pytest.mark.asyncio
     async def test_insert_assigns_object_id(self, collection):
         result = await collection.insert_one({"kind": "c"})
 
