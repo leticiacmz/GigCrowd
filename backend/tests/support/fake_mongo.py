@@ -9,7 +9,9 @@ of the driver the code under test actually uses:
 * `find` with `$or`, `$and`, `$in` and plain equality, plus `sort`/`skip`/`limit`
 * `find_one`, `insert_one`, `update_one`, `update_many`, `delete_one`,
   `count_documents`
-* `$set` update operators and `ObjectId` `_id` generation
+* `find_one_and_update` (with `$set` and `$unset`), `aggregate` for a `$match`
+  plus `$group` pipeline
+* `$set` / `$unset` / `$inc` update operators and `ObjectId` `_id` generation
 
 It is intentionally not a MongoDB emulator: anything beyond the subset above
 raises, so a test can never silently pass because of unimplemented behaviour.
@@ -82,6 +84,9 @@ def matches(document: dict, query: Optional[dict]) -> bool:
                 if field_operator == "$in":
                     if not actual_found or actual not in operand:
                         return False
+                elif field_operator == "$nin":
+                    if actual_found and actual in operand:
+                        return False
                 elif field_operator == "$ne":
                     if actual_found and actual == operand:
                         return False
@@ -110,6 +115,16 @@ def _apply_update(document: dict, update: dict) -> None:
                     document.setdefault(parent, {})[key] = value
                 else:
                     document[path] = value
+        elif operator == "$unset":
+            for path in fields:
+                match = _DOTTED.match(path)
+                if match:
+                    parent, key = match.groups()
+                    nested = document.get(parent)
+                    if isinstance(nested, dict):
+                        nested.pop(key, None)
+                else:
+                    document.pop(path, None)
         elif operator == "$inc":
             for path, value in fields.items():
                 document[path] = document.get(path, 0) + value
@@ -204,6 +219,112 @@ class FakeCursor:
         return copy.deepcopy(documents)
 
 
+class FakeAggregateCursor:
+    """Async iterator over the result of a `$match` + `$group` pipeline."""
+
+    def __init__(
+        self,
+        documents: list[dict],
+        pipeline: list[dict],
+    ):
+        self._documents = documents
+        self._pipeline = pipeline
+
+    def __aiter__(self) -> "FakeAggregateCursor":
+        return self
+
+    async def __anext__(self) -> dict:
+        if not hasattr(self, "_result"):
+            self._result = _run_aggregate(
+                self._documents,
+                self._pipeline,
+            )
+            self._index = 0
+
+        if self._index >= len(self._result):
+            raise StopAsyncIteration
+
+        row = self._result[self._index]
+        self._index += 1
+        return row
+
+
+def _run_aggregate(
+    documents: list[dict],
+    pipeline: list[dict],
+) -> list[dict]:
+    """Evaluate the supported aggregation stages.
+
+    Only `$match` followed by `$group` is supported, which is what a
+    count-by-field aggregation in this codebase uses.
+    """
+
+    stages = [
+        stage
+        for stage in pipeline
+        if not stage.keys() <= {"$sort"}
+    ]
+
+    if len(stages) != 2:
+        raise NotImplementedError(
+            "FakeMongo only implements a $match + $group pipeline, "
+            f"got {[list(stage) for stage in stages]}"
+        )
+
+    match_stage, group_stage = stages
+
+    if set(match_stage) != {"$match"}:
+        raise NotImplementedError(
+            "FakeMongo only implements a $match stage first"
+        )
+
+    if set(group_stage) != {"$group"}:
+        raise NotImplementedError(
+            "FakeMongo only implements a $group stage last"
+        )
+
+    specification = group_stage["$group"]
+
+    if not isinstance(specification.get("_id"), str):
+        raise NotImplementedError(
+            "FakeMongo only supports grouping by a field path"
+        )
+
+    field = specification["_id"].lstrip("$")
+
+    accumulator = next(
+        (
+            field_spec.get("$sum")
+            for name, field_spec in specification.items()
+            if name != "_id" and isinstance(field_spec, dict)
+        ),
+        None,
+    )
+
+    if accumulator != 1 or isinstance(accumulator, bool):
+        raise NotImplementedError(
+            "FakeMongo only supports `$sum: 1` in a $group"
+        )
+
+    groups: dict[Any, dict] = {}
+
+    for document in documents:
+
+        if not matches(document, match_stage["$match"]):
+            continue
+
+        _, key = resolve_path(document, field)
+
+        entry = groups.setdefault(
+            key,
+            {"_id": key, "count": 0},
+        )
+
+        entry["count"] += 1
+
+    return [groups[key] for key in groups]
+
+
 class FakeCollection:
     def __init__(self, name: str, documents: Optional[list[dict]] = None):
         self.name = name
@@ -229,6 +350,43 @@ class FakeCollection:
             if matches(document, query):
                 return copy.deepcopy(document)
         return None
+
+    async def find_one_and_update(
+        self,
+        query: dict,
+        update: dict,
+        return_document: Any = None,
+    ) -> Optional[dict]:
+        """Update the first match and return it, updated.
+
+        Only the return mode the code under test uses is supported: the updated
+        document (`return_document=True`, Motor's `ReturnDocument.AFTER`).
+        Asking for the document before the update raises, so a test can never
+        pass by receiving the wrong one.
+        """
+        if not return_document:
+            raise NotImplementedError(
+                "FakeMongo only implements find_one_and_update with "
+                "return_document=True"
+            )
+
+        for document in self.documents:
+            if matches(document, query):
+                _apply_update(document, update)
+                return copy.deepcopy(document)
+        return None
+
+    def aggregate(self, pipeline: list[dict]) -> "FakeAggregateCursor":
+        """Run a `$match` + `$group` pipeline.
+
+        That is the shape every count-by-a-field in the code under test uses
+        (attendance summaries and community post counts). Any other stage
+        raises rather than being silently skipped.
+        """
+        return FakeAggregateCursor(
+            self.documents,
+            pipeline,
+        )
 
     async def count_documents(self, query: Optional[dict] = None) -> int:
         return len([document for document in self.documents if matches(document, query)])
