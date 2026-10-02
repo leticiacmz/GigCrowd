@@ -1802,7 +1802,171 @@ with sync_playwright() as p:
     pg.close()
     ctx.close()
 
-    # =========================================== 13. REVIEW AND ATTENDANCE
+    # ================================================= 13. PROFILE ISOLATION
+    # A profile is a public list of one person's opinions. Two users with
+    # different reviews are read on each other's profile, both on a full load
+    # and while navigating inside the app, where the previous profile's rows
+    # used to stay on screen under the new profile's heading.
+    author_review = f"The room shook. {DATA['stamp']}"
+    fan_review = f"Worth every second. {DATA['stamp']}"
+
+    for label, viewport in (
+        ("desktop", {"width": 1280, "height": 900}),
+        ("mobile", {"width": 390, "height": 844}),
+    ):
+        ctx = browser.new_context(viewport=viewport)
+        pg = ctx.new_page()
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+
+        pg.goto(f"{BASE}/en", wait_until="networkidle")
+        store_token(pg, DATA["author_token"], DATA["author"])
+
+        # --- the author's own profile
+        pg.goto(
+            f"{BASE}/en/profile/{DATA['author']['username']}",
+            wait_until="networkidle",
+        )
+        pg.wait_for_timeout(1500)
+        own_text = pg.inner_text("[data-testid='profile-latest-reviews']")
+
+        check(
+            f"isolation {label}: a profile shows the review its owner wrote",
+            author_review in own_text and fan_review not in own_text,
+            own_text.replace("\n", " | ")[:70],
+        )
+
+        # --- the fan's public profile, read while signed in as the author
+        pg.goto(
+            f"{BASE}/en/profile/{DATA['fan']['username']}",
+            wait_until="networkidle",
+        )
+        pg.wait_for_timeout(1500)
+        other_text = pg.inner_text("[data-testid='profile-latest-reviews']")
+
+        check(
+            f"isolation {label}: a public profile shows only its own reviews",
+            fan_review in other_text and author_review not in other_text,
+            other_text.replace("\n", " | ")[:70],
+        )
+
+        check(
+            f"isolation {label}: no card on another profile is the author's",
+            all(
+                author_review
+                not in pg.locator(
+                    "[data-testid='profile-latest-reviews'] "
+                    "[data-testid='review-card']"
+                ).nth(index).inner_text()
+                for index in range(
+                    pg.locator(
+                        "[data-testid='profile-latest-reviews'] "
+                        "[data-testid='review-card']"
+                    ).count()
+                )
+            ),
+            "",
+        )
+
+        # --- and the same, navigating inside the app with the next profile's
+        # reviews held back, which is when the previous profile leaked.
+        pg.goto(
+            f"{BASE}/en/profile/{DATA['author']['username']}",
+            wait_until="networkidle",
+        )
+        pg.wait_for_timeout(1500)
+
+        # The fan follows the author, so the fan is one click away on the
+        # author's own profile and the move is a client-side navigation.
+        pg.locator("[data-testid='profile-followers-toggle']").click()
+
+        try:
+            pg.wait_for_selector(
+                "[data-testid='profile-connection-link']", timeout=20000
+            )
+        except Exception:
+            pass
+
+        fan_path = f"/profile/{DATA['fan']['username']}"
+
+        def hold_fans_reviews(route):
+            """The other profile's reviews never arrive.
+
+            A sleep inside a route handler blocks the whole browser connection,
+            including this script's own sampling, so the window is held open by
+            failing the request instead: whatever the page already has stays on
+            screen, which is exactly the state a stale row would survive in.
+            """
+            if fan_path in route.request.url:
+                route.abort()
+            else:
+                route.continue_()
+
+        pg.route("**/users/profile/*/reviews**", hold_fans_reviews)
+        pg.locator("[data-testid='profile-connection-link']").first.click()
+
+        leaked = []
+
+        for _ in range(10):
+            try:
+                # A frame is only a leak once the reader is on the other
+                # profile. Before the router commits, the page on screen is
+                # still their own, where their own review is correct.
+                if (
+                    pg.url.endswith(fan_path)
+                    and pg.locator("[data-testid='profile-latest-reviews']").count()
+                ):
+                    window = pg.inner_text(
+                        "[data-testid='profile-latest-reviews']"
+                    )
+
+                    if author_review in window and fan_review not in window:
+                        leaked.append(window.replace("\n", " | ")[:60])
+            except Exception:
+                pass
+
+            pg.wait_for_timeout(250)
+
+        check(
+            f"isolation {label}: navigating between profiles never republishes "
+            "the previous owner's review",
+            not leaked,
+            f"{len(leaked)} leaking frame(s): {leaked[:1]}",
+        )
+
+        pg.unroute("**/users/profile/*/reviews**")
+
+        # The route is served normally again, so the profile the reader landed
+        # on has to fill in with that person's own reviews.
+        pg.reload(wait_until="networkidle")
+        pg.wait_for_timeout(2000)
+        settled = pg.inner_text("[data-testid='profile-latest-reviews']")
+
+        check(
+            f"isolation {label}: the profile reached by clicking is correct",
+            fan_review in settled and author_review not in settled,
+            settled.replace("\n", " | ")[:70],
+        )
+
+        # The figure opens the same scoped list.
+        pg.locator("[data-testid='profile-stat-reviews']").first.click()
+        try:
+            pg.wait_for_selector(
+                "[data-testid='profile-reviews']", timeout=20000
+            )
+        except Exception:
+            pass
+        panel_text = pg.locator("[data-testid='profile-panel']").inner_text()
+
+        check(
+            f"isolation {label}: the reviews panel is scoped to the profile too",
+            fan_review in panel_text and author_review not in panel_text,
+            "",
+        )
+
+        pg.close()
+        ctx.close()
+
+    # =========================================== 14. REVIEW AND ATTENDANCE
     # "I went" has to record attendance, open the review dialog and save what was
     # written, all against a real event whose date has already passed.
     past_event = DATA["past_event"]
@@ -2072,7 +2236,7 @@ with sync_playwright() as p:
             pg.close()
             ctx.close()
 
-    # ================================================ 14. EVENT PAST BADGE
+    # ================================================ 15. EVENT PAST BADGE
     # The events list has to mark a finished show as finished, in every
     # language, because "I went" and its review only exist for a show that is
     # over. An event whose date is missing must say so instead of printing an
@@ -2139,7 +2303,7 @@ with sync_playwright() as p:
     pg.close()
     ctx.close()
 
-    # =================================== 15. EVENT AND FESTIVAL SCREENS, IN LOCALE
+    # =================================== 16. EVENT AND FESTIVAL SCREENS, IN LOCALE
     # A real event, and a real festival if one of its events carries a lineup,
     # so the translated screens are exercised against live data.
     artist_events = []
@@ -2270,7 +2434,7 @@ with sync_playwright() as p:
     else:
         check("event: an event page could be exercised", False, "no events for artist")
 
-    # ================================= 16. UNKNOWN PATHS AND NOT FOUND
+    # ================================= 17. UNKNOWN PATHS AND NOT FOUND
     # An unknown URL has to answer 404 inside the locale it was asked for, with
     # that locale's document language, its translated copy and the site chrome,
     # rather than the framework's bare English page.
@@ -2338,7 +2502,7 @@ with sync_playwright() as p:
             f"{landed.status_code} -> {location}",
         )
 
-    # ================================================================= 17. MOBILE
+    # ================================================================= 18. MOBILE
     ctx = browser.new_context(
         viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
     )
