@@ -12,16 +12,21 @@ interface EmptyStateProps {
 
 export default function EmptyState({ icon = '🎵', title, description, action }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-      <div className="text-6xl mb-4">{icon}</div>
-      <h3 className="text-xl font-semibold text-foreground mb-2">{title}</h3>
+    <div
+      data-testid="empty-state"
+      className="flex flex-col items-center justify-center px-4 py-16 text-center"
+    >
+      <div className="mb-4 text-6xl" aria-hidden="true">
+        {icon}
+      </div>
+      <h3 className="mb-2 text-xl font-semibold text-foreground">{title}</h3>
       {description && (
-        <p className="text-gray-400 max-w-md mb-6">{description}</p>
+        <p className="mb-6 max-w-md text-muted">{description}</p>
       )}
       {action && (
         <button
           onClick={action.onClick}
-          className="px-6 py-2 rounded-lg bg-accent text-white font-medium hover:opacity-90 transition-opacity"
+          className="min-h-[44px] rounded-lg bg-accent-solid px-6 py-2 font-medium text-on-accent transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {action.label}
         </button>

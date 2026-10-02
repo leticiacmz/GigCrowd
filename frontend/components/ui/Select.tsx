@@ -18,7 +18,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
       <select
         ref={ref}
         className={`
-          rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-foreground placeholder-gray-500
+          rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-foreground placeholder:text-muted-subtle
           focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent
           transition-colors
           ${className}

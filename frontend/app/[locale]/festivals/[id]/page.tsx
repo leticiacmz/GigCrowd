@@ -195,7 +195,7 @@ export default function FestivalPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="text-center">
-          <p className="text-gray-400 mb-4">{t('notFound')}</p>
+          <p className="text-muted mb-4">{t('notFound')}</p>
 
           <button
             type="button"
@@ -231,18 +231,18 @@ export default function FestivalPage() {
 
           <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('dates')}</p>
+              <p className="text-xs uppercase tracking-wide text-muted-subtle mb-1">{t('dates')}</p>
 
-              <p className="text-gray-200">
+              <p className="text-foreground">
                 {startDate}
                 {endDate && <> — {endDate}</>}
               </p>
             </div>
 
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('venue')}</p>
+              <p className="text-xs uppercase tracking-wide text-muted-subtle mb-1">{t('venue')}</p>
 
-              <p className="text-gray-200">
+              <p className="text-foreground">
                 {event.venue?.name ||
                   event.venue_slug ||
                   'Venue unavailable'}
@@ -250,9 +250,9 @@ export default function FestivalPage() {
             </div>
 
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{t('location')}</p>
+              <p className="text-xs uppercase tracking-wide text-muted-subtle mb-1">{t('location')}</p>
 
-              <p className="text-gray-200">
+              <p className="text-foreground">
                 {event.location?.city || event.venue?.city || 'Unknown city'}
                 {(event.location?.country || event.venue?.country) && (
                   <>
@@ -305,7 +305,7 @@ export default function FestivalPage() {
 
             {filteredLineup.length === 0 ? (
               <div className="py-16 text-center">
-                <p className="text-gray-500">
+                <p className="text-muted-subtle">
                   {lineup.length === 0
                     ? 'The festival lineup is not available yet.'
                     : 'No artists match your search.'}
@@ -342,7 +342,7 @@ export default function FestivalPage() {
                             {artist.name}
                           </p>
 
-                          <p className="text-xs text-gray-500 mt-1">
+                          <p className="text-xs text-muted-subtle mt-1">
                             {isLoading ? 'Opening artist...' : 'Open artist'}
                           </p>
                         </div>

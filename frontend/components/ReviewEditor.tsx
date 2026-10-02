@@ -245,7 +245,7 @@ export default function ReviewEditor({
 
         <p
           className="
-            text-gray-300
+            text-foreground
             leading-relaxed
           "
         >
@@ -369,7 +369,7 @@ export default function ReviewEditor({
           border-border
 
           text-white
-          placeholder:text-gray-500
+          placeholder:text-muted-subtle
 
           focus:outline-none
           focus:border-purple-500

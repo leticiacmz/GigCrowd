@@ -11,7 +11,7 @@ export default function LoadingState({ message = 'Loading...' }: LoadingStatePro
         <div className="absolute inset-0 border-4 border-accent/30 rounded-full"></div>
         <div className="absolute inset-0 border-4 border-accent rounded-full border-t-transparent animate-spin"></div>
       </div>
-      <p className="text-gray-400 mt-4">{message}</p>
+      <p className="text-muted mt-4">{message}</p>
     </div>
   );
 }

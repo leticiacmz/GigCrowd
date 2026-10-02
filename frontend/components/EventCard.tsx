@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 import {
   format,
@@ -6,6 +9,21 @@ import {
 
 import Card from './ui/Card';
 import Badge from './ui/Badge';
+
+import { locales, defaultLocale } from '@/app/i18n';
+
+/**
+ * Read the locale from the current URL so every event link keeps the reader
+ * in the language they are browsing with.
+ */
+function useResolvedLocale(): string {
+  const pathname = usePathname() || '';
+  const segment = pathname.split('/')[1];
+
+  return locales.includes(segment as (typeof locales)[number])
+    ? segment
+    : defaultLocale;
+}
 
 
 interface EventCardProps {
@@ -194,6 +212,9 @@ export default function EventCard({
   const festival =
     isFestival(event);
 
+  const locale =
+    useResolvedLocale();
+
   const formattedDate =
     formatEventDate(event);
 
@@ -213,7 +234,7 @@ export default function EventCard({
   return (
 
     <Link
-      href={`/events/${event.id}`}
+      href={`/${locale}/events/${event.id}`}
       className="block h-full"
     >
 
@@ -272,7 +293,7 @@ export default function EventCard({
 
           <div className="
             text-sm
-            text-gray-400
+            text-muted
             space-y-2
           ">
 
@@ -326,7 +347,7 @@ export default function EventCard({
               <p className="
                 mt-4
                 text-xs
-                text-gray-500
+                text-muted-subtle
               ">
 
                 {event.festival.tracking_count}
@@ -345,7 +366,7 @@ export default function EventCard({
             flex
             gap-3
             text-xs
-            text-gray-400
+            text-muted
           ">
 
             <span>

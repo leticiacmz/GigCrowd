@@ -94,7 +94,7 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-6 text-center text-sm text-gray-400">
+        <div className="mt-6 text-center text-sm text-muted">
           {t('dontHaveAccount')}{' '}
           <Link
             href={`/${locale}/register`}

@@ -24,7 +24,7 @@ export default async function LocaleHomePage({ params }: LocalePageProps) {
 
         <h2 className="text-3xl sm:text-4xl font-bold mb-5">{t('tagline')}</h2>
 
-        <p className="text-gray-400 text-lg max-w-xl mx-auto mb-10">
+        <p className="text-muted text-lg max-w-xl mx-auto mb-10">
           {t('subtitle')}
         </p>
 
@@ -46,21 +46,21 @@ export default async function LocaleHomePage({ params }: LocalePageProps) {
       <section className="grid md:grid-cols-3 gap-6 max-w-5xl w-full mt-10">
         <Card className="p-5 text-center transition-all hover:border-accent hover:shadow-[0_0_20px_rgba(255,0,255,0.15)]">
           <h3 className="text-lg font-bold mb-3">{nav('discoverArtists')}</h3>
-          <p className="text-sm leading-relaxed text-gray-400">
+          <p className="text-sm leading-relaxed text-muted">
             {t('discoverArtistsBody')}
           </p>
         </Card>
 
         <Card className="p-5 text-center transition-all hover:border-secondary hover:shadow-[0_0_20px_rgba(0,255,255,0.15)]">
           <h3 className="text-lg font-bold mb-3">{nav('trackShows')}</h3>
-          <p className="text-sm leading-relaxed text-gray-400">
+          <p className="text-sm leading-relaxed text-muted">
             {t('trackShowsBody')}
           </p>
         </Card>
 
         <Card className="p-5 text-center transition-all hover:border-accent hover:shadow-[0_0_20px_rgba(255,0,255,0.15)]">
           <h3 className="text-lg font-bold mb-3">{nav('shareStories')}</h3>
-          <p className="text-sm leading-relaxed text-gray-400">
+          <p className="text-sm leading-relaxed text-muted">
             {t('shareStoriesBody')}
           </p>
         </Card>

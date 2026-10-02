@@ -146,7 +146,7 @@ export default function ArtistsPage() {
           query.trim() &&
           !error && (
             <div className="py-16 text-center">
-              <p className="text-gray-400">{t('noSearchResults')}</p>
+              <p className="text-muted">{t('noSearchResults')}</p>
             </div>
           )}
 

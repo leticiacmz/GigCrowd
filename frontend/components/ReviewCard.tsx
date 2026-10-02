@@ -37,7 +37,7 @@ export default function ReviewCard({
 
 
       <p className="
-        text-gray-200
+        text-foreground
         leading-relaxed
       ">
 

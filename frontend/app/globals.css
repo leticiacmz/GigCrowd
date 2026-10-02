@@ -2,51 +2,112 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #0F0F12;
-  --foreground: #FFFFFF;
-  --accent: #FF4D6D;
-  --secondary: #6C63FF;
-  --border: #27272A;
-  --card-bg: #18181B;
-  --card-hover: #27272A;
+/*
+ * Semantic design tokens.
+ *
+ * Every surface, text and border colour resolves through these variables, so
+ * light and dark mode stay in sync and text contrast is decided in one place
+ * instead of per component. Both themes are tuned to meet WCAG AA (4.5:1) for
+ * body text while keeping a visible hierarchy: `foreground` for primary text,
+ * `muted-foreground` for secondary text and `muted-subtle` for timestamps and
+ * other least-important text.
+ */
+:root,
+[data-theme='dark'] {
+  --background: #0f0f12;
+  --foreground: #fafafa;
+
+  /* Secondary text: timestamps, counts, helper copy. */
+  --muted-foreground: #a1a1aa;
+  /* Least important text, still AA on the dark surface. */
+  --muted-subtle: #8b8b95;
+
+  --interactive: #e4e4e7;
+  --disabled: #71717a;
+
+  /* Accent used for fills. */
+  --accent: #ff4d6d;
+  /* Accent used for text/icons, lightened for contrast on the dark surface. */
+  --accent-text: #ff6b85;
+  --secondary: #8b83ff;
+
+  /* Accent/secondary fills that carry readable label text. */
+  --accent-solid: #ff4d6d;
+  --secondary-solid: #5b52e6;
+  /* Label colour placed on an accent fill. */
+  --on-accent: #1a0710;
+
+  /* Gradient stops for filled surfaces (label text is white on these). */
+  --gradient-from: #d61f4b;
+  --gradient-to: #5b52e6;
+  /* Gradient stops for gradient *text*, tuned per theme for contrast. */
+  --gradient-text-from: #ff6b85;
+  --gradient-text-to: #8b83ff;
+
+  --border: #27272a;
+  --border-strong: #3f3f46;
+
+  --card-bg: #18181b;
+  --card-hover: #22222a;
+
+  /* Unread row background. */
+  --highlight: rgba(255, 77, 109, 0.1);
+  --success: #34d399;
+  --warning: #fbbf24;
 }
 
-/* Light mode colors - used when data-theme="light" */
-[data-theme="light"] {
-  --background: #F8F9FA;
-  --foreground: #1E293B;
-  --accent: #FF4D6D;
-  --secondary: #6C63FF;
-  --border: #CBD5E1;
-  --card-bg: #FFFFFF;
-  --card-hover: #F1F5F9;
+[data-theme='light'] {
+  --background: #fafaff;
+  --foreground: #0f172a;
+
+  --muted-foreground: #475569;
+  --muted-subtle: #5b6779;
+
+  --interactive: #1e293b;
+  --disabled: #8c97a8;
+
+  --accent: #ff4d6d;
+  --accent-text: #cf1b47;
+  --secondary: #4f46e5;
+
+  --accent-solid: #cf1b47;
+  --secondary-solid: #4338ca;
+  --on-accent: #ffffff;
+
+  --gradient-from: #d61f4b;
+  --gradient-to: #4338ca;
+  --gradient-text-from: #cf1b47;
+  --gradient-text-to: #4338ca;
+
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --card-bg: #ffffff;
+  --card-hover: #f1f5f9;
+
+  --highlight: #fff1f4;
+  --success: #047857;
+  --warning: #b45309;
 }
 
+/*
+ * Kept for the window before the pre-paint bootstrap script sets data-theme.
+ * It only covers the background/foreground pair so the first paint is not a
+ * white flash on a dark-mode device.
+ */
 @media (prefers-color-scheme: light) {
-  :root[data-theme=""] {
-    --background: #F8F9FA;
-    --foreground: #1E293B;
-    --card-bg: #FFFFFF;
+  :root[data-theme=''] {
+    --background: #fafaff;
+    --foreground: #0f172a;
+    --card-bg: #ffffff;
   }
 }
 
-/* Dark mode colors - used when data-theme="dark" */
-[data-theme="dark"] {
-  --background: #0F0F12;
-  --foreground: #FFFFFF;
-  --accent: #FF4D6D;
-  --secondary: #6C63FF;
-  --border: #27272A;
-  --card-bg: #18181B;
-  --card-hover: #27272A;
-}
-
 @media (prefers-color-scheme: dark) {
-  :root[data-theme=""] {
-    --background: #0F0F12;
-    --foreground: #FFFFFF;
-    --card-bg: #18181B;
+  :root[data-theme=''] {
+    --background: #0f0f12;
+    --foreground: #fafafa;
+    --card-bg: #18181b;
   }
 }
 
@@ -60,6 +121,25 @@ body {
   .text-balance {
     text-wrap: balance;
   }
+
+  /*
+   * Long user generated text (comments, reviews) must wrap instead of
+   * forcing horizontal scroll on narrow screens.
+   */
+  .break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
+
+/* Respect the OS reduced-motion setting for the theme cross-fade. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
 
 /* Custom scrollbar */
@@ -72,10 +152,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--border-strong);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--card-hover);
+  background: var(--muted-subtle);
 }

@@ -61,7 +61,7 @@ export default function RegisterPage() {
             GigCrowd
           </h1>
 
-          <p className="text-[18px] text-gray-400">{t('createAccount')}</p>
+          <p className="text-[18px] text-muted">{t('createAccount')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -126,7 +126,7 @@ export default function RegisterPage() {
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-gray-400">
+        <p className="mt-6 text-center text-sm text-muted">
           {t('alreadyHaveAccount')}{' '}
           <Link
             href={`/${locale}/login`}
