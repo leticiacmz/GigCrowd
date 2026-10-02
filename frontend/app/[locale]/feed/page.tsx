@@ -1,757 +1,442 @@
 'use client';
 
-import {
-  useEffect,
-  useState,
-  useCallback,
-} from 'react';
-
-import {
-  useRouter,
-  useParams,
-} from 'next/navigation';
-
-import RequireAuth from '../../../components/auth/RequireAuth';
-
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-
-import {
-  feedAPI,
-  userAPI,
-} from '../../lib/api';
-
-import { logout } from '../../lib/auth';
-
-import {
-  format,
-} from 'date-fns';
-
-import LoadingState from '../../../components/LoadingState';
-import EmptyState from '../../../components/EmptyState';
-import Avatar from '../../../components/ui/Avatar';
-import Card from '../../../components/ui/Card';
-import Button from '../../../components/ui/Button';
+import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { format } from 'date-fns';
 
+import RequireAuth from '@/components/auth/RequireAuth';
+import Avatar from '@/components/ui/Avatar';
+import Button from '@/components/ui/Button';
+import Card from '@/components/ui/Card';
+import LoadingState from '@/components/LoadingState';
+import EmptyState from '@/components/EmptyState';
+import { feedAPI, type FeedCategory } from '@/app/lib/api';
 
+const PAGE_SIZE = 15;
 
-const PAGE_SIZE = 10;
-
-
-interface Activity {
-
+interface FeedUser {
   id: string;
-
-  user: {
-
-    id: string;
-
-    username: string;
-
-    avatar_url?: string;
-
-  };
-
-
-  activity_type: string;
-
-  target_id?: string;
-
-  target_type?: string;
-
-  metadata?: any;
-
-  created_at: string;
-
-  event?: any;
-
-  post?: any;
-
+  username: string | null;
+  avatar_url?: string | null;
+  full_name?: string | null;
 }
 
+interface FeedArtist {
+  slug: string;
+  name: string;
+}
 
+interface FeedTarget {
+  kind:
+    | 'community_post'
+    | 'comment'
+    | 'event'
+    | 'profile';
+  id: string;
+  artist_slug?: string | null;
+  artist_slugs?: string[] | null;
+  username?: string | null;
+  title?: string | null;
+  starts_at?: string | null;
+  likes_count?: number;
+  comments_count?: number;
+}
+
+interface FeedItem {
+  id: string;
+  activity_type: string;
+  user: FeedUser;
+  artist?: FeedArtist | null;
+  content?: string | null;
+  rating?: number | null;
+  attendance_status?: string | null;
+  created_at: string;
+  target: FeedTarget | null;
+}
+
+/**
+ * The feed is one timeline with one filter. Each category narrows the same
+ * list of activities; there are no per-category views.
+ */
+const FILTERS: { key: FeedCategory; labelKey: string }[] = [
+  { key: 'all', labelKey: 'filter.all' },
+  { key: 'community', labelKey: 'filter.community' },
+  { key: 'reviews', labelKey: 'filter.reviews' },
+  { key: 'events', labelKey: 'filter.events' },
+  { key: 'social', labelKey: 'filter.social' },
+];
 
 function FeedContent() {
-  const router = useRouter();
-  const params = useParams();
-  const locale = (params?.locale as string) || 'en';
+  const params = useParams<{ locale: string }>();
+  const locale = params?.locale ?? 'en';
   const t = useTranslations('feed');
-  const tCommon = useTranslations('common');
-  const tActivity = useTranslations('feed.activityTypes');
 
+  const [items, setItems] = useState<FeedItem[]>([]);
+  const [category, setCategory] = useState<FeedCategory>('all');
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState(false);
 
-  const [
-    activities,
-    setActivities,
-  ] = useState<Activity[]>([]);
-
-
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
-
-
-  const [
-    loadingMore,
-    setLoadingMore,
-  ] = useState(false);
-
-
-  const [
-    error,
-    setError] = useState<string | null>(null);
-
-
-  const [
-    currentFilter,
-    setCurrentFilter] = useState('all');
-
-
-  const [
-    hasMore,
-    setHasMore
-  ] = useState(false);
-
-
-  const [
-    currentUser,
-    setCurrentUser,
-  ] = useState<any>(null);
-
-  const FILTERS = [
-    { key: 'all', label: t('allActivity') },
-    { key: 'attend_event', label: t('events') },
-    { key: 'create_post', label: t('posts') },
-    { key: 'follow', label: t('follows') },
-    { key: 'like_post', label: t('likes') },
-  ];
-
-  const loadFeed = useCallback(
-    async (
-      filter: string,
-      skip: number = 0,
-      append: boolean = false,
-    ) => {
-
-      if (!append) {
-
-        setLoading(true);
-
-        setError(null);
-
-      } else {
-
+  const load = useCallback(
+    async (nextCategory: FeedCategory, skip: number, append: boolean) => {
+      if (append) {
         setLoadingMore(true);
-
+      } else {
+        setLoading(true);
+        setError(false);
       }
-
 
       try {
-
-        const params: any = {
+        const data = await feedAPI.getFeed({
           skip,
           limit: PAGE_SIZE,
-        };
+          category: nextCategory,
+        });
 
-        if (filter !== 'all') {
+        const activities: FeedItem[] = data.activities ?? [];
 
-          params.activity_type = filter;
-
+        setItems((previous) =>
+          append ? [...previous, ...activities] : activities
+        );
+        setHasMore(activities.length === PAGE_SIZE);
+      } catch {
+        if (!append) {
+          setError(true);
+          setItems([]);
         }
-
-
-        const data =
-          await feedAPI.getFeed(params);
-
-
-        if (append) {
-
-          setActivities(
-            (prev) => [
-              ...prev,
-              ...data,
-            ]
-          );
-
-        } else {
-
-          setActivities(data);
-
-        }
-
-
-        setHasMore(
-          data.length === PAGE_SIZE
-        );
-
-
-      } catch(err) {
-
-        console.error(
-          'Failed to load feed:',
-          err
-        );
-
-        setError(
-          t('errorLoading')
-        );
-
-
       } finally {
-
         setLoading(false);
-
         setLoadingMore(false);
-
       }
-
     },
     []
   );
 
-
   useEffect(() => {
-
-
-    loadFeed(currentFilter);
-
-    loadCurrentUser();
-
-
-  }, []);
-
-
-  useEffect(() => {
-
-    loadFeed(currentFilter);
-
-  }, [currentFilter, loadFeed]);
-
-
-  async function loadCurrentUser() {
-
-
-    try {
-
-
-      const user =
-        await userAPI.getMe();
-
-
-      setCurrentUser(
-        user
-      );
-
-
-    } catch(error) {
-
-
-      console.error(
-        'Failed to load user:',
-        error
-      );
-
-
-    }
-
-
-  }
-
-
-  function handleLogout() {
-
-
-    // Uses the shared logout helper so the auth-changed event fires and
-    // any active route guard reacts, then returns to the localized home.
-    logout();
-
-
-    router.push(
-      `/${locale}`
-    );
-
-
-  }
-
-
-  function handleLoadMore() {
-
-    loadFeed(
-      currentFilter,
-      activities.length,
-      true,
-    );
-
-  }
-
-
-  function handleRetry() {
-
-    loadFeed(
-      currentFilter,
-      0,
-      false,
-    );
-
-  }
-
-
-  function handleFilterChange(
-    filter: string
-  ) {
-
-    setCurrentFilter(filter);
-
-    setActivities([]);
-
-  }
-
-
-  function getActivityText(
-    activity: Activity
-  ) {
-
-
-    const username =
-      activity.user.username;
-
-
-    switch(
-      activity.activity_type
-    ) {
-
-
-      case 'follow':
-
-        return tActivity('follow');
-
-
-      case 'attend_event':
-
-        const status =
-          activity.metadata?.status ||
-          'going';
-
-        return tActivity('attend_event');
-
-
-      case 'create_post':
-
-        return tActivity('create_post');
-
-
-      case 'like_post':
-
-        return tActivity('like_post');
-
-
-      default:
-
-        return `${username} did something`;
-
-
-    }
-
-
-  }
-
-
-  return (
-
-    <div className="min-h-screen">
-
-      <main
-        className="
-          max-w-4xl
-          mx-auto
-          px-4
-          py-8
-        "
-      >
-
-        <h1
-          className="
-            text-[28px]
-            font-bold
-            mb-6
-          "
-        >
-
-          {t('title')}
-
-        </h1>
-
-
-        <div
-          className="
-            flex
-            gap-2
-            mb-6
-            flex-wrap
-          "
-        >
-
-          {FILTERS.map(
-            (filter) => (
-              <Button
-                key={filter.key}
-                variant={
-                  currentFilter === filter.key
-                    ? 'primary'
-                    : 'ghost'
-                }
-                size="sm"
-                onClick={() =>
-                  handleFilterChange(
-                    filter.key
-                  )
-                }
-              >
-                {filter.label}
-              </Button>
-            )
-          )}
-
-        </div>
-
-
-        {error && (
-
-          <div
-            className="
-              mb-4
-              rounded-lg
-              bg-red-500/20
-              border
-              border-red-500
-              p-4
-              text-center
-            "
-          >
-
-            <p className="text-red-300 mb-3">
-              {error}
-            </p>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRetry}
-            >
-              {tCommon('retry')}
-            </Button>
-
-          </div>
-
-        )}
-
-
-        {
-          loading ? (
-
-
-            <LoadingState message={t('loading')} />
-
-
-          ) : activities.length === 0 && !error ? (
-
-
-            <EmptyState
-              icon="🎵"
-              title={t('noActivity')}
-              description={t('followUsers')}
-            />
-
-
-          ) : (
-
-
-            <div
-              className="
-                space-y-4
-              "
-            >
-
-              {
-                activities.map(
-                  (
-                    activity
-                  ) => (
-
-
-                    <Card
-                      key={activity.id}
-                    >
-
-                      <div
-                        className="
-                          flex
-                          items-start
-                          gap-4
-                        "
-                      >
-
-                        <Link
-                          href={`/profile/${activity.user.username}`}
-                        >
-                          <Avatar
-                            src={activity.user.avatar_url}
-                            fallback={activity.user.username.charAt(0).toUpperCase()}
-                            size="md"
-                          />
-                        </Link>
-
-
-                        <div
-                          className="
-                            flex-1
-                          "
-                        >
-
-                          <p
-                            className="
-                              text-gray-300
-                              mb-2
-                            "
-                          >
-
-                            <Link
-
-                              href={
-                                `/profile/${activity.user.username}`
-                              }
-
-                              className="
-                                font-semibold
-                                hover:text-accent
-                              "
-
-                            >
-
-                              @{activity.user.username}
-
-                            </Link>
-
-                            {' '}
-
-                            {
-                              getActivityText(
-                                activity
-                              )
-                              .replace(
-                                activity.user.username,
-                                ''
-                              )
-                            }
-
-                          </p>
-
-
-
-
-                          {
-                            activity.event && (
-
-
-                              <div
-                                className="
-                                  bg-card-hover
-                                  rounded-lg
-                                  p-3
-                                "
-                              >
-
-                                <h3
-                                  className="
-                                    font-semibold
-                                  "
-                                >
-
-                                  {
-                                    activity.event.title
-                                  }
-
-                                </h3>
-
-                                <p
-                                  className="
-                                    text-sm
-                                    text-gray-400
-                                  "
-                                >
-
-                                  {
-                                    format(
-                                      new Date(
-                                        activity.event.date
-                                      ),
-                                      'MMM d, yyyy'
-                                    )
-                                  }
-
-                                  {' • '}
-
-                                  {
-                                    activity.event.location
-                                  }
-
-                                </p>
-
-                              </div>
-
-                            )
-                          }
-
-
-
-
-                          {
-                            activity.post && (
-
-
-                              <div
-                                className="
-                                  bg-card-hover
-                                  rounded-lg
-                                  p-3
-                                "
-                              >
-
-
-                                {
-                                  activity.post.content && (
-
-
-                                    <p
-                                      className="
-                                        text-gray-300
-                                      "
-                                    >
-
-                                      {
-                                        activity.post.content
-                                      }
-
-                                    </p>
-
-                                  )
-                                }
-
-
-
-
-                                {
-                                  activity.post.media_url && (
-
-
-                                    <img
-
-                                      src={
-                                        activity.post.media_url
-                                      }
-
-                                      alt="Post media"
-
-                                      className="
-                                        mt-2
-                                        rounded-lg
-                                        max-w-full
-                                      "
-
-                                    />
-
-                                  )
-                                }
-
-
-                              </div>
-
-                            )
-                          }
-
-
-
-
-                          <p
-                            className="
-                              text-xs
-                              text-gray-500
-                              mt-2
-                            "
-                          >
-
-                            {
-                              format(
-                                new Date(
-                                  activity.created_at
-                                ),
-                                'MMM d, yyyy • h:mm a'
-                              )
-                            }
-
-                          </p>
-
-                        </div>
-
-                      </div>
-
-                    </Card>
-
-                  )
-                )
-              }
-
-
-              {hasMore && (
-
-                <div className="text-center pt-4">
-
-                  <Button
-                    variant="outline"
-                    onClick={handleLoadMore}
-                    disabled={loadingMore}
-                  >
-                    {loadingMore ? t('loading') : t('loadMore')}
-                  </Button>
-
-                </div>
-
-              )}
-
-            </div>
-
-          )
-        }
-
-
-      </main>
-
-
-    </div>
-
+    load(category, 0, false);
+  }, [category, load]);
+
+  const onFilterChange = useCallback(
+    (next: FeedCategory) => {
+      // Re-selecting the active filter must not wipe the timeline: setting
+      // the same value would not re-trigger the effect, so the list would be
+      // cleared and never repopulated.
+      if (next === category) {
+        return;
+      }
+
+      setCategory(next);
+    },
+    [category]
   );
 
+  const loadMore = useCallback(() => {
+    load(category, items.length, true);
+  }, [category, items.length, load]);
 
+  const retry = useCallback(() => {
+    load(category, 0, false);
+  }, [category, load]);
+
+  return (
+    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+      <header className="mb-6">
+        <h1 className="text-2xl font-bold sm:text-[28px]">{t('title')}</h1>
+        <p className="mt-1 text-sm text-muted">{t('subtitle')}</p>
+      </header>
+
+      <div
+        className="mb-6 flex flex-wrap items-center gap-2"
+        role="group"
+        aria-label={t('filterLabel')}
+      >
+        <span className="mr-1 text-sm text-muted">{t('filterLabel')}</span>
+
+        {FILTERS.map((filter) => {
+          const isActive = filter.key === category;
+
+          return (
+            <button
+              key={filter.key}
+              type="button"
+              onClick={() => onFilterChange(filter.key)}
+              aria-pressed={isActive}
+              data-testid={`feed-filter-${filter.key}`}
+              className={[
+                'min-h-[40px] rounded-full border px-4 text-sm transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                isActive
+                  ? 'border-transparent bg-accent-solid text-on-accent font-semibold'
+                  : 'border-border bg-card-bg text-muted hover:bg-card-hover hover:text-foreground',
+              ].join(' ')}
+            >
+              {t(filter.labelKey)}
+            </button>
+          );
+        })}
+      </div>
+
+      {loading ? (
+        <LoadingState message={t('loading')} />
+      ) : error ? (
+        <Card className="p-6 text-center">
+          <p className="mb-4 text-muted">{t('error')}</p>
+          <Button onClick={retry} variant="outline">
+            {t('retry')}
+          </Button>
+        </Card>
+      ) : items.length === 0 ? (
+        <EmptyState
+          title={category === 'all' ? t('emptyTitle') : t('emptyFiltered')}
+          description={
+            category === 'all' ? t('emptyDescription') : undefined
+          }
+        />
+      ) : (
+        <ol className="flex flex-col gap-4" data-testid="feed-list">
+          {items.map((item) => (
+            <li key={item.id}>
+              <FeedRow item={item} locale={locale} />
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {!loading && !error && items.length > 0 && (
+        <div className="mt-6 flex flex-col items-center gap-3">
+          {hasMore ? (
+            <Button
+              onClick={loadMore}
+              disabled={loadingMore}
+              variant="outline"
+              data-testid="feed-load-more"
+            >
+              {loadingMore ? t('loading') : t('loadMore')}
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-subtle">{t('endOfFeed')}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
+function FeedRow({ item, locale }: { item: FeedItem; locale: string }) {
+  const t = useTranslations('feed');
+
+  const { verb, target } = useMemo(
+    () => describeActivity(item, t, locale),
+    [item, locale, t]
+  );
+
+  const actorName = item.user.username
+    ? `@${item.user.username}`
+    : t('activity.followNoUsername');
+
+  return (
+    <Card className="p-4 sm:p-5" data-testid="feed-item">
+      <div className="flex items-start gap-3">
+        {item.user.username ? (
+          <Link
+            href={`/${locale}/profile/${item.user.username}`}
+            className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <Avatar
+              src={item.user.avatar_url ?? undefined}
+              alt={item.user.username}
+              size="md"
+            />
+          </Link>
+        ) : (
+          <Avatar alt="" size="md" />
+        )}
+
+        <div className="min-w-0 flex-1">
+          <p className="text-sm leading-snug text-muted">
+            {item.user.username ? (
+              <Link
+                href={`/${locale}/profile/${item.user.username}`}
+                className="font-semibold text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                data-testid="feed-actor-link"
+              >
+                {actorName}
+              </Link>
+            ) : (
+              <span className="font-semibold text-foreground">
+                {actorName}
+              </span>
+            )}{' '}
+            <span data-testid="feed-verb">{verb}</span>
+          </p>
+
+          {item.content && (
+            <p className="mt-2 whitespace-pre-wrap break-anywhere text-[15px] leading-relaxed text-foreground">
+              {item.content}
+            </p>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+            {item.rating ? (
+              <span className="text-sm text-warning">
+                {'★'.repeat(item.rating)}
+                <span className="sr-only">
+                  {t('rating', { rating: item.rating })}
+                </span>
+              </span>
+            ) : null}
+
+            {target.href ? (
+              <Link
+                href={target.href}
+                data-testid="feed-target-link"
+                className="inline-flex min-h-[32px] items-center text-sm font-medium text-accent-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {target.label}
+              </Link>
+            ) : null}
+
+            <time
+              dateTime={item.created_at}
+              data-testid="feed-timestamp"
+              className="text-xs text-muted-subtle"
+            >
+              {format(new Date(item.created_at), 'MMM d, yyyy HH:mm')}
+            </time>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 /**
- * The feed is personalized, so it requires a session. Signed-out visitors
- * are sent to the localized home page.
+ * Turn an activity into a sentence plus an optional navigation target.
+ *
+ * Everything the sentence needs (artist identity, the show, the followed
+ * user) comes from the same payload, so a feed row can be fully rendered
+ * and navigated from one request.
  */
+function describeActivity(
+  item: FeedItem,
+  t: ReturnType<typeof useTranslations<'feed'>>,
+  locale: string
+) {
+  const artistName = item.artist?.name ?? null;
+
+  switch (item.activity_type) {
+    case 'create_community_post': {
+      return {
+        verb: artistName
+          ? t('activity.create_community_post', { artist: artistName })
+          : t('activity.create_community_postNoArtist'),
+        target: communityTarget(item, artistName, t, locale),
+      };
+    }
+
+    case 'comment_post': {
+      return {
+        verb: t('activity.comment_post'),
+        target: communityTarget(item, artistName, t, locale),
+      };
+    }
+
+    case 'like_post': {
+      return {
+        verb: t('activity.like_post'),
+        target: communityTarget(item, artistName, t, locale),
+      };
+    }
+
+    case 'follow': {
+      const followedUsername = item.target?.username ?? null;
+
+      return {
+        verb: followedUsername
+          ? t('activity.follow', { username: `@${followedUsername}` })
+          : t('activity.followNoUsername'),
+        target: followedUsername
+          ? {
+              href: `/${locale}/profile/${followedUsername}`,
+              label: t('viewProfile'),
+            }
+          : { href: undefined, label: '' },
+      };
+    }
+
+    case 'create_review': {
+      return {
+        verb: t('activity.create_review'),
+        target: eventTarget(item, t, locale),
+      };
+    }
+
+    case 'attend_event': {
+      const status = item.attendance_status as
+        | 'going'
+        | 'maybe'
+        | 'went'
+        | null;
+
+      const statusLabel = status ? t(`status.${status}`) : '';
+
+      return {
+        verb: [t('activity.attend_event'), statusLabel]
+          .filter(Boolean)
+          .join(' · '),
+        target: eventTarget(item, t, locale),
+      };
+    }
+
+    default:
+      return {
+        verb: t('activity.followNoUsername'),
+        target: { href: undefined, label: '' },
+      };
+  }
+}
+
+function communityTarget(
+  item: FeedItem,
+  artistName: string | null,
+  t: ReturnType<typeof useTranslations<'feed'>>,
+  locale: string
+) {
+  const slug = item.target?.artist_slug ?? item.artist?.slug ?? null;
+
+  return {
+    href: slug ? `/${locale}/artists/${slug}/community` : undefined,
+    label: artistName
+      ? `${artistName} · ${t('viewPost')}`
+      : t('viewPost'),
+  };
+}
+
+function eventTarget(
+  item: FeedItem,
+  t: ReturnType<typeof useTranslations<'feed'>>,
+  locale: string
+) {
+  return {
+    href: item.target?.id
+      ? `/${locale}/events/${item.target.id}`
+      : undefined,
+    label: item.target?.title
+      ? `${item.target.title} · ${t('viewEvent')}`
+      : t('viewEvent'),
+  };
+}
+
 export default function FeedPage() {
-
-  const params = useParams();
-
-  const locale =
-    (params?.locale as string) || 'en';
-
+  const params = useParams<{ locale: string }>();
+  const locale = params?.locale ?? 'en';
 
   return (
     <RequireAuth locale={locale}>
       <FeedContent />
     </RequireAuth>
   );
-
 }
