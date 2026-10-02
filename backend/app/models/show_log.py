@@ -23,6 +23,11 @@ class ShowLogBase(BaseModel):
 
     review: Optional[str] = None
 
+    # Optional photo of the show, hosted by the project's media service.
+    photo_url: Optional[str] = None
+
+    photo_public_id: Optional[str] = None
+
 
 
 class ShowLogCreate(ShowLogBase):
@@ -39,6 +44,10 @@ class ShowLogUpdate(BaseModel):
 
     review: Optional[str] = None
 
+    photo_url: Optional[str] = None
+
+    photo_public_id: Optional[str] = None
+
 
 
 class ReviewUpsert(BaseModel):
@@ -51,6 +60,10 @@ class ReviewUpsert(BaseModel):
 
     review: Optional[str] = None
 
+    photo_url: Optional[str] = None
+
+    photo_public_id: Optional[str] = None
+
 
 
 class ShowLogInDB(ShowLogBase):
@@ -60,6 +73,8 @@ class ShowLogInDB(ShowLogBase):
     user_id: str
 
     date: Optional[datetime] = None
+
+    reviewed_at: Optional[datetime] = None
 
     created_at: datetime
 

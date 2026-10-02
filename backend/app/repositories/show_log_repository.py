@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Optional
 
 from app.repositories.base import BaseRepository
 from app.utils.ids import id_matches, ids_match
@@ -32,20 +33,128 @@ class ShowLogRepository(BaseRepository):
         }
 
 
+    def pair_query(
+        self,
+        user_id: str,
+        event_id: str,
+    ) -> dict:
+        """The query for one user's log of one event.
+
+        Exposed so the service can reach an existing log in the same way the
+        repository does, instead of restating the matching rule.
+        """
+
+        return self._pair_query(
+            user_id,
+            event_id,
+        )
+
+
     async def get_user_logs(
         self,
         user_id: str,
+        status=None,
+        skip: int = 0,
+        limit: Optional[int] = 50,
     ):
+        """One user's show logs, most recent first.
 
-        cursor = self.collection.find(
-            id_matches(
-                "user_id",
-                user_id,
+        A single log exists per event, so filtering by status returns each
+        event in exactly one state. The logs are ordered by the event date the
+        log records, which is the field that answers "when was this show?".
+        """
+
+        query = id_matches("user_id", user_id)
+
+        if status is not None:
+
+            query["status"] = (
+                status.value
+                if hasattr(status, "value")
+                else status
             )
+
+        cursor = (
+            self.collection
+            .find(query)
+            .sort("date", -1)
+            .skip(max(0, skip))
         )
+
+        if limit is not None:
+
+            cursor = cursor.limit(limit)
 
         return await cursor.to_list(
             length=None,
+        )
+
+
+    @staticmethod
+    def _review_query(
+        user_id: str,
+    ) -> dict:
+        """Match the logs of one user that carry a review.
+
+        A review needs more than a rating: text or a photo is what makes it
+        worth showing, so a bare star rating is not counted as one.
+        """
+
+        return {
+            **id_matches("user_id", user_id),
+            # `$exists` is part of the clause on purpose: in MongoDB `$nin`
+            # also matches a document where the field is absent, which would
+            # make every bare star rating count as a review.
+            "$or": [
+                {
+                    "review": {
+                        "$exists": True,
+                        "$nin": [None, ""],
+                    }
+                },
+                {
+                    "photo_url": {
+                        "$exists": True,
+                        "$nin": [None, ""],
+                    }
+                },
+            ],
+        }
+
+
+    async def get_user_reviews(
+        self,
+        user_id: str,
+        skip: int = 0,
+        limit: Optional[int] = 50,
+    ):
+        """The logs that carry a review, most recently reviewed first."""
+
+        cursor = (
+            self.collection
+            .find(
+                self._review_query(user_id),
+            )
+            .sort("reviewed_at", -1)
+            .skip(max(0, skip))
+        )
+
+        if limit is not None:
+
+            cursor = cursor.limit(limit)
+
+        return await cursor.to_list(
+            length=None,
+        )
+
+
+    async def count_user_reviews(
+        self,
+        user_id: str,
+    ) -> int:
+
+        return await self.collection.count_documents(
+            self._review_query(user_id),
         )
 
 
@@ -90,6 +199,32 @@ class ShowLogRepository(BaseRepository):
                 **ids_match("event_id", [event_id]),
                 "status": status,
             }
+        )
+
+
+    async def count_user_logs(
+        self,
+        user_id: str,
+        status=None,
+    ) -> int:
+        """How many logs a user holds, optionally in one status.
+
+        Counted from the collection rather than from the length of a page, so
+        the number a profile shows always matches the full list behind it.
+        """
+
+        query = id_matches("user_id", user_id)
+
+        if status is not None:
+
+            query["status"] = (
+                status.value
+                if hasattr(status, "value")
+                else status
+            )
+
+        return await self.collection.count_documents(
+            query
         )
 
 

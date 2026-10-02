@@ -288,11 +288,22 @@ async def update_show_log(
 
     service = get_show_log_service()
 
-    log = await service.update_show_log(
-        current_user["_id"],
-        event_id,
-        show_log_data,
-    )
+    try:
+
+        log = await service.update_show_log(
+            current_user["_id"],
+            event_id,
+            show_log_data,
+        )
+
+    # Same guard as `create_show_log`: an update can be rejected because the
+    # event does not exist, has no date, or has not happened yet.
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     if not log:
 
@@ -395,6 +406,8 @@ async def update_review(
             event_id=event_id,
             rating=review_data.rating,
             review=review_data.review,
+            photo_url=review_data.photo_url,
+            photo_public_id=review_data.photo_public_id,
         )
 
     except ValueError as exc:
