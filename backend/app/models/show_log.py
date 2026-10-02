@@ -41,6 +41,18 @@ class ShowLogUpdate(BaseModel):
 
 
 
+class ReviewUpsert(BaseModel):
+    """The body accepted when a review is written on its own."""
+
+    rating: int = Field(
+        ge=1,
+        le=5,
+    )
+
+    review: Optional[str] = None
+
+
+
 class ShowLogInDB(ShowLogBase):
 
     id: str = Field(alias="_id")

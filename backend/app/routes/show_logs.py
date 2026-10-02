@@ -17,6 +17,7 @@ from app.database.connection import (
 
 from app.models.show_log import (
     AttendanceStatus,
+    ReviewUpsert,
     ShowLogCreate,
     ShowLogResponse,
     ShowLogUpdate,
@@ -95,6 +96,31 @@ async def _record_show_log_activity(
             "rating": getattr(log, "rating", None),
             "status": getattr(log, "status", None),
             "review": review or None,
+        },
+    )
+
+
+async def _record_review_activity(
+    current_user: dict,
+    log,
+) -> None:
+    """Publish a review written through the dedicated review endpoint.
+
+    Writing a review is the same act the feed already records for a show log
+    that carries review text, so both routes feed one timeline.
+    """
+
+    await ActivityService.record(
+        current_user["_id"],
+        ActivityType.CREATE_REVIEW,
+        target_id=str(log.id),
+        target_type="show_log",
+        metadata={
+            "rating": getattr(log, "rating", None),
+            "status": getattr(log, "status", None),
+            "review": (
+                getattr(log, "review", None) or ""
+            ).strip() or None,
         },
     )
 
@@ -352,6 +378,8 @@ async def update_review(
 
     event_id: str,
 
+    review_data: ReviewUpsert,
+
     current_user: dict = Depends(
         get_current_active_user
     ),
@@ -360,11 +388,25 @@ async def update_review(
 
     service = get_show_log_service()
 
-    log = await service.update_review(
-        user_id=current_user["_id"],
-        event_id=event_id,
-        rating=review_data.rating,
-        review=review_data.review,
+    try:
+
+        log = await service.update_review(
+            user_id=current_user["_id"],
+            event_id=event_id,
+            rating=review_data.rating,
+            review=review_data.review,
+        )
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    await _record_review_activity(
+        current_user,
+        log,
     )
 
     return ShowLogResponse(
@@ -388,36 +430,20 @@ async def delete_review(
 
     service = get_show_log_service()
 
-    log = await service.delete_review(
-        user_id=current_user["_id"],
-        event_id=event_id,
-    )
+    try:
+
+        log = await service.delete_review(
+            user_id=current_user["_id"],
+            event_id=event_id,
+        )
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
 
     return ShowLogResponse(
         **log.model_dump()
-    )
-    
-@router.delete(
-    "/{event_id}/review",
-    response_model=ShowLogResponse
-)
-async def delete_review(
-
-    event_id: str,
-
-    current_user: dict = Depends(
-        get_current_active_user
-    ),
-
-):
-
-    service = get_show_log_service()
-
-    show_log = await service.delete_review(
-        current_user["_id"],
-        event_id,
-    )
-
-    return ShowLogResponse(
-        **show_log.model_dump()
     )
