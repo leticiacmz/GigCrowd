@@ -10,6 +10,9 @@ import { isAuthenticated } from '@/app/lib/auth';
 import { useAuthAction } from '@/app/lib/use-auth-action';
 import FollowButton from '@/components/profile/FollowButton';
 import ProfileStats from '@/components/profile/ProfileStats';
+import UserList, {
+  type ConnectionDirection,
+} from '@/components/profile/UserList';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
@@ -62,6 +65,14 @@ export default function ProfilePage() {
 
 
   const [editing, setEditing] = useState(false);
+
+
+  /*
+   * Which social-graph list is open, if any. Tapping the same count a second
+   * time closes it, so the list never covers the profile twice.
+   */
+  const [connections, setConnections] =
+    useState<ConnectionDirection | null>(null);
 
 
   const [form, setForm] = useState({
@@ -199,7 +210,7 @@ export default function ProfilePage() {
 
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-400">{t('notFound')}</p>
+        <p className="text-muted">{t('notFound')}</p>
       </div>
     );
 
@@ -248,7 +259,7 @@ export default function ProfilePage() {
                 </h1>
 
 
-                <p className="text-gray-400">
+                <p className="text-muted">
                   {user.email}
                 </p>
 
@@ -307,29 +318,57 @@ export default function ProfilePage() {
 
 
 
-          <div className="flex gap-8 mt-6">
+          <div className="flex gap-2 mt-6">
 
 
-            <div>
-              <p className="text-[24px] font-bold">
+            <button
+              type="button"
+              onClick={() =>
+                setConnections(
+                  connections === 'followers'
+                    ? null
+                    : 'followers'
+                )
+              }
+              aria-pressed={connections === 'followers'}
+              data-testid="profile-followers-toggle"
+              className="flex min-h-[56px] flex-col items-start rounded-lg px-3 py-1 text-left transition-colors hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <span className="text-[24px] font-bold">
                 {stats?.followers_count ?? 0}
-              </p>
+              </span>
 
-              <p className="text-gray-400">{t('followers')}</p>
+              <span className="text-muted">
+                {t('followers')}
+              </span>
 
-            </div>
+            </button>
 
 
 
-            <div>
+            <button
+              type="button"
+              onClick={() =>
+                setConnections(
+                  connections === 'following'
+                    ? null
+                    : 'following'
+                )
+              }
+              aria-pressed={connections === 'following'}
+              data-testid="profile-following-toggle"
+              className="flex min-h-[56px] flex-col items-start rounded-lg px-3 py-1 text-left transition-colors hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
 
-              <p className="text-[24px] font-bold">
+              <span className="text-[24px] font-bold">
                 {stats?.following_count ?? 0}
-              </p>
+              </span>
 
-              <p className="text-gray-400">{t('following')}</p>
+              <span className="text-muted">
+                {t('following')}
+              </span>
 
-            </div>
+            </button>
 
 
           </div>
@@ -407,7 +446,7 @@ export default function ProfilePage() {
 
                   {
                     user.bio &&
-                    <p className="text-gray-400">
+                    <p className="text-muted">
                       {user.bio}
                     </p>
                   }
@@ -415,7 +454,7 @@ export default function ProfilePage() {
 
                   {
                     user.location &&
-                    <p className="text-gray-400">
+                    <p className="text-muted">
                       📍 {user.location}
                     </p>
                   }
@@ -429,7 +468,7 @@ export default function ProfilePage() {
 
 
 
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted-subtle">
 
               Joined {
                 format(
@@ -453,6 +492,21 @@ export default function ProfilePage() {
         {
           stats &&
           <ProfileStats stats={stats}/>
+        }
+
+
+
+        {
+          connections &&
+          <Card className="p-4 sm:p-5">
+
+            <UserList
+              locale={locale}
+              username={user.username}
+              direction={connections}
+            />
+
+          </Card>
         }
 
 

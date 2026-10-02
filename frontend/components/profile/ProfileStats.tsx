@@ -60,9 +60,9 @@ export default function ProfileStats({
         <div
           key={card.label}
           className="
-            bg-gray-900
+            bg-card-hover
             border
-            border-gray-800
+            border-border
             rounded-lg
             p-5
             text-center
@@ -79,7 +79,7 @@ export default function ProfileStats({
 
           <div
             className="
-              text-gray-400
+              text-muted
               mt-2
             "
           >

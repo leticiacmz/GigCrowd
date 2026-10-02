@@ -50,9 +50,9 @@ export default function ProfileHeader({
 
     <div
       className="
-        bg-gray-900
+        bg-card-hover
         border
-        border-gray-800
+        border-border
         rounded-lg
         p-6
       "
@@ -141,7 +141,7 @@ export default function ProfileHeader({
 
                   <p
                     className="
-                      text-gray-400
+                      text-muted
                     "
                   >
 
@@ -174,8 +174,8 @@ export default function ProfileHeader({
                   className="
                     px-4
                     py-2
-                    bg-gray-800
-                    hover:bg-gray-700
+                    bg-card-hover
+                    hover:bg-card-hover
                     rounded-lg
                     transition-colors
                   "
@@ -231,7 +231,7 @@ export default function ProfileHeader({
 
               <p
                 className="
-                  text-gray-400
+                  text-muted
                   text-sm
                 "
               >
@@ -270,7 +270,7 @@ export default function ProfileHeader({
 
               <p
                 className="
-                  text-gray-400
+                  text-muted
                   text-sm
                 "
               >
@@ -314,7 +314,7 @@ export default function ProfileHeader({
           <p
             className="
               mt-6
-              text-gray-300
+              text-foreground
             "
           >
 
@@ -338,7 +338,7 @@ export default function ProfileHeader({
           <p
             className="
               mt-2
-              text-gray-400
+              text-muted
             "
           >
 
@@ -362,7 +362,7 @@ export default function ProfileHeader({
           <p
             className="
               mt-2
-              text-gray-400
+              text-muted
             "
           >
 
