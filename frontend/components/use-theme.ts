@@ -41,7 +41,8 @@ function applyTheme(theme: ResolvedTheme) {
 
 /**
  * Keeps the resolved theme in sync with the pre-paint bootstrap script
- * injected by `app/layout.tsx`, so there is no flash and no hydration conflict.
+ * injected by `app/[locale]/layout.tsx`, so there is no flash and no hydration
+ * conflict.
  */
 export function useTheme() {
   // The first render must be identical on the server and the client, so the
@@ -56,7 +57,16 @@ export function useTheme() {
 
     if (applied === 'light' || applied === 'dark') {
       setTheme(applied);
+      return;
     }
+
+    // The pre-paint script only reaches documents that render the layout's
+    // <head>. An error document does not, so the theme is resolved and
+    // applied here instead of leaving the page without one.
+    const resolved = readStoredTheme();
+
+    applyTheme(resolved);
+    setTheme(resolved);
   }, []);
 
   const toggleTheme = useCallback(() => {
