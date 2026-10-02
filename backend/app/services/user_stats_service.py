@@ -191,6 +191,15 @@ class UserStatsService:
 
         now = datetime.now(UTC)
 
+        # A festival is somewhere the person has been, so it is counted from
+        # attended shows only. Counting a show someone is merely going to would
+        # advertise a festival the profile's own list cannot show.
+        attended_event_ids = {
+            str(log.get("event_id"))
+            for log in logs
+            if log.get("status") == "went"
+        }
+
         for event in events:
 
             artists.update(
@@ -199,7 +208,7 @@ class UserStatsService:
 
             festival = festival_key(event)
 
-            if festival:
+            if festival and str(event.get("_id")) in attended_event_ids:
                 festivals.add(festival)
 
             # Whether the show is still ahead is the shared schedule rule, so

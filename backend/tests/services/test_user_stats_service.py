@@ -155,6 +155,64 @@ class TestRealStatistics:
 
         assert stats["upcoming_events"] == 2
 
+
+class TestFestivalsCountedFromAttendance:
+    """A festival figure must equal the list behind it.
+
+    The profile's festivals list only reads attended shows, so a figure counted
+    from any log at all would advertise a festival the profile cannot show.
+    """
+
+    @pytest.fixture
+    def festival_db(self, now):
+        return FakeDatabase(
+            {
+                "users": [make_user(ALICE, "alice")],
+                "show_logs": [
+                    {
+                        "_id": "log-went",
+                        "user_id": ALICE,
+                        "event_id": "festival-edition-2026",
+                        "status": "went",
+                    },
+                    {
+                        "_id": "log-going",
+                        "user_id": ALICE,
+                        "event_id": "festival-edition-2027",
+                        "status": "going",
+                    },
+                ],
+                "events": [
+                    {
+                        "_id": "festival-edition-2026",
+                        "title": "Nova Fields 2026",
+                        "artist_slugs": [NOVA],
+                        "starts_at": now - timedelta(days=30),
+                        "festival": {
+                            "series_id": "1125073",
+                            "name": "Nova Fields",
+                        },
+                    },
+                    {
+                        "_id": "festival-edition-2027",
+                        "title": "Nova Fields 2027",
+                        "artist_slugs": [NOVA],
+                        "starts_at": now + timedelta(days=200),
+                        "festival": {
+                            "series_id": "1125073",
+                            "name": "Nova Fields",
+                        },
+                    },
+                ],
+            }
+        )
+
+    @pytest.mark.asyncio
+    async def test_only_an_attended_festival_is_counted(self, festival_db):
+        stats = await build_service(festival_db).get_user_stats("alice")
+
+        assert stats["festivals_count"] == 1
+
     @pytest.mark.asyncio
     async def test_a_user_with_no_activity_reports_zeroes(self, db):
         stats = await build_service(db).get_user_stats("bob")
