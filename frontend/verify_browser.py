@@ -5,9 +5,12 @@ Data is seeded through the real API before the browser runs, so nothing in this
 script is faked: every post, comment, reply, like, follow and review below was
 written by a real backend call and is read back through the real endpoints.
 
-Usage:  python verify_browser.py
+Usage:
+    python verify_browser.py                       # against the dev server
+    BASE=http://localhost:3100 python verify_browser.py
 """
 
+import os
 import random
 import re
 import string
@@ -19,8 +22,8 @@ from pathlib import Path
 import httpx
 from playwright.sync_api import sync_playwright
 
-BASE = "http://localhost:3100"
-API = "http://localhost:8000"
+BASE = os.environ.get("BASE", "http://localhost:3000").rstrip("/")
+API = os.environ.get("API", "http://localhost:8000").rstrip("/")
 
 results = []
 
@@ -287,6 +290,13 @@ with sync_playwright() as p:
 
     ctx = browser.new_context(color_scheme="light")
     pg = ctx.new_page()
+    # Hydration problems surface as console errors, not as page errors, so
+    # they have to be collected separately to be caught at all.
+    console = []
+    pg.on(
+        "console",
+        lambda message: console.append(message.text) if message.type == "error" else None,
+    )
     pg.goto(f"{BASE}/en", wait_until="networkidle")
     check(
         "theme: system light resolves to light",
@@ -329,6 +339,36 @@ with sync_playwright() as p:
         "theme: both icons render",
         pg.locator("button[data-testid='theme-toggle'] svg").count() >= 2,
     )
+
+    # Exactly one icon may be showing, and it has to be the one that belongs
+    # to the theme now on screen. The pair is swapped by CSS from data-theme,
+    # so this catches a toggle that renders the wrong state.
+    visible = pg.evaluate(
+        """() => [...document.querySelectorAll(
+                "button[data-testid='theme-toggle'] svg")]
+            .filter(s => parseFloat(getComputedStyle(s).opacity) > 0.5)
+            .map(s => s.getAttribute('class') || '').map(c => c.includes('sun') ? 'sun' : 'moon')"""
+    )
+    expected_icon = "moon" if toggled == "dark" else "sun"
+    check(
+        "theme: the visible icon matches the active theme",
+        visible == [expected_icon],
+        f"{visible} expected [{expected_icon!r}]",
+    )
+
+    # A light-mode reader must not receive server markup rendered for the
+    # dark default, which React can only patch after the fact.
+    hydration = [
+        line
+        for line in console
+        if "did not match" in line or "hydrat" in line.lower()
+    ]
+    check(
+        "theme: no hydration mismatch on a non-default theme",
+        not hydration,
+        hydration[0][:160] if hydration else "",
+    )
+
     layout_after = chrome_height()
     check(
         "theme: no layout shift when toggling",
@@ -356,9 +396,21 @@ with sync_playwright() as p:
     pg.on("pageerror", lambda e: errors.append(str(e)))
 
     pg.goto(f"{BASE}/en/artists/{SLUG}", wait_until="networkidle")
+
+    # In dev the first hit on a route is compiled on demand, so the client
+    # bundle can land after network idle. Wait for the strip rather than
+    # asserting against whatever happened to be painted.
+    try:
+        pg.locator("[data-testid='artist-tabs']").first.wait_for(
+            state="attached", timeout=45000
+        )
+        tab_strip_ready = True
+    except Exception:
+        tab_strip_ready = False
+
     check(
         f"artist {SLUG}: tab strip renders",
-        pg.locator("[data-testid='artist-tabs']").count() == 1,
+        pg.locator("[data-testid='artist-tabs']").count() == 1 and tab_strip_ready,
     )
     tabs = pg.locator("[data-testid='artist-tabs'] a")
     tab_labels = [tabs.nth(i).inner_text().strip() for i in range(tabs.count())]
@@ -374,6 +426,9 @@ with sync_playwright() as p:
 
     # Following the tab must land on the community page itself.
     pg.goto(f"{BASE}/en/artists/{SLUG}", wait_until="networkidle")
+    pg.locator("[data-testid='artist-tab-community']").wait_for(
+        state="attached", timeout=45000
+    )
     pg.locator("[data-testid='artist-tab-community']").click()
     pg.wait_for_url(f"**/en/artists/{SLUG}/community", timeout=15000)
     pg.wait_for_load_state("networkidle")
