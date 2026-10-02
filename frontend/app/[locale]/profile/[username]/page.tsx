@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+
+import type { Locale } from '@/app/i18n';
 
 import { userAPI } from '@/app/lib/api';
 import { isAuthenticated } from '@/app/lib/auth';
@@ -54,6 +56,31 @@ const EMPTY_FORM: Form = {
 const LATEST_REVIEWS = 3;
 
 /**
+ * The route. It resolves the parameters and hands the profile over to a view
+ * keyed by username.
+ *
+ * The key is the point. A client-side navigation from one profile to another
+ * reuses the route component, so every figure, review and panel would otherwise
+ * be carried over and repainted under the new profile's heading until the next
+ * request resolved. Keying the view by username remounts it instead, so no
+ * state can outlive the profile it belongs to.
+ */
+export default function ProfilePage() {
+  const { username, locale: localeParam } = useParams<{
+    username: string;
+    locale: string;
+  }>();
+
+  return (
+    <ProfileView
+      key={username}
+      username={username}
+      locale={resolveLocale(localeParam)}
+    />
+  );
+}
+
+/**
  * A profile as a concertgoer's record of what they saw.
  *
  * The figures are clickable and each one opens the rows behind it, the latest
@@ -62,12 +89,13 @@ const LATEST_REVIEWS = 3;
  * profile request and one statistics request, and nothing else is fetched until
  * a reader opens a panel.
  */
-export default function ProfilePage() {
-  const { username, locale: localeParam } = useParams<{
-    username: string;
-    locale: string;
-  }>();
-  const locale = resolveLocale(localeParam);
+function ProfileView({
+  username,
+  locale,
+}: {
+  username: string;
+  locale: Locale;
+}) {
   const t = useTranslations('profile');
 
   const runAuthAction = useAuthAction({ locale });
@@ -90,7 +118,20 @@ export default function ProfilePage() {
 
   const [form, setForm] = useState<Form>(EMPTY_FORM);
 
+  /*
+    Every figure, list and review on this page belongs to the one person whose
+    profile is on screen. The view is keyed by username, so a response can only
+    ever write to the profile it was requested for; `requestId` additionally
+    drops anything that comes back for a request this view has already
+    replaced, so a slow response cannot settle over a newer one.
+  */
+  const requestId = useRef(0);
+
   const loadProfile = useCallback(async () => {
+    const id = ++requestId.current;
+
+    const belongsToThisProfile = () => id === requestId.current;
+
     try {
       /*
         `getMe` is a protected endpoint. Public profiles stay viewable while
@@ -98,15 +139,27 @@ export default function ProfilePage() {
       */
       if (isAuthenticated()) {
         try {
-          setCurrentUser(await userAPI.getMe());
+          const session = await userAPI.getMe();
+
+          if (!belongsToThisProfile()) {
+            return;
+          }
+
+          setCurrentUser(session);
         } catch {
-          setCurrentUser(null);
+          if (belongsToThisProfile()) {
+            setCurrentUser(null);
+          }
         }
       } else {
         setCurrentUser(null);
       }
 
       const profile = await userAPI.getProfile(username);
+
+      if (!belongsToThisProfile()) {
+        return;
+      }
 
       setUser(profile);
       setForm({
@@ -127,27 +180,39 @@ export default function ProfilePage() {
           userAPI.getProfileReviews(username, LATEST_REVIEWS),
         ]);
 
+        if (!belongsToThisProfile()) {
+          return;
+        }
+
         setStats(statsResponse);
         setReviews(reviewsResponse.reviews ?? []);
       } catch {
+        if (!belongsToThisProfile()) {
+          return;
+        }
+
         setStats(null);
         setReviews([]);
       } finally {
-        setReviewsLoading(false);
+        if (belongsToThisProfile()) {
+          setReviewsLoading(false);
+        }
       }
     } catch {
       // The profile itself could not be loaded, so there is nothing to show.
-      setUser(null);
+      if (belongsToThisProfile()) {
+        setUser(null);
+      }
     } finally {
-      setLoading(false);
+      if (belongsToThisProfile()) {
+        setLoading(false);
+      }
     }
   }, [username]);
 
   useEffect(() => {
-    if (username) {
-      loadProfile();
-    }
-  }, [username, loadProfile]);
+    loadProfile();
+  }, [loadProfile]);
 
   function handleToggle(next: Exclude<Panel, null>) {
     setPanel((current) => (current === next ? null : next));
