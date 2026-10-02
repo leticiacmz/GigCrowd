@@ -35,6 +35,14 @@ from app.services.show_log_service import (
     ShowLogService,
 )
 
+from app.models.activity import (
+    ActivityType,
+)
+
+from app.services.activity_service import (
+    ActivityService,
+)
+
 
 router = APIRouter(
     prefix="/show-logs",
@@ -57,6 +65,37 @@ def get_show_log_service():
     return ShowLogService(
         show_log_repository,
         event_repository,
+    )
+
+
+async def _record_show_log_activity(
+    current_user: dict,
+    show_log_data,
+    log,
+) -> None:
+    """Add a show log to the caller's unified timeline.
+
+    A log that carries a review is a review; one without is attendance. Both
+    are recorded against the show log document so the feed can resolve the
+    event behind them.
+    """
+    review = (getattr(log, "review", None) or "").strip()
+
+    if review:
+        activity_type = ActivityType.CREATE_REVIEW
+    else:
+        activity_type = ActivityType.ATTEND_EVENT
+
+    await ActivityService.record(
+        current_user["_id"],
+        activity_type,
+        target_id=str(log.id),
+        target_type="show_log",
+        metadata={
+            "rating": getattr(log, "rating", None),
+            "status": getattr(log, "status", None),
+            "review": review or None,
+        },
     )
 
 
@@ -193,6 +232,12 @@ async def create_show_log(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+
+    await _record_show_log_activity(
+        current_user,
+        show_log_data,
+        log,
+    )
 
     return ShowLogResponse(
         **log.model_dump()
