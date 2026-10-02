@@ -44,18 +44,20 @@ function applyTheme(theme: ResolvedTheme) {
  * injected by `app/layout.tsx`, so there is no flash and no hydration conflict.
  */
 export function useTheme() {
-  // Read the theme the bootstrap script already applied to <html> so the
-  // first client render matches the server markup and the toggle icon never
-  // flashes the wrong state.
-  const [theme, setTheme] = useState<ResolvedTheme>(() => {
-    if (typeof document === 'undefined') {
-      return 'dark';
-    }
+  // The first render must be identical on the server and the client, so the
+  // state starts at the server's value and is corrected from the theme the
+  // bootstrap script already applied to <html> on mount. Reading the document
+  // during the initializer would render the toggle in the wrong state for a
+  // light-mode reader and force React to patch the markup during hydration.
+  const [theme, setTheme] = useState<ResolvedTheme>('dark');
 
+  useEffect(() => {
     const applied = document.documentElement.getAttribute('data-theme');
 
-    return applied === 'light' ? 'light' : 'dark';
-  });
+    if (applied === 'light' || applied === 'dark') {
+      setTheme(applied);
+    }
+  }, []);
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => {

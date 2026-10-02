@@ -42,20 +42,12 @@ export default function ThemeToggle({ className = '' }: { className?: string }) 
         className,
       ].join(' ')}
     >
-      {/* Both icons occupy the same grid cell so the button never resizes. */}
+      {/* Both icons occupy the same grid cell so the button never resizes.
+          Which one shows is decided by CSS from `data-theme`, not by React
+          state, so the server and client markup stay identical. */}
       <span className="relative block h-5 w-5">
-        <SunIcon
-          className={[
-            'absolute inset-0 h-5 w-5 transition-all duration-200',
-            isDark ? 'scale-50 rotate-90 opacity-0' : 'scale-100 rotate-0 opacity-100',
-          ].join(' ')}
-        />
-        <MoonIcon
-          className={[
-            'absolute inset-0 h-5 w-5 transition-all duration-200',
-            isDark ? 'scale-100 rotate-0 opacity-100' : 'scale-50 -rotate-90 opacity-0',
-          ].join(' ')}
-        />
+        <SunIcon className="theme-icon theme-icon-sun" />
+        <MoonIcon className="theme-icon theme-icon-moon" />
       </span>
     </button>
   );
