@@ -7,7 +7,8 @@ of the driver the code under test actually uses:
 
 * collection access by attribute (`db.activities`) and by item (`db["shows"]`)
 * `find` with `$or`, `$and`, `$in` and plain equality, plus `sort`/`skip`/`limit`
-* `find_one`, `insert_one`, `update_one`, `update_many`, `count_documents`
+* `find_one`, `insert_one`, `update_one`, `update_many`, `delete_one`,
+  `count_documents`
 * `$set` update operators and `ObjectId` `_id` generation
 
 It is intentionally not a MongoDB emulator: anything beyond the subset above
@@ -122,6 +123,11 @@ class UpdateResult:
     def __init__(self, matched_count: int, modified_count: int):
         self.matched_count = matched_count
         self.modified_count = modified_count
+
+
+class DeleteResult:
+    def __init__(self, deleted_count: int):
+        self.deleted_count = deleted_count
 
 
 class InsertResult:
@@ -255,12 +261,12 @@ class FakeCollection:
                 modified += int(before != document)
         return UpdateResult(matched, modified)
 
-    async def delete_one(self, query: dict) -> UpdateResult:
+    async def delete_one(self, query: dict) -> DeleteResult:
         for index, document in enumerate(self.documents):
             if matches(document, query):
                 self.documents.pop(index)
-                return UpdateResult(1, 1)
-        return UpdateResult(0, 0)
+                return DeleteResult(1)
+        return DeleteResult(0)
 
 
 class FakeDatabase:
