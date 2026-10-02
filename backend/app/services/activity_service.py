@@ -21,6 +21,7 @@ from app.models.activity import (
     NotificationResponse,
     NotificationType,
 )
+from app.utils.ids import object_id_variants, to_object_id
 
 logger = logging.getLogger(__name__)
 
@@ -52,29 +53,6 @@ ACTIVITY_TARGET_COLLECTIONS: dict[str, str] = {
     ActivityType.ATTEND_EVENT.value: "show_logs",
     ActivityType.CREATE_POST.value: "posts",
 }
-
-
-def to_object_id(value: Any) -> Optional[ObjectId]:
-    """Best-effort conversion of an identifier to an ObjectId."""
-    if isinstance(value, ObjectId):
-        return value
-    try:
-        return ObjectId(str(value))
-    except Exception:
-        return None
-
-
-def object_id_variants(value: str) -> list[Any]:
-    """Return both the string and ObjectId form of an id.
-
-    Historic rows store identifiers inconsistently (some as strings, some as
-    ObjectId), so every lookup has to match both representations.
-    """
-    variants: list[Any] = [value]
-    oid = to_object_id(value)
-    if oid is not None:
-        variants.append(oid)
-    return variants
 
 
 class ActivityService:
