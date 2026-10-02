@@ -1619,7 +1619,75 @@ with sync_playwright() as p:
     else:
         check("event: an event page could be exercised", False, "no events for artist")
 
-    # ================================================================= 14. MOBILE
+    # ============================================ 14. UNKNOWN PATHS AND NOT FOUND
+    # An unknown URL has to answer 404 inside the locale it was asked for, with
+    # that locale's document language, its translated copy and the site chrome,
+    # rather than the framework's bare English page.
+    for locale, heading in (
+        ("en", "Page not found"),
+        ("pt-BR", "Página não encontrada"),
+        ("es", "Página no encontrada"),
+    ):
+        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        pg = ctx.new_page()
+        response = pg.goto(
+            f"{BASE}/{locale}/no-such-page-here", wait_until="networkidle"
+        )
+        pg.wait_for_timeout(900)
+
+        check(
+            f"404: /{locale} answers with a real 404",
+            response.status == 404,
+            f"HTTP {response.status}",
+        )
+
+        state = pg.evaluate(
+            """() => ({
+                lang: document.documentElement.getAttribute('lang'),
+                theme: document.documentElement.getAttribute('data-theme'),
+                bg: getComputedStyle(document.body).backgroundColor,
+                styled: getComputedStyle(document.body).fontFamily.includes('Inter'),
+            })"""
+        )
+
+        check(
+            f"404: /{locale} declares its own document language",
+            state["lang"] == locale,
+            f"lang={state['lang']}",
+        )
+        check(
+            f"404: /{locale} is styled like the rest of the app",
+            state["styled"],
+            f"bg={state['bg']} font={state['styled']}",
+        )
+        check(
+            f"404: /{locale} resolves a theme",
+            state["theme"] in ("light", "dark"),
+            f"data-theme={state['theme']}",
+        )
+
+        body = pg.inner_text("body")
+        check(
+            f"404: /{locale} shows translated copy with the site chrome",
+            heading in body and "GigCrowd" in body,
+            body.replace("\n", " | ")[:90],
+        )
+
+        pg.close()
+        ctx.close()
+
+    # The root and every locale-less path still land on a localized route.
+    for path in ("/", "/events", "/feed", "/login", "/register", "/artists"):
+        landed = httpx.get(f"{BASE}{path}", follow_redirects=False, timeout=60)
+        location = landed.headers.get("location") or ""
+        expected = "/en" if path == "/" else f"/en{path}"
+        check(
+            f"routing: {path} redirects into the default locale",
+            landed.status_code in (307, 308) and location == expected,
+            f"{landed.status_code} -> {location}",
+        )
+
+    # ================================================================= 15. MOBILE
     ctx = browser.new_context(
         viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
     )
