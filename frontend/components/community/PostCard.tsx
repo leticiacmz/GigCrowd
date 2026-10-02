@@ -72,6 +72,8 @@ export default function PostCard({
       className="p-4 sm:p-5"
       data-testid="community-post"
       data-post-id={post.id}
+      data-comments-count={post.comments_count}
+      data-likes-count={post.likes_count}
     >
       <UserChip
         locale={locale}
