@@ -40,6 +40,7 @@ from app.routes import (
     spotify_auth,
     user_stats,
     artist_community,
+    notifications,
 )
 
 from app.config import settings
@@ -251,6 +252,8 @@ app.include_router(spotify_auth.router)
 app.include_router(user_stats.router)
 
 app.include_router(artist_community.router)
+
+app.include_router(notifications.router)
 
 
 # =====================================================

@@ -1,7 +1,13 @@
-from fastapi import APIRouter, Depends
-from bson import ObjectId
-from app.services.activity_service import ActivityService
+"""Unified feed timeline.
+
+The feed is a single stream of activities. `category` narrows that same
+stream, it does not switch to a different dataset, which is what keeps the
+"one timeline, one filter" contract honest.
+"""
+from fastapi import APIRouter, Depends, HTTPException, Query
+
 from app.auth.dependencies import get_current_active_user
+from app.services.activity_service import FEED_CATEGORIES, ActivityService
 
 router = APIRouter(prefix="/feed", tags=["feed"])
 
@@ -9,71 +15,38 @@ router = APIRouter(prefix="/feed", tags=["feed"])
 @router.get("")
 async def get_feed(
     skip: int = 0,
-    limit: int = 50,
-    activity_type: str = None,
-    current_user: dict = Depends(get_current_active_user)
+    limit: int = 20,
+    category: str = Query(
+        default="all",
+        description=(
+            "Filter applied to the unified timeline. One of: "
+            + ", ".join(sorted(FEED_CATEGORIES))
+        ),
+    ),
+    current_user: dict = Depends(get_current_active_user),
 ):
-    """Get activity feed from followed users"""
-    # Validate pagination parameters
-    skip = max(0, min(skip, 10000))
-    limit = max(1, min(limit, 100))
+    """Get the unified activity feed for the current user."""
+    category = category.strip().lower()
 
-    activities = await ActivityService.get_followed_activities(
+    if category not in FEED_CATEGORIES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unknown feed category '{category}'. "
+                f"Expected one of: {', '.join(sorted(FEED_CATEGORIES))}"
+            ),
+        )
+
+    activities = await ActivityService.get_feed_activities(
         current_user["_id"],
-        skip,
-        limit,
-        activity_type=activity_type,
+        skip=skip,
+        limit=limit,
+        category=category,
     )
-    
-    # Enrich activities with related data
-    from app.database.connection import get_database
-    db = get_database()
-    
-    enriched_activities = []
-    for activity in activities:
-        enriched_activity = {
-            "id": str(activity["_id"]),
-            "user": {
-                "id": str(activity["user"]["id"]),
-                "username": activity["user"]["username"],
-                "avatar_url": activity["user"].get("avatar_url"),
-            },
-            "activity_type": activity["activity_type"],
-            "target_id": activity.get("target_id"),
-            "target_type": activity.get("target_type"),
-            "metadata": activity.get("metadata"),
-            "created_at": activity["created_at"],
-        }
 
-        # Add related object data based on target type
-        if activity.get("target_id") and activity.get("target_type"):
-            if activity["target_type"] == "event":
-                try:
-                    event = await db.events.find_one({"_id": ObjectId(activity["target_id"])})
-                except Exception:
-                    event = None
-                if event:
-                    enriched_activity["event"] = {
-                        "id": str(event["_id"]),
-                        "title": event["title"],
-                        "date": event["date"],
-                        "location": event["location"],
-                        "image_url": event.get("image_url"),
-                    }
-            elif activity["target_type"] == "post":
-                try:
-                    post = await db.posts.find_one({"_id": ObjectId(activity["target_id"])})
-                except Exception:
-                    post = None
-                if post:
-                    enriched_activity["post"] = {
-                        "id": str(post["_id"]),
-                        "content": post.get("content"),
-                        "media_url": post.get("media_url"),
-                        "media_type": post.get("media_type"),
-                        "created_at": post["created_at"],
-                    }
-
-        enriched_activities.append(enriched_activity)
-    
-    return enriched_activities
+    return {
+        "activities": activities,
+        "category": category,
+        "skip": skip,
+        "limit": limit,
+    }

@@ -17,6 +17,8 @@ from app.services.community_service import CommunityService
 from app.auth.dependencies import get_current_active_user, get_optional_user
 from app.database.connection import get_database
 from app.core.logger import get_logger
+from app.models.activity import ActivityType, NotificationType
+from app.services.activity_service import ActivityService
 import bleach
 
 
@@ -113,6 +115,21 @@ async def create_community_post(
         image_url=post.image_url
     )
 
+    post_id = str(result["_id"])
+
+    # The post is public, so it belongs in the timeline of everyone who
+    # follows this artist. The activity is scoped by metadata.artist_slug.
+    await ActivityService.record(
+        current_user["_id"],
+        ActivityType.CREATE_COMMUNITY_POST,
+        target_id=post_id,
+        target_type="community_post",
+        metadata={
+            "artist_slug": artist_slug,
+            "excerpt": (post.content or "")[:160],
+        },
+    )
+
     logger.info(f"User {current_user['username']} created community post for {artist_slug}")
 
     return CommunityPostResponse(
@@ -152,6 +169,35 @@ async def like_community_post(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Already liked this post"
+        )
+
+    # Fetched here (not before the like) so the notification only fires once
+    # the like actually succeeded.
+    post = await post_repo.get_post_by_id(post_id)
+
+    await ActivityService.record(
+        current_user["_id"],
+        ActivityType.LIKE_POST,
+        target_id=post_id,
+        target_type="community_post",
+        metadata={
+            "artist_slug": artist_slug,
+            "excerpt": (post.get("content") or "")[:160] if post else None,
+        },
+    )
+
+    if post:
+        await ActivityService.notify(
+            recipient_id=str(post["user_id"]),
+            actor_id=current_user["_id"],
+            notification_type=NotificationType.LIKE,
+            related_entity_type="community_post",
+            related_entity_id=post_id,
+            context={
+                "artist_slug": artist_slug,
+                "post_id": post_id,
+                "excerpt": (post.get("content") or "")[:160],
+            },
         )
 
     logger.info(f"User {current_user['username']} liked community post {post_id}")
@@ -314,14 +360,17 @@ async def create_comment(
     await community_service.require_follow_for_write(current_user["_id"], artist_slug)
 
     # If this is a reply, verify parent comment exists
+    parent_comment = None
     if comment_data.parent_comment_id:
-        parent = await comment_repo.get_comment_by_id(comment_data.parent_comment_id)
-        if not parent:
+        parent_comment = await comment_repo.get_comment_by_id(
+            comment_data.parent_comment_id
+        )
+        if not parent_comment:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Parent comment not found"
             )
-        if str(parent["post_id"]) != comment_data.post_id:
+        if str(parent_comment["post_id"]) != comment_data.post_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Parent comment does not belong to this post"
@@ -341,6 +390,52 @@ async def create_comment(
         content=cleaned_content,
         parent_comment_id=comment_data.parent_comment_id,
     )
+
+    comment_id = str(result["_id"])
+    parent = parent_comment
+
+    await ActivityService.record(
+        current_user["_id"],
+        ActivityType.COMMENT_POST,
+        target_id=comment_id,
+        target_type="comment",
+        metadata={
+            "artist_slug": artist_slug,
+            "post_id": comment_data.post_id,
+            "excerpt": (cleaned_content or "")[:160],
+        },
+    )
+
+    if comment_data.parent_comment_id:
+        # A reply notifies the author of the comment being replied to.
+        await ActivityService.notify(
+            recipient_id=str(parent["user_id"]),
+            actor_id=current_user["_id"],
+            notification_type=NotificationType.REPLY,
+            related_entity_type="comment",
+            related_entity_id=comment_id,
+            context={
+                "artist_slug": artist_slug,
+                "post_id": comment_data.post_id,
+                "comment_id": comment_id,
+                "excerpt": (cleaned_content or "")[:160],
+            },
+        )
+    else:
+        # A top level comment notifies the author of the post.
+        await ActivityService.notify(
+            recipient_id=str(post["user_id"]),
+            actor_id=current_user["_id"],
+            notification_type=NotificationType.COMMENT,
+            related_entity_type="comment",
+            related_entity_id=comment_id,
+            context={
+                "artist_slug": artist_slug,
+                "post_id": comment_data.post_id,
+                "comment_id": comment_id,
+                "excerpt": (cleaned_content or "")[:160],
+            },
+        )
 
     user_repo = UserRepository(get_database())
     response = await _enrich_comment(result, user_repo)

@@ -206,7 +206,7 @@ class CommunityPostRepository(BaseRepository):
             return False  # Already liked
 
         # Create like record
-        await db.post_likes.insert_one({
+        await self.db.post_likes.insert_one({
             "post_id": post_oid,
             "user_id": user_oid,
             "created_at": datetime.now(timezone.utc)
