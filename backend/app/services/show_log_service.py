@@ -188,6 +188,14 @@ class ShowLogService:
 
         show_log = show_log_data.model_dump()
 
+        # A log created without attendance carries no review, so the review is
+        # never born on a row that could not justify it. The same fields are
+        # unset again the moment attendance is withdrawn.
+        for field in self._review_unset(
+            show_log_data.status
+        ):
+            show_log.pop(field, None)
+
         show_log["user_id"] = user_id
         show_log["date"] = event_moment
         show_log["created_at"] = now

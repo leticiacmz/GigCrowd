@@ -398,6 +398,42 @@ class TestCreateShowLog:
         assert stored["going_count"] == 0
         assert stored["maybe_count"] == 0
 
+    @pytest.mark.asyncio
+    async def test_intent_alone_stores_no_review(
+        self,
+        service,
+    ):
+        """A review is only ever written for a show someone attended.
+
+        The seed data and any client that posts a review alongside an intent
+        used to store one on a `going` row, where the review endpoints would
+        never read it and the profile counted a review nobody wrote.
+        """
+        event = an_event(
+            starts_at=NOW + timedelta(days=30),
+        )
+
+        await add_event(service.db, event)
+
+        log = await service.create_show_log(
+            "user-1",
+            ShowLogCreate(
+                event_id=event["id"],
+                status=AttendanceStatus.GOING,
+                rating=5,
+                review="Worth every second",
+            ),
+        )
+
+        assert log.rating is None
+        assert log.review is None
+
+        stored = await service.db.show_logs.find_one({"user_id": "user-1"})
+
+        assert stored is not None
+        assert "review" not in stored
+        assert "rating" not in stored
+
 
 class TestReviewFollowsAttendance:
 
