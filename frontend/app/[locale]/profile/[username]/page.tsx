@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -8,44 +8,61 @@ import Link from 'next/link';
 import { userAPI } from '@/app/lib/api';
 import { isAuthenticated } from '@/app/lib/auth';
 import { useAuthAction } from '@/app/lib/use-auth-action';
-import { resolveLocale, formatDateSpan } from '@/app/lib/dates';
+import {
+  resolveLocale,
+  formatEventSchedule,
+} from '@/app/lib/dates';
 import FollowButton from '@/components/profile/FollowButton';
 import ProfileStats from '@/components/profile/ProfileStats';
-import UserList, {
-  type ConnectionDirection,
-} from '@/components/profile/UserList';
+import ProfilePanel, {
+  type Panel,
+} from '@/components/profile/ProfilePanel';
+import ReviewCard from '@/components/ReviewCard';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 import Avatar from '@/components/ui/Avatar';
 import LoadingState from '@/components/LoadingState';
+import EmptyState from '@/components/EmptyState';
 
+import type {
+  ProfileReview,
+  ProfileStats as ProfileStatsType,
+  UserProfile,
+} from '@/app/types/profile';
 
-interface UserProfile {
-  username: string;
-  email: string;
-  full_name?: string;
-  bio?: string;
-  location?: string;
-  created_at: string;
+interface Form {
+  full_name: string;
+  bio: string;
+  location: string;
 }
 
+const EMPTY_FORM: Form = {
+  full_name: '',
+  bio: '',
+  location: '',
+};
 
-interface ProfileStatsType {
-  followers_count?: number;
-  following_count?: number;
+/**
+ * How many reviews the profile shows without being asked.
+ *
+ * A review is the opinion behind a show log, so the newest few are part of the
+ * profile rather than something to go and fetch. The figure above them opens
+ * the longer list; this is the short version of the same collection, and it
+ * costs one request with the rest of the page.
+ */
+const LATEST_REVIEWS = 3;
 
-  shows_attended: number;
-  shows_going: number;
-  shows_maybe: number;
-  artists_seen: number;
-  upcoming_events: number;
-  total_posts: number;
-}
-
-
+/**
+ * A profile as a concertgoer's record of what they saw.
+ *
+ * The figures are clickable and each one opens the rows behind it, the latest
+ * reviews are shown without being asked for, and the followed artists are the
+ * communities the person belongs to. Everything on the page comes from one
+ * profile request and one statistics request, and nothing else is fetched until
+ * a reader opens a panel.
+ */
 export default function ProfilePage() {
-
   const { username, locale: localeParam } = useParams<{
     username: string;
     locale: string;
@@ -55,480 +72,409 @@ export default function ProfilePage() {
 
   const runAuthAction = useAuthAction({ locale });
 
-
   const [user, setUser] = useState<UserProfile | null>(null);
   const [stats, setStats] = useState<ProfileStatsType | null>(null);
+  const [reviews, setReviews] = useState<ProfileReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
   const [loading, setLoading] = useState(true);
-
-
   const [editing, setEditing] = useState(false);
-
+  const [saving, setSaving] = useState(false);
 
   /*
-   * Which social-graph list is open, if any. Tapping the same count a second
-   * time closes it, so the list never covers the profile twice.
-   */
-  const [connections, setConnections] =
-    useState<ConnectionDirection | null>(null);
+    Which list is open, if any. Tapping the same figure a second time closes it,
+    so a panel never covers the profile twice.
+  */
+  const [panel, setPanel] = useState<Panel>(null);
 
+  const [form, setForm] = useState<Form>(EMPTY_FORM);
 
-  const [form, setForm] = useState({
-    full_name: '',
-    bio: '',
-    location: ''
-  });
-
-
-
-  async function loadProfile() {
-
+  const loadProfile = useCallback(async () => {
     try {
-
-      // `getMe` is a protected endpoint. Public profiles stay viewable
-      // while signed out, so the session is only requested when one exists.
+      /*
+        `getMe` is a protected endpoint. Public profiles stay viewable while
+        signed out, so the session is only requested when one exists.
+      */
       if (isAuthenticated()) {
-
         try {
-          const me = await userAPI.getMe();
-          setCurrentUser(me);
+          setCurrentUser(await userAPI.getMe());
         } catch {
           setCurrentUser(null);
         }
-
       } else {
-
         setCurrentUser(null);
-
       }
-
 
       const profile = await userAPI.getProfile(username);
 
       setUser(profile);
-
-
       setForm({
         full_name: profile.full_name || '',
         bio: profile.bio || '',
-        location: profile.location || ''
+        location: profile.location || '',
       });
 
-
-
-      // Statistics are a separate call. If it fails the profile is still
-      // worth showing, so the error stops the figure block alone.
+      /*
+        The figures and the newest reviews are read together: they are two
+        independent collections, so they are fetched side by side rather than
+        one after the other. If either fails the profile is still worth
+        showing, so the error stops them and leaves the rest of the page.
+      */
       try {
-        const profileStats = await userAPI.getProfileStats(username);
-        setStats(profileStats);
+        const [statsResponse, reviewsResponse] = await Promise.all([
+          userAPI.getProfileStats(username),
+          userAPI.getProfileReviews(username, LATEST_REVIEWS),
+        ]);
+
+        setStats(statsResponse);
+        setReviews(reviewsResponse.reviews ?? []);
       } catch {
         setStats(null);
+        setReviews([]);
+      } finally {
+        setReviewsLoading(false);
       }
-
-
     } catch {
-
       // The profile itself could not be loaded, so there is nothing to show.
       setUser(null);
-
     } finally {
-
       setLoading(false);
-
     }
-
-  }
-
-
-
-  useEffect(() => {
-
-    if(username){
-      loadProfile();
-    }
-
   }, [username]);
 
+  useEffect(() => {
+    if (username) {
+      loadProfile();
+    }
+  }, [username, loadProfile]);
 
-
-
-  async function handleSave() {
-
-  if (!user) {
-    return;
+  function handleToggle(next: Exclude<Panel, null>) {
+    setPanel((current) => (current === next ? null : next));
   }
 
-
-  // Editing a profile is a session-bound mutation.
-  await runAuthAction(async () => {
-
-  const response = await userAPI.updateMe(form);
-
-
-  setUser({
-    ...user,
-    ...response.user,
-  });
-
-
-  setEditing(false);
-
-  });
-
-}
-
-
-
-  function handleCancel(){
-
-    if(!user){
+  async function handleSave() {
+    if (!user) {
       return;
     }
 
+    // Editing a profile is a session-bound mutation.
+    await runAuthAction(async () => {
+      setSaving(true);
+
+      try {
+        const response = await userAPI.updateMe(form);
+
+        setUser({
+          ...user,
+          ...response.user,
+        });
+
+        setEditing(false);
+      } finally {
+        setSaving(false);
+      }
+    });
+  }
+
+  function handleCancel() {
+    if (!user) {
+      return;
+    }
 
     setForm({
       full_name: user.full_name || '',
       bio: user.bio || '',
-      location: user.location || ''
+      location: user.location || '',
     });
 
-
     setEditing(false);
-
   }
 
-
-
-
-
-  if(loading){
-
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingState message={t('loading')} />
       </div>
     );
-
   }
 
-
-
-
-  if(!user){
-
+  if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted">{t('notFound')}</p>
+        <p
+          className="text-muted"
+          data-testid="profile-not-found"
+        >
+          {t('notFound')}
+        </p>
       </div>
     );
-
   }
 
-
-
-
-  const isOwnProfile =
-    currentUser?.username === user.username;
-
-
-
+  const isOwnProfile = currentUser?.username === user.username;
 
   return (
-
     <div className="min-h-screen">
-
-
-      <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
-
-
-
-        <Card className="p-6">
-
-
-
-          <div className="flex justify-between items-start">
-
-
-            <div className="flex gap-4">
-
-
+      <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        <Card className="p-5 sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 gap-4">
               <Avatar
-                src={undefined}
+                src={user.avatar_url ?? undefined}
+                alt={user.username}
                 fallback={user.username.charAt(0).toUpperCase()}
                 size="lg"
               />
 
-
-
-              <div>
-
-                <h1 className="text-[28px] font-bold">
+              <div className="min-w-0">
+                <h1 className="break-anywhere text-2xl font-bold sm:text-[28px]">
                   {user.username}
                 </h1>
 
+                {user.full_name && (
+                  <p className="break-anywhere text-muted">
+                    {user.full_name}
+                  </p>
+                )}
 
-                <p className="text-muted">
-                  {user.email}
+                <p className="text-sm text-muted-subtle">
+                  {t('joined', {
+                    date: formatEventSchedule(
+                      { starts_at: user.created_at },
+                      locale,
+                      t('dateUnknown'),
+                    ),
+                  })}
                 </p>
-
               </div>
-
-
             </div>
 
-
-
-
-
-            {
-              isOwnProfile ? (
-
-                editing ? (
-
-                  <div className="flex gap-2">
-
-                    <Button
-                      onClick={handleSave}
-                      variant="primary"
-                    >{t('saveChanges')}</Button>
-
-
-                    <Button
-                      onClick={handleCancel}
-                      variant="outline"
-                    >{t('cancel')}</Button>
-
-                  </div>
-
-                ) : (
+            {isOwnProfile ? (
+              editing ? (
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={saving}
+                    onClick={handleSave}
+                    data-testid="profile-save"
+                  >
+                    {t('saveChanges')}
+                  </Button>
 
                   <Button
-                    onClick={() => setEditing(true)}
-                    variant="outline"
-                    data-testid="profile-edit"
-                  >{t('editProfile')}</Button>
-
-                )
-
-
+                    size="sm"
+                    variant="ghost"
+                    disabled={saving}
+                    onClick={handleCancel}
+                  >
+                    {t('cancel')}
+                  </Button>
+                </div>
               ) : (
-
+                <Button
+                  size="sm"
+                  variant="outlineGradient"
+                  onClick={() => setEditing(true)}
+                  data-testid="profile-edit"
+                >
+                  {t('editProfile')}
+                </Button>
+              )
+            ) : (
+              <div className="shrink-0">
                 <FollowButton username={user.username} />
-
-              )
-
-            }
-
-
-
+              </div>
+            )}
           </div>
 
+          {editing ? (
+            <div className="mt-6 space-y-3">
+              <Input
+                value={form.full_name}
+                onChange={(event) =>
+                  setForm({ ...form, full_name: event.target.value })
+                }
+                placeholder={t('fullName')}
+                aria-label={t('fullName')}
+              />
 
+              <textarea
+                value={form.bio}
+                onChange={(event) =>
+                  setForm({ ...form, bio: event.target.value })
+                }
+                placeholder={t('bio')}
+                aria-label={t('bio')}
+                rows={3}
+                className="w-full rounded-lg border border-border bg-card-bg p-3 text-foreground placeholder:text-muted-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
 
+              <Input
+                value={form.location}
+                onChange={(event) =>
+                  setForm({ ...form, location: event.target.value })
+                }
+                placeholder={t('location')}
+                aria-label={t('location')}
+              />
+            </div>
+          ) : (
+            <div className="mt-6 space-y-3">
+              {user.bio && (
+                <p className="break-anywhere whitespace-pre-line text-muted">
+                  {user.bio}
+                </p>
+              )}
 
-
-          <div className="flex gap-2 mt-6">
-
-
-            <button
-              type="button"
-              onClick={() =>
-                setConnections(
-                  connections === 'followers'
-                    ? null
-                    : 'followers'
-                )
-              }
-              aria-pressed={connections === 'followers'}
-              data-testid="profile-followers-toggle"
-              className="flex min-h-[56px] flex-col items-start rounded-lg px-3 py-1 text-left transition-colors hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              <span className="text-[24px] font-bold">
-                {stats?.followers_count ?? 0}
-              </span>
-
-              <span className="text-muted">
-                {t('followers')}
-              </span>
-
-            </button>
-
-
-
-            <button
-              type="button"
-              onClick={() =>
-                setConnections(
-                  connections === 'following'
-                    ? null
-                    : 'following'
-                )
-              }
-              aria-pressed={connections === 'following'}
-              data-testid="profile-following-toggle"
-              className="flex min-h-[56px] flex-col items-start rounded-lg px-3 py-1 text-left transition-colors hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-
-              <span className="text-[24px] font-bold">
-                {stats?.following_count ?? 0}
-              </span>
-
-              <span className="text-muted">
-                {t('following')}
-              </span>
-
-            </button>
-
-
-          </div>
-
-
-
-
-
-
-          <div className="mt-6 space-y-3">
-
-
-            {
-              editing ? (
-
-                <>
-
-
-                  <Input
-                    value={form.full_name}
-                    onChange={(e)=>
-                      setForm({
-                        ...form,
-                        full_name:e.target.value
-                      })
-                    }
-                    placeholder={t('fullName')}
-                  />
-
-
-
-                  <textarea
-                    value={form.bio}
-                    onChange={(e)=>
-                      setForm({
-                        ...form,
-                        bio:e.target.value
-                      })
-                    }
-                    placeholder={t('bio')}
-                    className="w-full bg-card-bg border border-border rounded-lg p-3 text-foreground"
-                    rows={3}
-                  />
-
-
-
-                  <Input
-                    value={form.location}
-                    onChange={(e)=>
-                      setForm({
-                        ...form,
-                        location:e.target.value
-                      })
-                    }
-                    placeholder={t('location')}
-                  />
-
-
-
-                </>
-
-
-              ) : (
-
-                <>
-
-
-                  {
-                    user.full_name &&
-                    <p>
-                      {user.full_name}
-                    </p>
-                  }
-
-
-                  {
-                    user.bio &&
-                    <p className="text-muted">
-                      {user.bio}
-                    </p>
-                  }
-
-
-                  {
-                    user.location &&
-                    <p className="text-muted">
-                      <span aria-hidden="true">📍</span>
-                      {' '}
-                      {user.location}
-                    </p>
-                  }
-
-
-                </>
-
-              )
-
-            }
-
-
-
-            <p className="text-sm text-muted-subtle">
-
-              {t('joined', {
-                date: formatDateSpan(
-                  user.created_at,
-                  null,
-                  locale,
-                ),
-              })}
-
-            </p>
-
-
-          </div>
-
-
+              {user.location && (
+                <p className="break-anywhere text-muted">
+                  <span aria-hidden="true">📍</span>
+                  {' '}
+                  {user.location}
+                </p>
+              )}
+            </div>
+          )}
         </Card>
 
+        {/*
+          The social graph stays in the header, where it was, because a profile
+          that follows nobody is still worth reading.
+        */}
+        <div className="flex gap-2">
+          <GraphButton
+            testId="profile-followers-toggle"
+            pressed={panel === 'followers'}
+            onClick={() => handleToggle('followers')}
+            value={stats?.followers_count ?? 0}
+            label={t('followers')}
+          />
 
+          <GraphButton
+            testId="profile-following-toggle"
+            pressed={panel === 'following'}
+            onClick={() => handleToggle('following')}
+            value={stats?.following_count ?? 0}
+            label={t('following')}
+          />
+        </div>
 
+        {stats && (
+          <ProfileStats
+            stats={stats}
+            panel={panel}
+            onToggle={handleToggle}
+          />
+        )}
 
+        {/*
+          The newest reviews are shown without being asked for, because a
+          profile is what someone thought of these shows. The figure above
+          opens the longer list, so the two are never on screen at once.
+        */}
+        {panel !== 'reviews' && (
+          <section
+            aria-labelledby="latest-reviews-heading"
+            data-testid="profile-latest-reviews"
+          >
+            <h2
+              id="latest-reviews-heading"
+              className="mb-4 text-xl font-bold"
+            >
+              {t('latestReviews')}
+            </h2>
 
-        {
-          stats &&
-          <ProfileStats stats={stats}/>
-        }
+            {reviewsLoading ? (
+              <LoadingState message={t('loading')} />
+            ) : reviews.length === 0 ? (
+              <EmptyState
+                icon="✍"
+                title={t('noReviews')}
+                description={t('noReviewsHint')}
+              />
+            ) : (
+              <div className="space-y-4">
+                {reviews.map((review) => (
+                  <ReviewCard
+                    key={`${review.event_id}-${review.reviewed_at ?? ''}`}
+                    review={review}
+                    locale={locale}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
+        {panel && stats && (
+          <ProfilePanel
+            panel={panel}
+            username={user.username}
+            locale={locale}
+          />
+        )}
 
-
-        {
-          connections &&
-          <Card className="p-4 sm:p-5">
-
-            <UserList
-              locale={locale}
-              username={user.username}
-              direction={connections}
-            />
-
-          </Card>
-        }
-
-
-
+        {/*
+          A signed-out visitor, or one whose statistics could not be loaded, gets
+          the events index rather than an empty page: there is always somewhere
+          to go next.
+        */}
+        {!panel && (
+          <p className="text-center text-sm text-muted-subtle">
+            <Link
+              href={`/${locale}/events`}
+              className="text-accent transition-colors hover:text-accent/80"
+            >
+              {t('browseEvents')}
+            </Link>
+          </p>
+        )}
       </main>
-
-
     </div>
-
   );
+}
 
+/** One figure of the social graph, which opens that side of it. */
+function GraphButton({
+  testId,
+  pressed,
+  onClick,
+  value,
+  label,
+}: {
+  testId: string;
+  pressed: boolean;
+  onClick: () => void;
+  value: number;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={pressed}
+      data-testid={testId}
+      className="
+        flex
+        min-h-[56px]
+        flex-col
+        items-start
+        rounded-lg
+        px-3
+        py-1
+        text-left
+        transition-colors
+        hover:bg-card-hover
+        focus-visible:outline-none
+        focus-visible:ring-2
+        focus-visible:ring-accent
+      "
+    >
+      <span className="text-[24px] font-bold">{value}</span>
+
+      <span className="text-muted">{label}</span>
+    </button>
+  );
 }
