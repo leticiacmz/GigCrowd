@@ -179,10 +179,20 @@ async def create_show_log(
 
     service = get_show_log_service()
 
-    log = await service.create_show_log(
-        current_user["_id"],
-        show_log_data,
-    )
+    try:
+        log = await service.create_show_log(
+            current_user["_id"],
+            show_log_data,
+        )
+
+    # The service rejects impossible show logs (unknown event, or "went" on
+    # an event that has not happened yet). Those are client errors, not
+    # server faults, so they must not surface as a 500.
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     return ShowLogResponse(
         **log.model_dump()
