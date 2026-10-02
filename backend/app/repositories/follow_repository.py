@@ -2,6 +2,7 @@ from datetime import datetime, UTC
 from typing import List
 
 from app.repositories.base import BaseRepository
+from app.utils.ids import id_matches
 
 
 class FollowRepository(BaseRepository):
@@ -15,6 +16,24 @@ class FollowRepository(BaseRepository):
             db,
             "follows"
         )
+
+
+    @staticmethod
+    def _pair_query(
+        follower_id: str,
+        following_id: str,
+    ) -> dict:
+        """Match a follow pair regardless of how the ids were stored.
+
+        Older rows keep the identifiers as strings while newer ones use
+        ObjectId, so both representations have to match or an existing
+        relationship looks absent.
+        """
+
+        return {
+            **id_matches("follower_id", follower_id),
+            **id_matches("following_id", following_id),
+        }
 
 
     async def create(
@@ -57,11 +76,10 @@ class FollowRepository(BaseRepository):
 
 
         result = await self.collection.delete_one(
-            {
-                "follower_id": follower_id,
-
-                "following_id": following_id,
-            }
+            self._pair_query(
+                follower_id,
+                following_id,
+            )
         )
 
 
@@ -77,11 +95,10 @@ class FollowRepository(BaseRepository):
 
 
         follow = await self.collection.find_one(
-            {
-                "follower_id": follower_id,
-
-                "following_id": following_id,
-            }
+            self._pair_query(
+                follower_id,
+                following_id,
+            )
         )
 
 
@@ -100,9 +117,10 @@ class FollowRepository(BaseRepository):
         follows = await (
             self.collection
             .find(
-                {
-                    "following_id": user_id
-                }
+                id_matches(
+                    "following_id",
+                    user_id,
+                )
             )
             .skip(skip)
             .limit(limit)
@@ -127,9 +145,10 @@ class FollowRepository(BaseRepository):
         follows = await (
             self.collection
             .find(
-                {
-                    "follower_id": user_id
-                }
+                id_matches(
+                    "follower_id",
+                    user_id,
+                )
             )
             .skip(skip)
             .limit(limit)
@@ -147,9 +166,12 @@ class FollowRepository(BaseRepository):
     ) -> int:
         """Count how many users follow this user"""
 
-        return await self.collection.count_documents({
-            "following_id": user_id
-        })
+        return await self.collection.count_documents(
+            id_matches(
+                "following_id",
+                user_id,
+            )
+        )
 
     async def count_following(
         self,
@@ -157,6 +179,9 @@ class FollowRepository(BaseRepository):
     ) -> int:
         """Count how many users this user follows"""
 
-        return await self.collection.count_documents({
-            "follower_id": user_id
-        })
+        return await self.collection.count_documents(
+            id_matches(
+                "follower_id",
+                user_id,
+            )
+        )

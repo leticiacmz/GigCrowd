@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from app.repositories.base import BaseRepository
+from app.utils.ids import id_matches, ids_match
 
 
 class ShowLogRepository(BaseRepository):
@@ -14,15 +15,33 @@ class ShowLogRepository(BaseRepository):
         )
 
 
+    @staticmethod
+    def _pair_query(
+        user_id: str,
+        event_id: str,
+    ) -> dict:
+        """Match one user's log for one event.
+
+        Both identifiers are matched in either storage form so an existing log
+        is always found, updated and deleted.
+        """
+
+        return {
+            **id_matches("user_id", user_id),
+            **id_matches("event_id", event_id),
+        }
+
+
     async def get_user_logs(
         self,
         user_id: str,
     ):
 
         cursor = self.collection.find(
-            {
-                "user_id": user_id,
-            }
+            id_matches(
+                "user_id",
+                user_id,
+            )
         )
 
         return await cursor.to_list(
@@ -37,10 +56,10 @@ class ShowLogRepository(BaseRepository):
     ):
 
         return await self.collection.find_one(
-            {
-                "user_id": user_id,
-                "event_id": event_id,
-            }
+            self._pair_query(
+                user_id,
+                event_id,
+            )
         )
 
 
@@ -51,10 +70,10 @@ class ShowLogRepository(BaseRepository):
     ):
 
         result = await self.collection.delete_one(
-            {
-                "user_id": user_id,
-                "event_id": event_id,
-            }
+            self._pair_query(
+                user_id,
+                event_id,
+            )
         )
 
         return result.deleted_count > 0
@@ -68,7 +87,7 @@ class ShowLogRepository(BaseRepository):
 
         return await self.collection.count_documents(
             {
-                "event_id": event_id,
+                **ids_match("event_id", [event_id]),
                 "status": status,
             }
         )
@@ -81,10 +100,10 @@ class ShowLogRepository(BaseRepository):
     ):
 
         log = await self.collection.find_one(
-            {
-                "user_id": user_id,
-                "event_id": event_id,
-            }
+            self._pair_query(
+                user_id,
+                event_id,
+            )
         )
 
         if not log:
@@ -100,9 +119,10 @@ class ShowLogRepository(BaseRepository):
 
         pipeline = [
             {
-                "$match": {
-                    "event_id": event_id,
-                }
+                "$match": ids_match(
+                    "event_id",
+                    [event_id],
+                )
             },
             {
                 "$group": {
@@ -135,10 +155,10 @@ class ShowLogRepository(BaseRepository):
     ):
 
         await self.collection.update_one(
-            {
-                "user_id": user_id,
-                "event_id": event_id,
-            },
+            self._pair_query(
+                user_id,
+                event_id,
+            ),
             {
                 "$set": {
                     "rating": rating,
@@ -161,10 +181,10 @@ class ShowLogRepository(BaseRepository):
     ):
 
         await self.collection.update_one(
-            {
-                "user_id": user_id,
-                "event_id": event_id,
-            },
+            self._pair_query(
+                user_id,
+                event_id,
+            ),
             {
                 "$unset": {
                     "rating": "",
