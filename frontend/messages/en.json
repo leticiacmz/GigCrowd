@@ -13,7 +13,10 @@
     "trackShows": "Track Shows",
     "shareStories": "Share Stories",
     "exploreEvents": "Explore Events",
-    "joinGigCrowd": "Join GigCrowd"
+    "joinGigCrowd": "Join GigCrowd",
+    "notifications": "Notifications",
+    "home": "Home",
+    "menu": "Menu"
   },
   "auth": {
     "welcomeBack": "Welcome Back",
@@ -39,27 +42,52 @@
   },
   "feed": {
     "title": "Your Feed",
-    "filterByActivity": "Filter by activity",
-    "allActivity": "All activity",
-    "events": "Events",
-    "posts": "Posts",
-    "follows": "Follows",
-    "likes": "Likes",
     "sort": "Sort",
     "newestFirst": "Newest first",
     "oldestFirst": "Oldest first",
-    "loadMore": "Load More",
+    "loadMore": "Load more",
     "loading": "Loading...",
     "retry": "Retry",
-    "noActivity": "No activity yet",
-    "followUsers": "Follow some users to see their activity here!",
     "errorLoading": "Failed to load feed. Please try again.",
     "activityTypes": {
       "follow": "started following someone",
       "attend_event": "is going to an event",
       "create_post": "created a post",
       "like_post": "liked a post"
-    }
+    },
+    "subtitle": "Everything happening in the artists and people you follow.",
+    "filterLabel": "Show",
+    "filter": {
+      "all": "All",
+      "community": "Community",
+      "reviews": "Reviews",
+      "events": "Events",
+      "social": "Social"
+    },
+    "emptyTitle": "Nothing here yet",
+    "emptyDescription": "Follow artists and people to fill your feed.",
+    "emptyFiltered": "No activity in this category yet.",
+    "error": "We could not load your feed. Please try again.",
+    "endOfFeed": "You are all caught up.",
+    "rating": "{rating}/5",
+    "activity": {
+      "create_community_post": "posted in the {artist} community",
+      "create_community_postNoArtist": "posted in an artist community",
+      "comment_post": "commented on a community post",
+      "like_post": "liked a community post",
+      "follow": "started following {username}",
+      "followNoUsername": "started following someone",
+      "attend_event": "marked attendance for an event",
+      "create_review": "reviewed an event"
+    },
+    "status": {
+      "going": "Going",
+      "maybe": "Maybe",
+      "went": "Went"
+    },
+    "viewPost": "View post",
+    "viewEvent": "View event",
+    "viewProfile": "View profile"
   },
   "artist": {
     "follow": "Follow",
@@ -94,7 +122,10 @@
     "loadError": "Could not load artist profile.",
     "followLoginRequired": "Sign in to follow artists.",
     "loadingRelated": "Loading related artists...",
-    "signInToSeePosts": "Sign in to see and share posts about this artist."
+    "signInToSeePosts": "Sign in to see and share posts about this artist.",
+    "tabOverview": "Overview",
+    "tabEvents": "Events",
+    "tabCommunity": "Community"
   },
   "event": {
     "going": "Going",
@@ -168,7 +199,23 @@
     "newComment": "commented on your post",
     "newReply": "replied to your comment",
     "newEvent": "created an event you might like",
-    "artistAnnouncement": "posted in a community you follow"
+    "artistAnnouncement": "posted in a community you follow",
+    "subtitle": "Activity on your posts, comments and profile.",
+    "allRead": "All caught up",
+    "emptyTitle": "You are all caught up",
+    "emptyDescription": "New followers, likes, comments and replies will show up here.",
+    "unreadBadge": "Unread",
+    "type": {
+      "follow": "started following you",
+      "like": "liked your post in {artist}",
+      "likeNoArtist": "liked your post",
+      "comment": "commented on your post in {artist}",
+      "commentNoArtist": "commented on your post",
+      "reply": "replied to your comment in {artist}",
+      "replyNoArtist": "replied to your comment"
+    },
+    "viewTarget": "View",
+    "signedOut": "Sign in to see your notifications."
   },
   "common": {
     "loading": "Loading...",
@@ -193,7 +240,16 @@
     "system": "System",
     "selectLanguage": "Select language",
     "noResults": "No results found",
-    "emptyState": "Nothing here yet"
+    "emptyState": "Nothing here yet",
+    "unread": "unread",
+    "darkMode": "Dark mode",
+    "lightMode": "Light mode",
+    "showMore": "Show more",
+    "showLess": "Show less",
+    "unreadCount": "{count} unread",
+    "themeToggle": "Toggle theme",
+    "switchToLight": "Switch to light mode",
+    "switchToDark": "Switch to dark mode"
   },
   "footer": {
     "terms": "Terms of Service",
@@ -226,7 +282,26 @@
     "reply": "Reply",
     "noCommentsYet": "No comments yet.",
     "loadingComments": "Loading comments...",
-    "error": "Failed to load community posts. Please try again."
+    "error": "Failed to load community posts. Please try again.",
+    "forArtist": "{artist} Community",
+    "aboutArtist": "Posts and conversation with {artist} fans.",
+    "posts": "Posts",
+    "likes": "{count} likes",
+    "commentCount": "{count} comments",
+    "followRequiredTitle": "Follow this artist to participate",
+    "followRequiredDescription": "Follow {artist} to post and comment in their community.",
+    "signInDescription": "Sign in to follow {artist} and join the conversation.",
+    "signIn": "Sign in",
+    "commentsTitle": "Comments",
+    "replies": "{count} replies",
+    "replyTo": "Replying to {username}",
+    "cancelReply": "Cancel reply",
+    "postFailed": "Your post could not be published. Please try again.",
+    "commentFailed": "Your comment could not be published. Please try again.",
+    "likeFailed": "We could not register your like. Please try again.",
+    "signedInAs": "Signed in as {username}",
+    "unknownUser": "Unknown user",
+    "writeFailed": "We could not save that. Follow the artist and try again."
   },
   "artists": {
     "title": "Artists",
@@ -254,5 +329,10 @@
     "venue": "Venue",
     "location": "Location",
     "lineup": "Lineup"
+  },
+  "theme": {
+    "label": "Theme",
+    "light": "Light mode",
+    "dark": "Dark mode"
   }
 }

@@ -13,7 +13,10 @@
     "trackShows": "Acompanhe Shows",
     "shareStories": "Compartilhe Histórias",
     "exploreEvents": "Explorar Eventos",
-    "joinGigCrowd": "Junte-se ao GigCrowd"
+    "joinGigCrowd": "Junte-se ao GigCrowd",
+    "notifications": "Notificações",
+    "home": "Início",
+    "menu": "Menu"
   },
   "auth": {
     "welcomeBack": "Bem-vindo de Volta",
@@ -39,27 +42,52 @@
   },
   "feed": {
     "title": "Seu Feed",
-    "filterByActivity": "Filtrar por atividade",
-    "allActivity": "Todas as atividades",
-    "events": "Eventos",
-    "posts": "Posts",
-    "follows": "Seguindo",
-    "likes": "Curtidas",
     "sort": "Ordenar",
     "newestFirst": "Mais recentes primeiro",
     "oldestFirst": "Mais antigas primeiro",
     "loadMore": "Carregar mais",
     "loading": "Carregando...",
     "retry": "Tentar novamente",
-    "noActivity": "Nenhuma atividade ainda",
-    "followUsers": "Siga alguns usuários para ver a atividade deles aqui!",
     "errorLoading": "Falha ao carregar o feed. Tente novamente.",
     "activityTypes": {
       "follow": "começou a seguir alguém",
       "attend_event": "vai a um evento",
       "create_post": "criou um post",
       "like_post": "curtiu um post"
-    }
+    },
+    "subtitle": "Tudo o que acontece nos artistas e pessoas que você segue.",
+    "filterLabel": "Mostrar",
+    "filter": {
+      "all": "Tudo",
+      "community": "Comunidade",
+      "reviews": "Avaliações",
+      "events": "Eventos",
+      "social": "Social"
+    },
+    "emptyTitle": "Nada por aqui ainda",
+    "emptyDescription": "Siga artistas e pessoas para preencher seu feed.",
+    "emptyFiltered": "Ainda não há atividade nesta categoria.",
+    "error": "Não foi possível carregar seu feed. Tente novamente.",
+    "endOfFeed": "Você está em dia.",
+    "rating": "{rating}/5",
+    "activity": {
+      "create_community_post": "publicou na comunidade de {artist}",
+      "create_community_postNoArtist": "publicou na comunidade de um artista",
+      "comment_post": "comentou em uma publicação da comunidade",
+      "like_post": "curtiu uma publicação da comunidade",
+      "follow": "começou a seguir {username}",
+      "followNoUsername": "começou a seguir alguém",
+      "attend_event": "marcou presença em um evento",
+      "create_review": "avaliou um evento"
+    },
+    "status": {
+      "going": "Vou",
+      "maybe": "Talvez",
+      "went": "Fui"
+    },
+    "viewPost": "Ver publicação",
+    "viewEvent": "Ver evento",
+    "viewProfile": "Ver perfil"
   },
   "artist": {
     "follow": "Seguir",
@@ -77,7 +105,7 @@
     "posting": "Postando...",
     "postError": "O conteúdo do post não pode ser vazio",
     "like": "Curtir",
-    "comment": "Comentar",
+    "comment": "Comentário",
     "writeComment": "Escreva um comentário...",
     "reply": "Responder",
     "writeReply": "Escreva uma resposta...",
@@ -86,7 +114,7 @@
     "save": "Salvar",
     "cancel": "Cancelar",
     "noPostsYet": "Nenhum post da comunidade ainda. Seja o primeiro a compartilhar!",
-    "noCommentsYet": "Nenhum comentário ainda.",
+    "noCommentsYet": "Não há comentários ainda.",
     "loadingComments": "Carregando comentários...",
     "loadingPosts": "Carregando posts...",
     "loadingArtist": "Carregando artista...",
@@ -94,7 +122,10 @@
     "loadError": "Não foi possível carregar o perfil do artista.",
     "followLoginRequired": "Entre para seguir artistas.",
     "loadingRelated": "Carregando artistas relacionados...",
-    "signInToSeePosts": "Entre para ver e publicar sobre este artista."
+    "signInToSeePosts": "Entre para ver e publicar sobre este artista.",
+    "tabOverview": "Visão geral",
+    "tabEvents": "Eventos",
+    "tabCommunity": "Comunidade"
   },
   "event": {
     "going": "Vou",
@@ -161,14 +192,30 @@
   },
   "notifications": {
     "title": "Notificações",
-    "markAllRead": "Marcar todas como lidas",
+    "markAllRead": "Marcar tudo como lido",
     "noNotifications": "Nenhuma notificação ainda.",
-    "newFollower": "começou a seguir você",
-    "newLike": "curtiu seu post",
-    "newComment": "comentou no seu post",
+    "newFollower": "começou a te seguir",
+    "newLike": "curtiu sua postagem",
+    "newComment": "comentou em seu post",
     "newReply": "respondeu ao seu comentário",
     "newEvent": "criou um evento que você pode gostar",
-    "artistAnnouncement": "postou em uma comunidade que você segue"
+    "artistAnnouncement": "postou em uma comunidade que você segue",
+    "subtitle": "Atividade nas suas publicações, comentários e perfil.",
+    "allRead": "Tudo em dia",
+    "emptyTitle": "Você está em dia",
+    "emptyDescription": "Novos seguidores, curtidas, comentários e respostas aparecerão aqui.",
+    "unreadBadge": "Não lida",
+    "type": {
+      "follow": "começou a seguir você",
+      "like": "curtiu sua publicação em {artist}",
+      "likeNoArtist": "curtiu sua publicação",
+      "comment": "comentou na sua publicação em {artist}",
+      "commentNoArtist": "comentou na sua publicação",
+      "reply": "respondeu ao seu comentário em {artist}",
+      "replyNoArtist": "respondeu ao seu comentário"
+    },
+    "viewTarget": "Ver",
+    "signedOut": "Entre para ver suas notificações."
   },
   "common": {
     "loading": "Carregando...",
@@ -193,7 +240,16 @@
     "system": "Sistema",
     "selectLanguage": "Selecionar idioma",
     "noResults": "Nenhum resultado encontrado",
-    "emptyState": "Nada aqui ainda"
+    "emptyState": "Nada aqui ainda",
+    "unread": "não lido",
+    "darkMode": "Modo escuro",
+    "lightMode": "Modo claro",
+    "showMore": "Mostrar mais",
+    "showLess": "Mostrar menos",
+    "unreadCount": "{count} não lidas",
+    "themeToggle": "Alternar tema",
+    "switchToLight": "Mudar para o modo claro",
+    "switchToDark": "Mudar para o modo escuro"
   },
   "footer": {
     "terms": "Termos de Serviço",
@@ -226,7 +282,26 @@
     "reply": "Responder",
     "noCommentsYet": "Nenhum comentário ainda.",
     "loadingComments": "Carregando comentários...",
-    "error": "Falha ao carregar os posts da comunidade. Tente novamente."
+    "error": "Falha ao carregar os posts da comunidade. Tente novamente.",
+    "forArtist": "Comunidade de {artist}",
+    "aboutArtist": "Publicações e conversa com os fãs de {artist}.",
+    "posts": "Publicações",
+    "likes": "{count} curtidas",
+    "commentCount": "{count} comentários",
+    "followRequiredTitle": "Siga este artista para participar",
+    "followRequiredDescription": "Siga {artist} para publicar e comentar na comunidade.",
+    "signInDescription": "Entre para seguir {artist} e participar da conversa.",
+    "signIn": "Entrar",
+    "commentsTitle": "Comentários",
+    "replies": "{count} respostas",
+    "replyTo": "Respondendo a {username}",
+    "cancelReply": "Cancelar resposta",
+    "postFailed": "Não foi possível publicar. Tente novamente.",
+    "commentFailed": "Não foi possível enviar o comentário. Tente novamente.",
+    "likeFailed": "Não foi possível registrar sua curtida. Tente novamente.",
+    "signedInAs": "Conectado como {username}",
+    "unknownUser": "Usuário desconhecido",
+    "writeFailed": "Não foi possível salvar. Siga o artista e tente novamente."
   },
   "artists": {
     "title": "Artistas",
@@ -254,5 +329,10 @@
     "venue": "Local",
     "location": "Cidade",
     "lineup": "Line-up"
+  },
+  "theme": {
+    "label": "Tema",
+    "light": "Modo claro",
+    "dark": "Modo escuro"
   }
 }

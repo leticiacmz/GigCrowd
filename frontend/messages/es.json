@@ -13,7 +13,10 @@
     "trackShows": "Seguir Shows",
     "shareStories": "Compartir Historias",
     "exploreEvents": "Explorar Eventos",
-    "joinGigCrowd": "Únete a GigCrowd"
+    "joinGigCrowd": "Únete a GigCrowd",
+    "notifications": "Notificaciones",
+    "home": "Inicio",
+    "menu": "Menú"
   },
   "auth": {
     "welcomeBack": "Bienvenido de Nuevo",
@@ -39,27 +42,52 @@
   },
   "feed": {
     "title": "Tu Feed",
-    "filterByActivity": "Filtrar por actividad",
-    "allActivity": "Todas las actividades",
-    "events": "Eventos",
-    "posts": "Publicaciones",
-    "follows": "Siguiendo",
-    "likes": "Me gusta",
     "sort": "Ordenar",
     "newestFirst": "Más recientes primero",
     "oldestFirst": "Más antiguas primero",
     "loadMore": "Cargar más",
     "loading": "Cargando...",
     "retry": "Reintentar",
-    "noActivity": "Aún no hay actividad",
-    "followUsers": "¡Sigue a algunos usuarios para ver su actividad aquí!",
     "errorLoading": "Error al cargar el feed. Inténtalo de nuevo.",
     "activityTypes": {
       "follow": "empezó a seguir a alguien",
       "attend_event": "va a un evento",
       "create_post": "creó una publicación",
       "like_post": "dio me gusta a una publicación"
-    }
+    },
+    "subtitle": "Todo lo que ocurre en los artistas y personas que sigues.",
+    "filterLabel": "Mostrar",
+    "filter": {
+      "all": "Todo",
+      "community": "Comunidad",
+      "reviews": "Reseñas",
+      "events": "Eventos",
+      "social": "Social"
+    },
+    "emptyTitle": "Aquí no hay nada todavía",
+    "emptyDescription": "Sigue artistas y personas para llenar tu feed.",
+    "emptyFiltered": "Todavía no hay actividad en esta categoría.",
+    "error": "No pudimos cargar tu feed. Inténtalo de nuevo.",
+    "endOfFeed": "Ya estás al día.",
+    "rating": "{rating}/5",
+    "activity": {
+      "create_community_post": "publicó en la comunidad de {artist}",
+      "create_community_postNoArtist": "publicó en la comunidad de un artista",
+      "comment_post": "comentó en una publicación de la comunidad",
+      "like_post": "le dio me gusta a una publicación de la comunidad",
+      "follow": "empezó a seguir a {username}",
+      "followNoUsername": "empezó a seguir a alguien",
+      "attend_event": "marcó asistencia a un evento",
+      "create_review": "reseñó un evento"
+    },
+    "status": {
+      "going": "Voy",
+      "maybe": "Tal vez",
+      "went": "Fui"
+    },
+    "viewPost": "Ver publicación",
+    "viewEvent": "Ver evento",
+    "viewProfile": "Ver perfil"
   },
   "artist": {
     "follow": "Seguir",
@@ -77,24 +105,27 @@
     "posting": "Publicando...",
     "postError": "El contenido de la publicación no puede estar vacío",
     "like": "Me gusta",
-    "comment": "Comentar",
-    "writeComment": "Escribe un comentario...",
+    "comment": "Comentário",
+    "writeComment": "Escreva um comentário...",
     "reply": "Responder",
-    "writeReply": "Escribe una respuesta...",
+    "writeReply": "Escreva uma resposta...",
     "edit": "Editar",
     "delete": "Eliminar",
     "save": "Guardar",
     "cancel": "Cancelar",
     "noPostsYet": "Aún no hay publicaciones en la comunidad. ¡Sé el primero en compartir!",
-    "noCommentsYet": "Aún no hay comentarios.",
-    "loadingComments": "Cargando comentarios...",
+    "noCommentsYet": "Não há comentários ainda.",
+    "loadingComments": "Carregando comentários...",
     "loadingPosts": "Cargando publicaciones...",
     "loadingArtist": "Cargando artista...",
     "notFound": "Artista no encontrado.",
     "loadError": "No se pudo cargar el perfil del artista.",
     "followLoginRequired": "Inicia sesión para seguir artistas.",
     "loadingRelated": "Cargando artistas relacionados...",
-    "signInToSeePosts": "Inicia sesión para ver y publicar sobre este artista."
+    "signInToSeePosts": "Inicia sesión para ver y publicar sobre este artista.",
+    "tabOverview": "Resumen",
+    "tabEvents": "Eventos",
+    "tabCommunity": "Comunidad"
   },
   "event": {
     "going": "Voy",
@@ -162,13 +193,29 @@
   "notifications": {
     "title": "Notificaciones",
     "markAllRead": "Marcar todo como leído",
-    "noNotifications": "Aún no hay notificaciones.",
+    "noNotifications": "Nenhuma notificação ainda.",
     "newFollower": "empezó a seguirte",
-    "newLike": "dio me gusta a tu publicación",
+    "newLike": "le dio me gusta a tu publicación",
     "newComment": "comentó en tu publicación",
     "newReply": "respondió a tu comentario",
-    "newEvent": "creó un evento que te puede interesar",
-    "artistAnnouncement": "publicó en una comunidad que sigues"
+    "newEvent": "criou um evento que você pode gostar",
+    "artistAnnouncement": "postou em uma comunidade que você segue",
+    "subtitle": "Actividad en tus publicaciones, comentarios y perfil.",
+    "allRead": "Todo al día",
+    "emptyTitle": "Ya estás al día",
+    "emptyDescription": "Nuevos seguidores, me gusta, comentarios y respuestas aparecerán aquí.",
+    "unreadBadge": "Sin leer",
+    "type": {
+      "follow": "empezó a seguirte",
+      "like": "le dio me gusta a tu publicación en {artist}",
+      "likeNoArtist": "le dio me gusta a tu publicación",
+      "comment": "comentó en tu publicación en {artist}",
+      "commentNoArtist": "comentó en tu publicación",
+      "reply": "respondió a tu comentario en {artist}",
+      "replyNoArtist": "respondió a tu comentario"
+    },
+    "viewTarget": "Ver",
+    "signedOut": "Inicia sesión para ver tus notificaciones."
   },
   "common": {
     "loading": "Cargando...",
@@ -189,11 +236,20 @@
     "language": "Idioma",
     "theme": "Tema",
     "light": "Claro",
-    "dark": "Oscuro",
+    "dark": "Escuro",
     "system": "Sistema",
-    "selectLanguage": "Seleccionar idioma",
+    "selectLanguage": "Selecionar idioma",
     "noResults": "No se encontraron resultados",
-    "emptyState": "Aquí no hay nada aún"
+    "emptyState": "Aquí no hay nada aún",
+    "unread": "não lido",
+    "darkMode": "Modo escuro",
+    "lightMode": "Modo claro",
+    "showMore": "Mostrar más",
+    "showLess": "Mostrar menos",
+    "unreadCount": "{count} sin leer",
+    "themeToggle": "Cambiar tema",
+    "switchToLight": "Cambiar al modo claro",
+    "switchToDark": "Cambiar al modo oscuro"
   },
   "footer": {
     "terms": "Términos de Servicio",
@@ -226,7 +282,26 @@
     "reply": "Responder",
     "noCommentsYet": "Aún no hay comentarios.",
     "loadingComments": "Cargando comentarios...",
-    "error": "Error al cargar las publicaciones de la comunidad. Inténtalo de nuevo."
+    "error": "Error al cargar las publicaciones de la comunidad. Inténtalo de nuevo.",
+    "forArtist": "Comunidad de {artist}",
+    "aboutArtist": "Publicaciones y conversación con los fans de {artist}.",
+    "posts": "Publicaciones",
+    "likes": "{count} me gusta",
+    "commentCount": "{count} comentarios",
+    "followRequiredTitle": "Sigue a este artista para participar",
+    "followRequiredDescription": "Sigue a {artist} para publicar y comentar en su comunidad.",
+    "signInDescription": "Inicia sesión para seguir a {artist} y unirte a la conversación.",
+    "signIn": "Iniciar sesión",
+    "commentsTitle": "Comentarios",
+    "replies": "{count} respuestas",
+    "replyTo": "Respondiendo a {username}",
+    "cancelReply": "Cancelar respuesta",
+    "postFailed": "No se pudo publicar. Inténtalo de nuevo.",
+    "commentFailed": "No se pudo enviar el comentario. Inténtalo de nuevo.",
+    "likeFailed": "No se pudo registrar tu me gusta. Inténtalo de nuevo.",
+    "signedInAs": "Conectado como {username}",
+    "unknownUser": "Usuario desconocido",
+    "writeFailed": "No se pudo guardar. Sigue al artista e inténtalo de nuevo."
   },
   "artists": {
     "title": "Artistas",
@@ -254,5 +329,10 @@
     "venue": "Local",
     "location": "Ciudad",
     "lineup": "Cartel"
+  },
+  "theme": {
+    "label": "Tema",
+    "light": "Modo claro",
+    "dark": "Modo oscuro"
   }
 }
