@@ -18,12 +18,14 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+# Anchored to the repo root: an unanchored `lib/` also matches real source
+# directories such as frontend/app/lib/.
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -40,8 +42,8 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 .next/
-out/
-build/
+/out/
+/build/
 .vercel/
 .netlify/
 .turbo
@@ -92,6 +94,6 @@ typecheck_errors.txt
 build_errors.txt
 
 # Distribution
-dist/
+/dist/
 
 /architecture
