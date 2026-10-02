@@ -24,6 +24,8 @@ import Badge from '../../../../../components/ui/Badge';
 import LoadingState from '../../../../../components/LoadingState';
 import EventCard from '../../../../../components/EventCard';
 
+import ArtistTabs from '../../../../../components/artist/ArtistTabs';
+
 
 
 interface Artist {
@@ -397,11 +399,12 @@ export default function ArtistEventsPage(){
 
         <Link
 
-          href={`/artists/${artistSlug}`}
+          href={`/${locale}/artists/${artistSlug}`}
 
           className="
-            text-accent
-            hover:text-accent/80
+            text-accent-text
+            underline-offset-2
+            hover:underline
           "
 
         >
@@ -431,6 +434,18 @@ export default function ArtistEventsPage(){
 
 
         </div>
+
+
+
+        <ArtistTabs
+
+          locale={locale}
+
+          slug={artistSlug}
+
+          active="events"
+
+        />
 
 
 
@@ -493,7 +508,9 @@ export default function ArtistEventsPage(){
                 border
                 border-border
                 px-3
-                text-gray-300
+                py-2.5
+                min-h-[44px]
+                text-foreground
               "
 
             >
@@ -564,7 +581,7 @@ export default function ArtistEventsPage(){
             filteredEvents.length === 0 ? (
 
 
-              <p className="text-gray-400">{t('noEvents')}</p>
+              <p className="text-muted">{t('noEvents')}</p>
 
 
             ) : (

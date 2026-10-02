@@ -1,25 +1,18 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+type Props = {
+  params: Promise<{ locale: string }>;
+};
 
 /**
- * The global community page has been retired.
- * Community is now artist-specific and accessed through artist profiles.
- * This page redirects to the artists page.
+ * The global community has been retired.
+ *
+ * Community is artist-scoped: every conversation belongs to one artist and is
+ * reached from that artist's page. This route exists only so old links and
+ * bookmarks land somewhere sensible instead of a 404.
  */
-export default function CommunityPage() {
-  const params = useParams();
-  const router = useRouter();
-  const locale = (params?.locale as string) || 'en';
+export default async function RetiredCommunityPage({ params }: Props) {
+  const { locale } = await params;
 
-  useEffect(() => {
-    router.replace(`/${locale}/artists`);
-  }, [router, locale]);
-
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <p className="text-gray-400">Redirecting to artists...</p>
-    </div>
-  );
+  redirect(`/${locale}/artists`);
 }
