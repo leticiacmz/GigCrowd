@@ -6,6 +6,17 @@ import {
   sanitizeNext,
 } from './auth';
 import type { Notification } from '../types/notification';
+import type {
+  ReviewPayload,
+  ShowLog,
+  UploadedImage,
+} from '../types/review';
+import type {
+  ProfileArtist,
+  ProfileEvent,
+  ProfileFestival,
+  ProfileReview,
+} from '../types/profile';
 
 const API_URL =
   typeof window !== 'undefined'
@@ -324,28 +335,53 @@ export const commentAPI = {
 };
 
 export const showLogAPI = {
-  get: async (eventId: string) => {
-    const response = await api.get(`/show-logs/${eventId}`);
-    return response.data;
+  /**
+   * The signed-in user's log for one event, or `null` when they have none.
+   *
+   * A missing log is an ordinary state rather than an error, so a 404 is
+   * resolved to `null` instead of rejecting and forcing every caller to know it.
+   */
+  get: async (eventId: string): Promise<ShowLog | null> => {
+    try {
+      const response = await api.get(`/show-logs/${eventId}`);
+      return response.data as ShowLog;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
+
+      throw error;
+    }
   },
-  create: async (data: any) => {
-    const response = await api.post('/show-logs', data);
-    return response.data;
-  },
-  update: async (eventId: string, data: {
-    review?: string;
+  create: async (data: {
+    event_id: string;
+    status: ShowLog['status'];
     rating?: number;
-  }) => {
-    const response = await api.put(`/show-logs/${eventId}`, data);
-    return response.data;
+    review?: string;
+  }): Promise<ShowLog> => {
+    const response = await api.post('/show-logs', data);
+    return response.data as ShowLog;
   },
   delete: async (eventId: string) => {
     const response = await api.delete(`/show-logs/${eventId}`);
     return response.data;
   },
-  deleteReview: async (eventId: string) => {
+  /**
+   * Write or replace the review on a show log.
+   *
+   * A review needs a rating plus something to say: text, a photo, or both. A
+   * bare star rating is not a review, so the dialog asks for one of the two.
+   */
+  saveReview: async (
+    eventId: string,
+    data: ReviewPayload,
+  ): Promise<ShowLog> => {
+    const response = await api.put(`/show-logs/${eventId}/review`, data);
+    return response.data as ShowLog;
+  },
+  deleteReview: async (eventId: string): Promise<ShowLog> => {
     const response = await api.delete(`/show-logs/${eventId}/review`);
-    return response.data;
+    return response.data as ShowLog;
   },
 };
 
@@ -409,9 +445,91 @@ export const userAPI = {
       }[];
     };
   },
-  updateMe: async (userData) => {
+  updateMe: async (userData: {
+    full_name?: string;
+    bio?: string;
+    location?: string;
+  }) => {
     const response = await api.put('/users/me', userData);
     return response.data;
+  },
+
+  /**
+   * The shows a user says they attended, most recent first.
+   *
+   * `limit` is the count the header links to, not a second statistic: the same
+   * collection backs the figure and this list.
+   */
+  getProfileEvents: async (username: string, limit?: number) => {
+    const response = await api.get(`/users/profile/${username}/events`, {
+      params: limit ? { limit } : undefined,
+    });
+    return response.data as {
+      username: string;
+      events: ProfileEvent[];
+      total: number;
+    };
+  },
+
+  /** The reviews a user wrote, most recently written first. */
+  getProfileReviews: async (username: string, limit?: number) => {
+    const response = await api.get(`/users/profile/${username}/reviews`, {
+      params: limit ? { limit } : undefined,
+    });
+    return response.data as {
+      username: string;
+      reviews: ProfileReview[];
+      total: number;
+    };
+  },
+
+  /**
+   * The festivals a user has been to.
+   *
+   * Editions of the same festival collapse into one row, so the count is the
+   * number of festivals and not the number of tickets.
+   */
+  getProfileFestivals: async (username: string) => {
+    const response = await api.get(`/users/profile/${username}/festivals`);
+    return response.data as {
+      username: string;
+      festivals: ProfileFestival[];
+      total: number;
+    };
+  },
+
+  /** The artists a user follows, which are the communities they belong to. */
+  getProfileArtists: async (username: string, limit?: number) => {
+    const response = await api.get(`/users/profile/${username}/artists`, {
+      params: limit ? { limit } : undefined,
+    });
+    return response.data as {
+      username: string;
+      artists: ProfileArtist[];
+      total: number;
+    };
+  },
+};
+
+/**
+ * Image upload, used by anything that attaches a photo.
+ *
+ * One endpoint for every image the product accepts: the file is posted to the
+ * backend, which validates it, stores it and returns the public URL, so the
+ * Cloudinary secret never reaches the browser.
+ */
+export const mediaAPI = {
+  uploadImage: async (file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const response = await api.post('/media/images', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    return response.data as UploadedImage;
   },
 };
 
