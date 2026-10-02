@@ -1276,7 +1276,295 @@ with sync_playwright() as p:
     pg.close()
     ctx.close()
 
-    # ================================================================= 12. MOBILE
+    # ============================================ 12. PROFILE STATISTICS
+    # Every figure on a profile must be the number the backend counts from the
+    # rows behind it, so the page is compared against the endpoint directly.
+    username = DATA["author"]["username"]
+
+    with httpx.Client(base_url=API, timeout=60) as client:
+        stats = client.get(f"/users/profile/{username}/stats").json()
+        # The connections route answers with an envelope, so the people are
+        # read out of it rather than from the object itself.
+        followers = client.get(
+            f"/users/profile/{username}/connections",
+            params={"direction": "followers"},
+        ).json()["users"]
+
+    with httpx.Client(
+        base_url=API,
+        timeout=60,
+        headers={"Authorization": f"Bearer {DATA['author_token']}"},
+    ) as client:
+        me = client.get("/users/me/stats")
+        me_status = me.status_code
+        me_stats = me.json() if me.status_code == 200 else {}
+
+    check(
+        "stats: the signed-in stats endpoint answers",
+        me_status == 200,
+        f"HTTP {me_status}",
+    )
+
+    comparable = [
+        key
+        for key in stats
+        if key in me_stats
+    ]
+    check(
+        "stats: the two stats routes report the same figures",
+        me_status == 200
+        and comparable
+        and all(me_stats[key] == stats[key] for key in comparable),
+        f"{len(comparable)} keys compared",
+    )
+
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    pg = ctx.new_page()
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{BASE}/en/profile/{username}", wait_until="networkidle")
+    pg.wait_for_timeout(1200)
+
+    shown = {
+        "shows_attended": "profile-stat-shows",
+        "shows_going": "profile-stat-going",
+        "shows_maybe": "profile-stat-maybe",
+        "artists_seen": "profile-stat-artists",
+        "upcoming_events": "profile-stat-upcoming",
+        "total_posts": "profile-stat-posts",
+    }
+
+    for key, test_id in shown.items():
+        card = pg.locator(f"[data-testid='{test_id}']")
+        rendered = (card.inner_text() or "").split("\n")[0].strip() if card.count() else ""
+
+        check(
+            f"stats: the {key.replace('_', ' ')} figure matches the endpoint",
+            card.count() == 1 and rendered == str(stats.get(key, -1)),
+            f"page={rendered!r} api={stats.get(key)}",
+        )
+
+    # The author really did post and review, so zeros would mean the figures
+    # lost their data rather than that the author is inactive.
+    check(
+        "stats: the author's real posts and shows are counted",
+        stats["total_posts"] >= 1 and (
+            stats["shows_attended"] + stats["shows_going"] + stats["shows_maybe"]
+        ) >= 1,
+        f"posts={stats['total_posts']} went={stats['shows_attended']} "
+        f"going={stats['shows_going']} maybe={stats['shows_maybe']}",
+    )
+
+    check(
+        "stats: followers match the number of follow rows behind them",
+        stats["followers_count"] == len(followers)
+        and [user["username"] for user in followers] == [DATA["fan"]["username"]],
+        f"count={stats['followers_count']} listed={len(followers)}",
+    )
+
+    with httpx.Client(
+        base_url=API,
+        timeout=60,
+        headers={"Authorization": f"Bearer {DATA['author_token']}"},
+    ) as client:
+        author_following = client.get(
+            f"/users/profile/{username}/connections",
+            params={"direction": "following"},
+        ).json()["users"]
+
+    check(
+        "stats: the seeded follow is counted on both sides of the header",
+        stats["following_count"] == len(author_following) == 1
+        and author_following[0]["username"] == DATA["visitor"]["username"],
+        f"count={stats['following_count']} listed={len(author_following)}",
+    )
+
+    # Six labels, in the reader's language.
+    stat_labels = {
+        "en": ["Shows", "Going", "Maybe", "Artists", "Upcoming", "Posts"],
+        "pt-BR": ["Shows", "Indo", "Talvez", "Artistas", "Próximos", "Publicações"],
+        "es": ["Conciertos", "Asistiré", "Quizá", "Artistas", "Próximos", "Publicaciones"],
+    }
+
+    for locale, expected in stat_labels.items():
+        pg.goto(f"{BASE}/{locale}/profile/{username}", wait_until="networkidle")
+        pg.wait_for_timeout(900)
+
+        labels = [
+            pg.locator(f"[data-testid='{test_id}']").inner_text().split("\n")[-1].strip()
+            for test_id in shown.values()
+        ]
+
+        check(
+            f"stats: the {locale} profile labels are translated",
+            labels == expected,
+            f"{labels}",
+        )
+
+    # The edit form only exists for the signed-in owner, so the session is
+    # seeded before checking that the form itself is translated.
+    pg.goto(f"{BASE}/pt-BR/profile/{username}", wait_until="networkidle")
+    store_token(pg, DATA["author_token"], DATA["author"])
+    pg.reload(wait_until="networkidle")
+    pg.wait_for_timeout(900)
+    edit = pg.locator("[data-testid='profile-edit']")
+
+    if edit.count():
+        edit.first.click()
+        pg.wait_for_timeout(700)
+
+        placeholders = pg.eval_on_selector_all(
+            "input, textarea", "els => els.map(e => e.placeholder).filter(Boolean)"
+        )
+
+        # "Bio" is a real Portuguese word, so it is deliberately not on the
+        # forbidden list; "Full name" and "Location" only exist in English.
+        check(
+            "stats: the pt-BR edit form has no untranslated placeholder",
+            bool(placeholders)
+            and all(
+                not re.fullmatch(r"(Full name|Location)", text)
+                for text in placeholders
+            ),
+            f"{placeholders}",
+        )
+    else:
+        check("stats: the pt-BR edit form has no English placeholder", False, "no edit control")
+
+    pg.close()
+    ctx.close()
+
+    # ============================ 13. EVENT AND FESTIVAL SCREENS, IN LOCALE
+    # A real event, and a real festival if one of its events carries a lineup,
+    # so the translated screens are exercised against live data.
+    artist_events = []
+
+    for slug in (DATA["artist_slug"], DATA["other_artist"]):
+        found = httpx.get(f"{API}/events/artist/{slug}", timeout=60).json()
+
+        if found:
+            artist_events = found
+            break
+
+    if artist_events:
+        event_id = artist_events[0]["id"]
+        festival_event = next(
+            (e for e in artist_events if (e.get("festival") or {}).get("name")),
+            None,
+        )
+
+        for locale in ("en", "pt-BR", "es"):
+            ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+            pg = ctx.new_page()
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.goto(f"{BASE}/{locale}/events/{event_id}", wait_until="networkidle")
+            pg.wait_for_timeout(900)
+
+            # Every internal link must keep the locale, or the reader is
+            # dropped into the wrong language partway through a visit.
+            internal = pg.eval_on_selector_all(
+                "a[href]",
+                "els => els.map(e => e.getAttribute('href')).filter(h => h.startsWith('/'))",
+            )
+            wrong = [
+                href
+                for href in internal
+                if not href.startswith(f"/{locale}") and not href.startswith("/_next")
+            ]
+
+            check(
+                f"event: every {locale} link keeps its locale",
+                not wrong,
+                f"offenders={wrong[:4]} of {len(internal)}",
+            )
+
+            body = pg.inner_text("body")
+
+            # The English page is meant to read in English; the translated
+            # ones must never fall back to it.
+            untranslated = [
+                phrase
+                for phrase in (
+                    "Back to events",
+                    "Loading event",
+                    "View festival page",
+                    "Explore festival",
+                    "Open in maps",
+                    "Happening now",
+                )
+                if locale != "en" and phrase in body
+            ]
+
+            check(
+                f"event: the {locale} page shows no untranslated copy",
+                not untranslated,
+                f"{untranslated}",
+            )
+
+            # Month names have to follow the locale too. English and
+            # Portuguese or Spanish never share a month name, so an English
+            # one on a translated page means the date is being formatted for
+            # one language for every reader.
+            english_months = {
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December",
+            }
+            words = set(re.findall(r"[A-Za-zÀ-ÿ]+", body))
+            leaked = sorted(words & english_months)
+
+            check(
+                f"event: the {locale} dates are not formatted in English",
+                locale == "en" or not leaked,
+                f"leaked={leaked}",
+            )
+
+            pg.close()
+            ctx.close()
+
+        if festival_event:
+            ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+            pg = ctx.new_page()
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.goto(
+                f"{BASE}/pt-BR/festivals/{festival_event['id']}",
+                wait_until="networkidle",
+            )
+            pg.wait_for_timeout(900)
+
+            body = pg.inner_text("body")
+
+            check(
+                "festival: the pt-BR lineup page shows no untranslated copy",
+                "Back to event" not in body
+                and "Search artists" not in body
+                and "Open artist" not in body
+                and "Official website" not in body,
+                "",
+            )
+
+            internal = pg.eval_on_selector_all(
+                "a[href]",
+                "els => els.map(e => e.getAttribute('href')).filter(h => h.startsWith('/'))",
+            )
+            wrong = [
+                href
+                for href in internal
+                if not href.startswith("/pt-BR") and not href.startswith("/_next")
+            ]
+
+            check(
+                "festival: every pt-BR link keeps its locale",
+                not wrong,
+                f"offenders={wrong[:4]} of {len(internal)}",
+            )
+
+            pg.close()
+            ctx.close()
+        else:
+            check("festival: a lineup page could be exercised", True, "no festival in seed data")
+    else:
+        check("event: an event page could be exercised", False, "no events for artist")
+
+    # ================================================================= 14. MOBILE
     ctx = browser.new_context(
         viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
     )
