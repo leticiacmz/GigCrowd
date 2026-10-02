@@ -1,14 +1,19 @@
 'use client';
 
-import Button from '@/components/ui/Button';
-import { logout, isAuthenticated, getUser, clearStaleAuth } from '@/app/lib/auth';
-import { useTheme } from '@/components/use-theme';
-import { locales, defaultLocale } from '@/app/i18n';
-
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
-import { useEffect, useRef, useState } from 'react';
+import Button from '@/components/ui/Button';
+import ThemeToggle from '@/components/ui/ThemeToggle';
+import NotificationBell from '@/components/NotificationBell';
+import {
+  logout,
+  isAuthenticated,
+  getUser,
+  clearStaleAuth,
+} from '@/app/lib/auth';
+import { locales, defaultLocale } from '@/app/i18n';
 
 interface AuthUser {
   id: string;
@@ -39,31 +44,29 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const { theme, toggleTheme } = useTheme();
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const locale = resolveLocale(pathname);
-  const pathnameWithoutLocale = pathname.replace(new RegExp(`^/${locale}`), '') || '/';
+  const pathnameWithoutLocale =
+    pathname.replace(new RegExp(`^/${locale}`), '') || '/';
 
-  function loadCurrentUser() {
+  const loadCurrentUser = useCallback(() => {
     if (isAuthenticated()) {
       const user = getUser();
       if (user) {
         setCurrentUser(user);
-      } else {
-        setCurrentUser(null);
-        clearStaleAuth();
+        return;
       }
-    } else {
-      setCurrentUser(null);
+      clearStaleAuth();
     }
-  }
+    setCurrentUser(null);
+  }, []);
 
   useEffect(() => {
     loadCurrentUser();
     window.addEventListener('auth-changed', loadCurrentUser);
     return () => window.removeEventListener('auth-changed', loadCurrentUser);
-  }, []);
+  }, [loadCurrentUser]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -89,40 +92,24 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
   const isRegisterPage = pathnameWithoutLocale === '/register';
 
   const nav = messages?.nav ?? {};
-  const common = messages?.common ?? {};
 
   const logoHref = isLoggedIn ? `/${locale}/feed` : `/${locale}`;
+
+  /*
+   * Community is deliberately absent: it only exists inside an artist, so
+   * there is no global Community destination to link to.
+   */
+  const publicLinks = [
+    { href: `/${locale}/artists`, label: nav.artists ?? 'Artists' },
+    { href: `/${locale}/events`, label: nav.events ?? 'Events' },
+  ];
 
   const navLinks = isLoggedIn
     ? [
         { href: `/${locale}/feed`, label: nav.feed ?? 'Feed' },
-        { href: `/${locale}/artists`, label: nav.artists ?? 'Artists' },
-        { href: `/${locale}/events`, label: nav.events ?? 'Events' },
+        ...publicLinks,
       ]
-    : [
-        { href: `/${locale}/artists`, label: nav.artists ?? 'Artists' },
-        { href: `/${locale}/events`, label: nav.events ?? 'Events' },
-      ];
-
-  const authLinks = (
-    <>
-      {!isLoginPage && (
-        <Link href={`/${locale}/login`}>
-          <Button variant="outlineGradient" size="sm">
-            {nav.login ?? 'Sign In'}
-          </Button>
-        </Link>
-      )}
-
-      {!isRegisterPage && (
-        <Link href={`/${locale}/register`}>
-          <Button variant="neon" size="sm">
-            {nav.register ?? 'Create Account'}
-          </Button>
-        </Link>
-      )}
-    </>
-  );
+    : publicLinks;
 
   function handleLogout() {
     logout();
@@ -137,27 +124,26 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
     setUserMenuOpen(false);
   }
 
-  const baseLinkClass = 'transition-all duration-300';
   const activeLinkClass =
-    'font-medium bg-gradient-to-r from-accent to-secondary bg-clip-text text-transparent';
-  const inactiveLinkClass = 'text-gray-400 hover:text-foreground';
+    'font-semibold bg-gradient-to-r from-gradient-text-from to-gradient-text-to bg-clip-text text-transparent';
+  const inactiveLinkClass = 'text-muted hover:text-foreground';
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
         <Link href={logoHref} onClick={handleNavigation} className="shrink-0">
-          <span className="bg-gradient-to-r from-accent to-secondary bg-clip-text text-2xl font-bold text-transparent">
+          <span className="bg-gradient-to-r from-gradient-text-from to-gradient-text-to bg-clip-text text-2xl font-bold text-transparent">
             GigCrowd
           </span>
         </Link>
 
-        <div className="hidden items-center gap-8 md:flex">
+        <div className="hidden flex-1 items-center gap-7 md:flex">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               aria-current={pathname === link.href ? 'page' : undefined}
-              className={`${baseLinkClass} ${
+              className={`transition-colors duration-200 ${
                 pathname === link.href ? activeLinkClass : inactiveLinkClass
               }`}
             >
@@ -166,115 +152,173 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
           ))}
         </div>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          <ThemeToggle className="hidden md:inline-flex" />
+
           {isLoggedIn && currentUser ? (
-            <div ref={userMenuRef} className="relative">
-              <button
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-1 text-gray-300 hover:text-foreground"
-                aria-haspopup="menu"
-                aria-expanded={userMenuOpen}
-              >
-                @{currentUser.username}
-                <span className="text-xs">▾</span>
-              </button>
+            <>
+              <NotificationBell locale={locale} />
 
-              {userMenuOpen && (
-                <div
-                  role="menu"
-                  className="absolute right-0 mt-3 w-48 rounded-xl border border-border bg-card-bg p-2 shadow-xl"
+              <div ref={userMenuRef} className="relative hidden md:block">
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex h-11 items-center gap-1 rounded-lg px-2 text-sm text-muted transition-colors hover:bg-card-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  aria-haspopup="menu"
+                  aria-expanded={userMenuOpen}
                 >
-                  <Link
-                    href={`/${locale}/profile/${currentUser.username}`}
-                    onClick={handleNavigation}
-                    className="block rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-card-hover hover:text-foreground"
-                  >
-                    {nav.profile ?? 'My Profile'}
-                  </Link>
+                  @{currentUser.username}
+                  <span aria-hidden="true" className="text-xs">
+                    ▾
+                  </span>
+                </button>
 
-                  <div className="my-2 border-t border-border" />
-
-                  <button
-                    onClick={handleLogout}
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-300 hover:bg-card-hover hover:text-foreground"
+                {userMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 mt-2 w-52 rounded-xl border border-border bg-card-bg p-2 shadow-xl"
                   >
-                    {nav.logout ?? 'Logout'}
-                  </button>
-                </div>
+                    <Link
+                      href={`/${locale}/profile/${currentUser.username}`}
+                      onClick={handleNavigation}
+                      className="block rounded-lg px-3 py-2.5 text-sm text-muted hover:bg-card-hover hover:text-foreground"
+                    >
+                      {nav.profile ?? 'Profile'}
+                    </Link>
+
+                    <div className="my-2 border-t border-border" />
+
+                    <button
+                      onClick={handleLogout}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-muted hover:bg-card-hover hover:text-foreground"
+                    >
+                      {nav.logout ?? 'Logout'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="hidden items-center gap-3 md:flex">
+              {!isLoginPage && (
+                <Link href={`/${locale}/login`}>
+                  <Button variant="outlineGradient" size="sm">
+                    {nav.login ?? 'Sign In'}
+                  </Button>
+                </Link>
+              )}
+
+              {!isRegisterPage && (
+                <Link href={`/${locale}/register`}>
+                  <Button variant="neon" size="sm">
+                    {nav.register ?? 'Create Account'}
+                  </Button>
+                </Link>
               )}
             </div>
-          ) : (
-            authLinks
           )}
+
+          <button
+            onClick={() => setMobileMenuOpen((open) => !open)}
+            aria-label={nav.menu ?? 'Menu'}
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-nav"
+            data-testid="mobile-menu-toggle"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:hidden"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.8}
+              strokeLinecap="round"
+              aria-hidden="true"
+              className="h-6 w-6"
+            >
+              {mobileMenuOpen ? (
+                <path d="M6 6l12 12M18 6L6 18" />
+              ) : (
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              )}
+            </svg>
+          </button>
         </div>
-
-        <button
-          onClick={toggleTheme}
-          data-testid="theme-toggle"
-          aria-label={common.theme ?? 'Theme'}
-          title={theme === 'dark' ? (common.light ?? 'Light') : (common.dark ?? 'Dark')}
-          className="hidden shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm text-gray-300 hover:bg-card-hover md:block"
-        >
-          {theme === 'dark' ? (common.light ?? 'Light') : (common.dark ?? 'Dark')}
-        </button>
-
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          aria-label="Toggle navigation menu"
-          aria-expanded={mobileMenuOpen}
-          className="shrink-0 rounded-lg px-2 py-1 text-gray-300 hover:bg-card-hover md:hidden"
-        >
-          ☰
-        </button>
       </div>
 
       {mobileMenuOpen && (
-        <div className="border-t border-border bg-card-bg md:hidden">
-          <div className="flex flex-col gap-4 p-4">
+        <div
+          id="mobile-nav"
+          data-testid="mobile-nav"
+          className="border-t border-border bg-card-bg md:hidden"
+        >
+          <div className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-3">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={handleNavigation}
                 aria-current={pathname === link.href ? 'page' : undefined}
-                className={pathname === link.href ? 'text-foreground' : 'text-gray-300'}
+                className={`flex min-h-[44px] items-center rounded-lg px-3 py-2 transition-colors hover:bg-card-hover ${
+                  pathname === link.href
+                    ? 'bg-card-hover font-semibold text-foreground'
+                    : 'text-muted'
+                }`}
               >
                 {link.label}
               </Link>
             ))}
 
-            <div className="border-t border-border pt-4">
-              {isLoggedIn && currentUser ? (
-                <div className="flex flex-col gap-4">
-                  <Link
-                    href={`/${locale}/profile/${currentUser.username}`}
-                    onClick={handleNavigation}
-                    className="text-gray-300"
-                  >
-                    @{currentUser.username}
+            <div className="my-2 border-t border-border" />
+
+            {isLoggedIn && currentUser ? (
+              <>
+                <Link
+                  href={`/${locale}/notifications`}
+                  onClick={handleNavigation}
+                  className="flex min-h-[44px] items-center rounded-lg px-3 py-2 text-muted hover:bg-card-hover"
+                >
+                  {nav.notifications ?? 'Notifications'}
+                </Link>
+
+                <Link
+                  href={`/${locale}/profile/${currentUser.username}`}
+                  onClick={handleNavigation}
+                  className="flex min-h-[44px] items-center rounded-lg px-3 py-2 text-muted hover:bg-card-hover"
+                >
+                  @{currentUser.username}
+                </Link>
+
+                <button
+                  onClick={handleLogout}
+                  className="flex min-h-[44px] items-center rounded-lg px-3 py-2 text-left text-muted hover:bg-card-hover"
+                >
+                  {nav.logout ?? 'Logout'}
+                </button>
+              </>
+            ) : (
+              <div className="flex flex-col gap-3 py-2">
+                {!isLoginPage && (
+                  <Link href={`/${locale}/login`} onClick={handleNavigation}>
+                    <Button variant="outlineGradient" size="sm" className="w-full">
+                      {nav.login ?? 'Sign In'}
+                    </Button>
                   </Link>
+                )}
 
-                  <button
-                    onClick={handleLogout}
-                    className="text-left text-gray-300"
-                  >
-                    {nav.logout ?? 'Logout'}
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3">{authLinks}</div>
-              )}
+                {!isRegisterPage && (
+                  <Link href={`/${locale}/register`} onClick={handleNavigation}>
+                    <Button variant="neon" size="sm" className="w-full">
+                      {nav.register ?? 'Create Account'}
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            )}
 
-              <button
-                onClick={toggleTheme}
-                data-testid="theme-toggle-mobile"
-                aria-label={common.theme ?? 'Theme'}
-                className="mt-4 w-full rounded-lg border border-border px-3 py-2 text-sm text-gray-300 hover:bg-card-hover"
-              >
-                {theme === 'dark'
-                  ? (common.light ?? 'Light')
-                  : (common.dark ?? 'Dark')}
-              </button>
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+              <span className="text-sm text-muted">
+                {messages?.common?.themeToggle ?? 'Theme'}
+              </span>
+              <ThemeToggle />
             </div>
           </div>
         </div>

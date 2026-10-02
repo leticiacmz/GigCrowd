@@ -44,13 +44,18 @@ function applyTheme(theme: ResolvedTheme) {
  * injected by `app/layout.tsx`, so there is no flash and no hydration conflict.
  */
 export function useTheme() {
-  const [theme, setTheme] = useState<ResolvedTheme>('dark');
+  // Read the theme the bootstrap script already applied to <html> so the
+  // first client render matches the server markup and the toggle icon never
+  // flashes the wrong state.
+  const [theme, setTheme] = useState<ResolvedTheme>(() => {
+    if (typeof document === 'undefined') {
+      return 'dark';
+    }
 
-  // Adopt the theme already applied to <html> by the bootstrap script.
-  useEffect(() => {
     const applied = document.documentElement.getAttribute('data-theme');
-    setTheme(applied === 'light' ? 'light' : 'dark');
-  }, []);
+
+    return applied === 'light' ? 'light' : 'dark';
+  });
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => {
