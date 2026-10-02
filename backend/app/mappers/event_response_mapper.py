@@ -1,4 +1,5 @@
 from app.domain.event import Event
+from app.domain.event_schedule import is_past
 from app.schemas.event_response import EventResponse
 from app.schemas.venue_response import VenueResponse
 
@@ -33,6 +34,8 @@ class EventResponseMapper:
             starts_at=event.starts_at,
 
             ends_at=event.ends_at,
+
+            is_past=is_past(event),
 
             event_type=event.event_type,
 

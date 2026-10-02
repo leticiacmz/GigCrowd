@@ -16,6 +16,18 @@ class EventResponse(BaseModel):
 
     ends_at: Optional[datetime] = None
 
+    # Resolved once on the server from `starts_at`/`ends_at`, because those
+    # fields are optional and imported events are inconsistent about them.
+    # The client must not have to re-derive "is this over?" from a date that
+    # may simply be missing.
+    is_past: bool = Field(
+        default=False,
+        description=(
+            "Whether the event has already happened. False "
+            "when the event carries no date."
+        ),
+    )
+
     event_type: str = "Concert"
 
     ticket_url: Optional[str] = None
