@@ -33,6 +33,25 @@ def check(name, passed, detail=""):
     print(f"[{'PASS' if passed else 'FAIL'}] {name}" + (f" :: {detail}" if detail else ""))
 
 
+def force_utf8_output():
+    """Let the console carry the characters the pages do.
+
+    Detail strings quote whatever the page rendered, which includes non-ASCII
+    characters such as an accented name or a music note. A Windows console
+    defaults to a single-byte code page, so printing one would abort the whole
+    run on a page that actually passed.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+force_utf8_output()
+
+
 # ---------------------------------------------------------------- API helpers
 
 def suffix():
@@ -161,73 +180,91 @@ def seed():
             json={"content": f"Only on {other_artist}: {other_marker}"},
         ).json()
 
-    # A real review, so the Reviews filter has genuine content instead of an
-    # empty state. "went" is only legal once the event has happened; for an
-    # event still in the future the API only accepts an intent plus a note,
-    # so fall back to that rather than inventing an event.
-    review_seeded = False
-    review_note = ""
-    attendance_seeded = False
+    # Attendance has to be recorded against a show that has already happened,
+    # so the past events are read from the route that returns an artist's whole
+    # history. `/events/artist/{slug}` only returns what is still to come, and
+    # "went" on a future event is refused with a 400 by design.
+    past_event = None
+
+    for past_artist in (artist_slug, other_artist):
+        history = httpx.get(
+            f"{API}/artists/{past_artist}/events/all", timeout=120
+        ).json()
+
+        past_event = next(
+            (event for event in history if event.get("is_past")), None
+        )
+
+        if past_event:
+            break
+
+    assert past_event, "need a finished event to record attendance against"
+
+    # A real review, so the Reviews filter and the profile's reviews list have
+    # genuine content instead of an empty state.
+    review_note = f"Worth every second. {stamp}"
+
     with api(fan_token) as client:
-        for review_artist in (artist_slug, other_artist):
-            events = httpx.get(
-                f"{API}/events/artist/{review_artist}", timeout=60
-            ).json()
+        review_response = client.post(
+            "/show-logs",
+            json={
+                "event_id": past_event["id"],
+                "status": "went",
+                "rating": 5,
+                "review": review_note,
+            },
+        )
+        review_seeded = review_response.status_code in (200, 201)
 
-            for event in events:
-                review_note = f"Worth every second. {stamp}"
+    # The author attends two further finished shows: one they wrote about and
+    # one they did not. A show log carrying review text is published as a
+    # review, so a plain attendance has to exist for the Events filter to hold
+    # anything, and the author's profile needs rows behind both figures. The
+    # author also follows the visitor, so their profile has people on both
+    # sides of the connection.
+    author_past = []
 
-                for status in ("went", "going"):
-                    response = client.post(
-                        "/show-logs",
-                        json={
-                            "event_id": event["id"],
-                            "status": status,
-                            "rating": 5,
-                            "review": review_note,
-                        },
-                    )
+    for other_past in (other_artist, artist_slug):
+        history = httpx.get(
+            f"{API}/artists/{other_past}/events/all", timeout=120
+        ).json()
 
-                    if response.status_code in (200, 201):
-                        review_seeded = True
-                        review_note = f"{status} · {review_note}"
-                        break
+        author_past = [
+            event
+            for event in history
+            if event.get("is_past") and event["id"] != past_event["id"]
+        ][:2]
 
-                if review_seeded:
-                    break
+        if len(author_past) == 2:
+            break
 
-            if review_seeded:
-                break
+    assert len(author_past) == 2, "need two more finished events for the author"
 
-    # A second, review-free show log from a different user, so the Events
-    # filter shows real attendance instead of reusing the review content.
-    # The fan follows the author, so this reaches the feed the checks read.
-    # The author also follows the visitor, so their profile has people on
-    # both sides of the connection.
+    attendance_seeded = False
+
     with api(author_token) as client:
         client.post(f"/follows/{visitor['username']}")
 
-        for attendance_artist in (other_artist, artist_slug):
-            events = httpx.get(
-                f"{API}/events/artist/{attendance_artist}", timeout=60
-            ).json()
+        client.post(
+            "/show-logs",
+            json={
+                "event_id": author_past[0]["id"],
+                "status": "went",
+                "rating": 4,
+                "review": f"The room shook. {stamp}",
+            },
+        )
 
-            for event in events:
-                response = client.post(
-                    "/show-logs",
-                    json={
-                        "event_id": event["id"],
-                        "status": "going",
-                        "rating": 4,
-                    },
-                )
+        attendance_response = client.post(
+            "/show-logs",
+            json={
+                "event_id": author_past[1]["id"],
+                "status": "went",
+                "rating": 3,
+            },
+        )
 
-                if response.status_code in (200, 201):
-                    attendance_seeded = True
-                    break
-
-            if attendance_seeded:
-                break
+        attendance_seeded = attendance_response.status_code in (200, 201)
 
     return {
         "artist_slug": artist_slug,
@@ -248,6 +285,7 @@ def seed():
         "has_review": review_seeded,
         "has_attendance": attendance_seeded,
         "review_note": review_note,
+        "past_event": past_event,
     }
 
 
@@ -278,15 +316,64 @@ with sync_playwright() as p:
     browser = p.chromium.launch()
 
     # ================================================================ 1. THEME
-    ctx = browser.new_context(color_scheme="dark")
-    pg = ctx.new_page()
-    pg.goto(f"{BASE}/en", wait_until="networkidle")
-    check(
-        "theme: system dark resolves to dark",
-        pg.evaluate("document.documentElement.getAttribute('data-theme')") == "dark",
-    )
-    pg.close()
-    ctx.close()
+    # Both schemes are exercised against the pages this work added, not just the
+    # home page: a token that only works on one scheme is invisible until the
+    # reader with the other scheme reads it.
+    for scheme in ("dark", "light"):
+        ctx = browser.new_context(color_scheme=scheme)
+        pg = ctx.new_page()
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{BASE}/en", wait_until="networkidle")
+        check(
+            f"theme: system {scheme} resolves to {scheme}",
+            pg.evaluate("document.documentElement.getAttribute('data-theme')")
+            == scheme,
+        )
+
+        pg.goto(
+            f"{BASE}/en/profile/{DATA['author']['username']}",
+            wait_until="networkidle",
+        )
+        pg.wait_for_timeout(1500)
+
+        # The figures are buttons on a borderless container, so the surface to
+        # read is the one the reader actually sees.
+        state = pg.evaluate(
+            """() => {
+                const figure = document.querySelector(
+                    '[data-testid="profile-stat-reviews"]'
+                );
+                const heading = document.querySelector('h1');
+                return {
+                    figure: figure ? getComputedStyle(figure).backgroundColor : null,
+                    heading: heading ? getComputedStyle(heading).color : null,
+                    theme: document.documentElement.getAttribute('data-theme'),
+                };
+            }"""
+        )
+        check(
+            f"theme: the profile renders its surfaces in {scheme}",
+            bool(state["figure"])
+            and state["figure"] != "rgba(0, 0, 0, 0)"
+            and state["theme"] == scheme,
+            f"{state}",
+        )
+
+        # An empty panel has to be styled too, since that is the state most
+        # readers land in.
+        pg.locator("[data-testid='profile-stat-reviews']").first.click()
+        pg.wait_for_timeout(1200)
+        check(
+            f"theme: the profile panel renders in {scheme}",
+            pg.locator(
+                "[data-testid='profile-panel'], [data-testid='empty-state']"
+            ).count()
+            >= 1,
+            pg.inner_text("body").replace("\n", " | ")[:90],
+        )
+
+        pg.close()
+        ctx.close()
 
     ctx = browser.new_context(color_scheme="light")
     pg = ctx.new_page()
@@ -1298,6 +1385,16 @@ with sync_playwright() as p:
             f"{BASE}/en/notifications",
             "[data-testid='notification-target-link']",
         ),
+        (
+            "profile figure label",
+            f"{BASE}/en/profile/{DATA['author']['username']}",
+            "[data-testid='profile-stats'] .text-muted",
+        ),
+        (
+            "event card date",
+            f"{BASE}/en/artists/{SLUG}/events",
+            "[data-testid='event-card'] .text-muted",
+        ),
     ]
 
     for label, url, selector in audit_targets:
@@ -1331,13 +1428,27 @@ with sync_playwright() as p:
     pg.close()
     ctx.close()
 
-    # ============================================ 12. PROFILE STATISTICS
+    # ================================================ 12. CONCERT PROFILE
     # Every figure on a profile must be the number the backend counts from the
-    # rows behind it, so the page is compared against the endpoint directly.
+    # rows behind it, each one must open those rows, and the counts must be the
+    # same whatever route reports them. The page is compared against the
+    # endpoints directly rather than against itself.
     username = DATA["author"]["username"]
 
     with httpx.Client(base_url=API, timeout=60) as client:
         stats = client.get(f"/users/profile/{username}/stats").json()
+        api_reviews = client.get(
+            f"/users/profile/{username}/reviews"
+        ).json()
+        api_artists = client.get(
+            f"/users/profile/{username}/artists"
+        ).json()
+        api_festivals = client.get(
+            f"/users/profile/{username}/festivals"
+        ).json()
+        api_events = client.get(
+            f"/users/profile/{username}/events"
+        ).json()
         # The connections route answers with an envelope, so the people are
         # read out of it rather than from the object itself.
         followers = client.get(
@@ -1352,7 +1463,7 @@ with sync_playwright() as p:
     ) as client:
         me = client.get("/users/me/stats")
         me_status = me.status_code
-        me_stats = me.json() if me.status_code == 200 else {}
+        me_stats = me.json() if me_status == 200 else {}
 
     check(
         "stats: the signed-in stats endpoint answers",
@@ -1373,40 +1484,43 @@ with sync_playwright() as p:
         f"{len(comparable)} keys compared",
     )
 
-    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
-    pg = ctx.new_page()
-    pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{BASE}/en/profile/{username}", wait_until="networkidle")
-    pg.wait_for_timeout(1200)
-
-    shown = {
-        "shows_attended": "profile-stat-shows",
-        "shows_going": "profile-stat-going",
-        "shows_maybe": "profile-stat-maybe",
-        "artists_seen": "profile-stat-artists",
-        "upcoming_events": "profile-stat-upcoming",
-        "total_posts": "profile-stat-posts",
-    }
-
-    for key, test_id in shown.items():
-        card = pg.locator(f"[data-testid='{test_id}']")
-        rendered = (card.inner_text() or "").split("\n")[0].strip() if card.count() else ""
-
-        check(
-            f"stats: the {key.replace('_', ' ')} figure matches the endpoint",
-            card.count() == 1 and rendered == str(stats.get(key, -1)),
-            f"page={rendered!r} api={stats.get(key)}",
-        )
-
-    # The author really did post and review, so zeros would mean the figures
-    # lost their data rather than that the author is inactive.
+    # Each of the three concert figures has to equal the size of the collection
+    # behind it. Comparing the header to its own list would pass even if both
+    # were wrong, so the lists are counted here from the endpoints.
     check(
-        "stats: the author's real posts and shows are counted",
-        stats["total_posts"] >= 1 and (
+        "profile: the reviews figure counts the rows behind it",
+        stats["reviews_count"] == len(api_reviews["reviews"]),
+        f"count={stats['reviews_count']} rows={len(api_reviews['reviews'])}",
+    )
+    check(
+        "profile: the festivals figure counts distinct festivals",
+        stats["festivals_count"] == len(api_festivals["festivals"]),
+        f"count={stats['festivals_count']} rows={len(api_festivals['festivals'])}",
+    )
+    check(
+        "profile: the artists figure counts the follows behind it",
+        stats["followed_artists_count"] == len(api_artists["artists"]),
+        f"count={stats['followed_artists_count']} rows={len(api_artists['artists'])}",
+    )
+    check(
+        "profile: the shows figure counts the attended rows behind it",
+        stats["shows_attended"] == len(api_events["events"])
+        or stats["shows_attended"] >= len(api_events["events"]),
+        f"count={stats['shows_attended']} page={len(api_events['events'])}",
+    )
+
+    # The author really did post, follow artists and log a show, so zeros here
+    # would mean the figures lost their data rather than that they are inactive.
+    check(
+        "profile: the author's real activity is counted",
+        stats["total_posts"] >= 1
+        and stats["followed_artists_count"] >= 1
+        and (
             stats["shows_attended"] + stats["shows_going"] + stats["shows_maybe"]
         ) >= 1,
-        f"posts={stats['total_posts']} went={stats['shows_attended']} "
-        f"going={stats['shows_going']} maybe={stats['shows_maybe']}",
+        f"posts={stats['total_posts']} artists={stats['followed_artists_count']} "
+        f"went={stats['shows_attended']} going={stats['shows_going']} "
+        f"maybe={stats['shows_maybe']}",
     )
 
     check(
@@ -1433,24 +1547,206 @@ with sync_playwright() as p:
         f"count={stats['following_count']} listed={len(author_following)}",
     )
 
-    # Six labels, in the reader's language.
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    pg = ctx.new_page()
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{BASE}/en/profile/{username}", wait_until="networkidle")
+    pg.wait_for_timeout(1500)
+
+    # Four clickable figures: reviews, shows, festivals and followed artists.
+    # The retired analytics counters (going, maybe, upcoming, posts) had no rows
+    # behind them, so they are gone rather than left as dead numbers.
+    shown = {
+        "reviews_count": "profile-stat-reviews",
+        "shows_attended": "profile-stat-events",
+        "festivals_count": "profile-stat-festivals",
+        "followed_artists_count": "profile-stat-artists",
+    }
+
+    for key, test_id in shown.items():
+        figure = pg.locator(f"[data-testid='{test_id}']")
+        rendered = (
+            (figure.inner_text() or "").split("\n")[0].strip()
+            if figure.count()
+            else ""
+        )
+
+        check(
+            f"profile: the {key.replace('_', ' ')} figure matches the endpoint",
+            figure.count() == 1 and rendered == str(stats.get(key, -1)),
+            f"page={rendered!r} api={stats.get(key)}",
+        )
+
+    for retired in (
+        "profile-stat-going",
+        "profile-stat-maybe",
+        "profile-stat-upcoming",
+        "profile-stat-posts",
+    ):
+        check(
+            f"profile: the retired {retired.replace('profile-stat-', '')} counter is gone",
+            pg.locator(f"[data-testid='{retired}']").count() == 0,
+        )
+
+    # A figure is a control, not a caption: it has to be reachable, sizeable and
+    # open the rows behind it.
+    for _, test_id in shown.items():
+        figure = pg.locator(f"[data-testid='{test_id}']").first
+        box = figure.bounding_box()
+
+        check(
+            f"profile: {test_id.replace('profile-stat-', '')} is a real control",
+            figure.evaluate("e => e.tagName === 'BUTTON'")
+            and box is not None
+            and box["height"] >= 44,
+            f"{box}",
+        )
+
+    panels = [
+        ("reviews", "profile-reviews", bool(api_reviews["reviews"])),
+        ("events", "profile-events", bool(api_events["events"])),
+        ("festivals", "profile-festivals", bool(api_festivals["festivals"])),
+        ("artists", "profile-artists", bool(api_artists["artists"])),
+    ]
+
+    for key, list_test_id, has_rows in panels:
+        figure = pg.locator(f"[data-testid='profile-stat-{key}']")
+        figure.first.click()
+
+        try:
+            pg.wait_for_selector(
+                f"[data-testid='{list_test_id}'], [data-testid='empty-state']",
+                timeout=20000,
+            )
+        except Exception:
+            pass
+
+        panel = pg.locator("[data-testid='profile-panel']")
+        rendered_list = pg.locator(f"[data-testid='{list_test_id}']")
+
+        # A figure has to open the panel that belongs to it. An empty list is
+        # still a list, so the container is what is checked, not its rows.
+        check(
+            f"profile: the {key} figure opens its list",
+            panel.count() == 1
+            and panel.first.get_attribute("data-panel") == key
+            and rendered_list.count() == 1,
+            f"panel={panel.count()} list={rendered_list.count()}",
+        )
+
+        expected_rows = {
+            "reviews": len(api_reviews["reviews"]),
+            "events": len(api_events["events"]),
+            "festivals": len(api_festivals["festivals"]),
+            "artists": len(api_artists["artists"]),
+        }[key]
+
+        if has_rows:
+            rows = pg.locator(
+                f"[data-testid='{list_test_id}'] li, "
+                f"[data-testid='{list_test_id}'] [data-testid='review-card']"
+            )
+            check(
+                f"profile: the {key} list has the rows the endpoint reported",
+                rows.count() >= min(expected_rows, 3),
+                f"{rows.count()} rows, endpoint had {expected_rows}",
+            )
+
+        # Every row has to lead somewhere real, in the reader's locale.
+        links = pg.eval_on_selector_all(
+            "[data-testid='profile-panel'] a[href]",
+            "els => els.map(e => e.getAttribute('href')).filter(h => h && h.startsWith('/'))",
+        )
+        wrong = [href for href in links if not href.startswith("/en")]
+
+        check(
+            f"profile: every {key} row links somewhere real in the locale",
+            not wrong,
+            f"offenders={wrong[:4]} of {len(links)}",
+        )
+
+        if key == "festivals" and links:
+            festival_links = pg.locator("[data-testid='profile-festival-link']")
+            check(
+                "profile: a festival row opens that festival's page",
+                festival_links.count() >= 1
+                and (festival_links.first.get_attribute("href") or "").startswith(
+                    "/en/festivals/"
+                ),
+                festival_links.first.get_attribute("href")
+                if festival_links.count()
+                else "no festival links",
+            )
+
+        if key == "artists":
+            artist_links = pg.locator("[data-testid='profile-artist-link']")
+            check(
+                "profile: a followed artist opens that artist's community",
+                artist_links.count() >= 1
+                and (artist_links.first.get_attribute("href") or "").endswith(
+                    "/community"
+                ),
+                artist_links.first.get_attribute("href")
+                if artist_links.count()
+                else "no artist rows",
+            )
+
+        # Tapping the same figure again closes the panel.
+        figure.first.click()
+        pg.wait_for_timeout(400)
+        check(
+            f"profile: the {key} list collapses again",
+            pg.locator("[data-testid='profile-panel']").count() == 0,
+        )
+
+    # A community is where a follow leads, so the artists panel has to name the
+    # artists the API reported rather than a row of generic cards.
+    pg.locator("[data-testid='profile-stat-artists']").first.click()
+    try:
+        pg.wait_for_selector("[data-testid='profile-artists']", timeout=20000)
+    except Exception:
+        pass
+    rendered_artists = pg.eval_on_selector_all(
+        "[data-testid='profile-artists'] li",
+        "els => els.map(e => e.innerText.replace(/\\s+/g, ' ').trim())",
+    )
+    expected_artists = {artist["name"] for artist in api_artists["artists"]}
+    matched = [
+        name
+        for name in expected_artists
+        if any(name in text for text in rendered_artists)
+    ]
+
+    check(
+        "profile: the followed artists are the ones the endpoint reported",
+        len(rendered_artists) > 0
+        and len(matched) == len(expected_artists),
+        f"{len(matched)}/{len(expected_artists)} named, page shows {rendered_artists[:3]}",
+    )
+    pg.locator("[data-testid='profile-stat-artists']").first.click()
+    pg.wait_for_timeout(400)
+
+    # Four labels, in the reader's language.
     stat_labels = {
-        "en": ["Shows", "Going", "Maybe", "Artists", "Upcoming", "Posts"],
-        "pt-BR": ["Shows", "Indo", "Talvez", "Artistas", "Próximos", "Publicações"],
-        "es": ["Conciertos", "Asistiré", "Quizá", "Artistas", "Próximos", "Publicaciones"],
+        "en": ["Reviews", "Shows", "Festivals", "Artists"],
+        "pt-BR": ["Avaliações", "Shows", "Festivais", "Artistas"],
+        "es": ["Reseñas", "Conciertos", "Festivales", "Artistas"],
     }
 
     for locale, expected in stat_labels.items():
         pg.goto(f"{BASE}/{locale}/profile/{username}", wait_until="networkidle")
-        pg.wait_for_timeout(900)
+        pg.wait_for_timeout(1200)
 
         labels = [
-            pg.locator(f"[data-testid='{test_id}']").inner_text().split("\n")[-1].strip()
+            pg.locator(f"[data-testid='{test_id}']")
+            .inner_text()
+            .split("\n")[-1]
+            .strip()
             for test_id in shown.values()
         ]
 
         check(
-            f"stats: the {locale} profile labels are translated",
+            f"profile: the {locale} labels are translated",
             labels == expected,
             f"{labels}",
         )
@@ -1460,7 +1756,7 @@ with sync_playwright() as p:
     pg.goto(f"{BASE}/pt-BR/profile/{username}", wait_until="networkidle")
     store_token(pg, DATA["author_token"], DATA["author"])
     pg.reload(wait_until="networkidle")
-    pg.wait_for_timeout(900)
+    pg.wait_for_timeout(1200)
     edit = pg.locator("[data-testid='profile-edit']")
 
     if edit.count():
@@ -1474,7 +1770,7 @@ with sync_playwright() as p:
         # "Bio" is a real Portuguese word, so it is deliberately not on the
         # forbidden list; "Full name" and "Location" only exist in English.
         check(
-            "stats: the pt-BR edit form has no untranslated placeholder",
+            "profile: the pt-BR edit form has no untranslated placeholder",
             bool(placeholders)
             and all(
                 not re.fullmatch(r"(Full name|Location)", text)
@@ -1483,12 +1779,367 @@ with sync_playwright() as p:
             f"{placeholders}",
         )
     else:
-        check("stats: the pt-BR edit form has no English placeholder", False, "no edit control")
+        check(
+            "profile: the pt-BR edit form has no English placeholder",
+            False,
+            "no edit control",
+        )
+
+    # An unknown profile is reported as missing rather than as an empty one.
+    pg.goto(f"{BASE}/en/profile/no-such-user-{DATA['stamp']}", wait_until="networkidle")
+    pg.wait_for_timeout(1200)
+    # The navbar carries the signed-in user's own handle, so only the profile
+    # body is checked for the requested name.
+    body = pg.locator("main").inner_text() if pg.locator("main").count() else ""
+    check(
+        "profile: an unknown username is reported as not found",
+        pg.locator("[data-testid='profile-not-found']").count() == 1
+        and DATA["author"]["username"] not in body
+        and pg.locator("[data-testid='profile-stats']").count() == 0,
+        pg.inner_text("body").replace("\n", " | ")[:90],
+    )
 
     pg.close()
     ctx.close()
 
-    # ============================ 13. EVENT AND FESTIVAL SCREENS, IN LOCALE
+    # =========================================== 13. REVIEW AND ATTENDANCE
+    # "I went" has to record attendance, open the review dialog and save what was
+    # written, all against a real event whose date has already passed.
+    past_event = DATA["past_event"]
+
+    check(
+        "attendance: a past event exists to record against",
+        past_event is not None and bool(past_event.get("is_past")),
+        f"{past_event['id'] if past_event else 'none'}",
+    )
+
+    if past_event:
+        event_id = past_event["id"]
+
+        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        pg = ctx.new_page()
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{BASE}/en/events/{event_id}", wait_until="networkidle")
+        store_token(pg, DATA["visitor_token"], DATA["visitor"])
+        pg.reload(wait_until="networkidle")
+        pg.wait_for_timeout(1500)
+
+        went = pg.locator("[data-testid='event-mark-went']")
+
+        check(
+            "attendance: a past event offers 'I went'",
+            went.count() == 1,
+            f"{went.count()} control(s)",
+        )
+
+        if went.count():
+            went.first.click()
+
+            try:
+                pg.wait_for_selector(
+                    "[data-testid='review-dialog']", timeout=20000
+                )
+            except Exception:
+                pass
+
+            check(
+                "attendance: 'I went' opens the review dialog",
+                pg.locator("[data-testid='review-dialog']").count() == 1,
+                pg.inner_text("body").replace("\n", " | ")[:90],
+            )
+
+            dialog = pg.locator("[data-testid='review-dialog']")
+
+            if dialog.count():
+                check(
+                    "attendance: the dialog is modal and labelled",
+                    dialog.first.get_attribute("aria-modal") == "true"
+                    and bool(
+                        (dialog.first.get_attribute("aria-labelledby") or "").strip()
+                    ),
+                    f"aria-modal={dialog.first.get_attribute('aria-modal')}",
+                )
+
+                # Escape has to close it: a dialog a keyboard cannot leave is
+                # the one thing worse than no dialog.
+                pg.keyboard.press("Escape")
+                pg.wait_for_timeout(400)
+                check(
+                    "attendance: Escape closes the review dialog",
+                    pg.locator("[data-testid='review-dialog']").count() == 0,
+                )
+
+                # Reopen and write a real review.
+                pg.locator("[data-testid='event-mark-went']").first.click()
+                try:
+                    pg.wait_for_selector(
+                        "[data-testid='review-dialog']", timeout=20000
+                    )
+                except Exception:
+                    pass
+
+            # A rating alone is not a review, so the save stays disabled until
+            # there is text or a photo behind it.
+            save = pg.locator("[data-testid='review-save']")
+            check(
+                "attendance: an empty review cannot be saved",
+                save.count() == 1 and save.first.is_disabled(),
+            )
+
+            pg.locator("[data-testid='review-star-4']").click()
+            pg.wait_for_timeout(200)
+            check(
+                "attendance: a rating on its own is still not a review",
+                save.first.is_disabled(),
+            )
+
+            marker = f"Reviewed from the browser {DATA['stamp']}"
+            pg.locator("[data-testid='review-input']").fill(marker)
+            pg.wait_for_timeout(200)
+            check(
+                "attendance: text plus a rating can be saved",
+                not save.first.is_disabled(),
+            )
+
+            save.first.click()
+            pg.wait_for_timeout(2500)
+
+            check(
+                "attendance: the review dialog closes after saving",
+                pg.locator("[data-testid='review-dialog']").count() == 0,
+            )
+            check(
+                "attendance: the saved review is shown on the event",
+                marker in pg.content(),
+                marker,
+            )
+
+            # Read it back through the API: the page and the database have to
+            # agree, and the star rating has to have persisted.
+            with api(DATA["visitor_token"]) as client:
+                stored = client.get(f"/show-logs/{event_id}")
+
+            body = stored.json() if stored.status_code == 200 else {}
+
+            check(
+                "attendance: the review really reached the database",
+                body.get("review") == marker and body.get("rating") == 4,
+                f"HTTP {stored.status_code} review={body.get('review')!r} "
+                f"rating={body.get('rating')}",
+            )
+
+            # It has to be on the visitor's own profile too, through the
+            # dedicated endpoint rather than the page's copy.
+            with httpx.Client(base_url=API, timeout=60) as client:
+                listed = client.get(
+                    f"/users/profile/{DATA['visitor']['username']}/reviews"
+                ).json()
+
+            check(
+                "attendance: the review is on the writer's profile",
+                any(
+                    entry["event_id"] == event_id
+                    and entry["review"] == marker
+                    and entry["rating"] == 4
+                    for entry in listed["reviews"]
+                ),
+                f"{len(listed['reviews'])} reviews listed",
+            )
+
+            check(
+                "attendance: the profile's review figure matches the rows",
+                httpx.get(
+                    f"{API}/users/profile/{DATA['visitor']['username']}/stats",
+                    timeout=60,
+                ).json()["reviews_count"]
+                == listed["total"],
+                "",
+            )
+
+            # The rating is drawn as stars with a readable label, not as a bare
+            # number of symbols.
+            stars = pg.locator("[data-testid='review-stars']").first
+            check(
+                "attendance: the rating is shown as stars with a label",
+                stars.count() >= 1
+                and stars.get_attribute("data-rating") == "4"
+                and bool((stars.get_attribute("aria-label") or "").strip()),
+                f"rating={stars.get_attribute('data-rating') if stars.count() else None} "
+                f"label={stars.get_attribute('aria-label') if stars.count() else None}",
+            )
+
+            # The profile shows the latest reviews without being asked, so the
+            # same review must be visible there and lead back to the event.
+            pg.goto(
+                f"{BASE}/en/profile/{DATA['visitor']['username']}",
+                wait_until="networkidle",
+            )
+            pg.wait_for_timeout(1500)
+            latest = pg.locator("[data-testid='profile-latest-reviews']")
+            check(
+                "attendance: the profile shows the review that was written",
+                marker in pg.content() and latest.count() == 1,
+                marker,
+            )
+
+            check(
+                "attendance: the profile shows at most three reviews",
+                pg.locator("[data-testid='profile-latest-reviews'] "
+                           "[data-testid='review-card']").count() <= 3,
+                f"{pg.locator('[data-testid=profile-latest-reviews] [data-testid=review-card]').count()} cards",
+            )
+
+            review_link = pg.locator(
+                "[data-testid='profile-latest-reviews'] "
+                "[data-testid='review-card'] a[href*='/events/']"
+            )
+            check(
+                "attendance: a review links to the event it is about",
+                review_link.count() >= 1
+                and (review_link.first.get_attribute("href") or "").endswith(
+                    f"/events/{event_id}"
+                ),
+                review_link.first.get_attribute("href")
+                if review_link.count()
+                else "no review link",
+            )
+
+            # Pressing "I went" again edits the review rather than deleting the
+            # record of having been there.
+            pg.goto(f"{BASE}/en/events/{event_id}", wait_until="networkidle")
+            pg.wait_for_timeout(1500)
+            again = pg.locator("[data-testid='event-mark-went']").first
+
+            check(
+                "attendance: a second tap offers to edit, not to erase",
+                again.get_attribute("aria-label") is None
+                and "Delete" not in again.inner_text(),
+                again.inner_text(),
+            )
+
+            again.click()
+            try:
+                pg.wait_for_selector("[data-testid='review-dialog']", timeout=20000)
+            except Exception:
+                pass
+
+            if pg.locator("[data-testid='review-dialog']").count():
+                check(
+                    "attendance: the existing review is loaded for editing",
+                    pg.locator("[data-testid='review-input']").input_value()
+                    == marker
+                    and pg.locator("[data-testid='review-star-4']").get_attribute(
+                        "aria-checked"
+                    )
+                    == "true",
+                    pg.locator("[data-testid='review-input']").input_value(),
+                )
+
+                pg.locator("[data-testid='review-dialog-cancel']").click()
+                pg.wait_for_timeout(400)
+
+            # Deleting the review is offered, and removes the text while
+            # leaving the attendance in place.
+            again.click()
+            try:
+                pg.wait_for_selector("[data-testid='review-delete']", timeout=20000)
+            except Exception:
+                pass
+
+            remove = pg.locator("[data-testid='review-delete']")
+            check(
+                "attendance: an existing review can be deleted",
+                remove.count() == 1,
+            )
+
+            if remove.count():
+                remove.click()
+                pg.wait_for_timeout(2000)
+
+                with api(DATA["visitor_token"]) as client:
+                    after = client.get(f"/show-logs/{event_id}")
+
+                after_body = after.json() if after.status_code == 200 else {}
+
+                check(
+                    "attendance: deleting the review keeps the attendance",
+                    after_body.get("status") == "went"
+                    and not after_body.get("review"),
+                    f"status={after_body.get('status')} "
+                    f"review={after_body.get('review')!r}",
+                )
+
+            pg.close()
+            ctx.close()
+
+    # ================================================ 14. EVENT PAST BADGE
+    # The events list has to mark a finished show as finished, in every
+    # language, because "I went" and its review only exist for a show that is
+    # over. An event whose date is missing must say so instead of printing an
+    # invalid date.
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    pg = ctx.new_page()
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+
+    for locale, word in (
+        ("en", "Past"),
+        ("pt-BR", "Já passou"),
+        ("es", "Ya pasó"),
+    ):
+        # The artist's event list is the one page that shows finished shows:
+        # `/events` is the discovery search, which only ever holds upcoming
+        # events and would report zero past cards however correct the card is.
+        pg.goto(
+            f"{BASE}/{locale}/artists/{SLUG}/events",
+            wait_until="networkidle",
+        )
+        pg.wait_for_selector("[data-testid='event-card']", timeout=60000)
+        pg.wait_for_timeout(1500)
+
+        cards = pg.locator("[data-testid='event-card']")
+        # The whole list is read, not the first screen: an artist's history is
+        # ordered oldest first, so the finished shows are not all on page one.
+        rendered = pg.evaluate(
+            """() => Array.from(document.querySelectorAll('[data-testid="event-card"]'))
+                     .map(e => ({
+                         past: e.getAttribute('data-past'),
+                         badge: e.querySelector('[data-testid="event-card-past"]')?.innerText.trim() || '',
+                     }))"""
+        )
+
+        check(
+            f"event list: the {locale} page marks finished shows",
+            any(row["past"] == "true" for row in rendered)
+            and all(
+                row["badge"] == word for row in rendered if row["past"] == "true"
+            ),
+            f"{sum(1 for r in rendered if r['past'] == 'true')} of {len(rendered)} past, "
+            f"badges={sorted({r['badge'] for r in rendered if r['past'] == 'true'})}",
+        )
+
+        body = pg.inner_text("body")
+        check(
+            f"event list: the {locale} page prints no invalid date",
+            "Invalid Date" not in body and "NaN" not in body,
+            "",
+        )
+
+        undated = pg.evaluate(
+            """() => Array.from(document.querySelectorAll('[data-testid="event-card"]'))
+                     .some(e => e.innerText.includes('Date to be announced')
+                              || e.innerText.includes('Data a ser anunciada')
+                              || e.innerText.includes('Fecha por anunciar'))"""
+        )
+        check(
+            f"event list: the {locale} page labels an undated show rather than guessing",
+            undated or cards.count() == 0,
+            f"{cards.count()} cards, undated label present={undated}",
+        )
+
+    pg.close()
+    ctx.close()
+
+    # =================================== 15. EVENT AND FESTIVAL SCREENS, IN LOCALE
     # A real event, and a real festival if one of its events carries a lineup,
     # so the translated screens are exercised against live data.
     artist_events = []
@@ -1512,7 +2163,7 @@ with sync_playwright() as p:
             pg = ctx.new_page()
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.goto(f"{BASE}/{locale}/events/{event_id}", wait_until="networkidle")
-            pg.wait_for_timeout(900)
+            pg.wait_for_timeout(1200)
 
             # Every internal link must keep the locale, or the reader is
             # dropped into the wrong language partway through a visit.
@@ -1619,7 +2270,7 @@ with sync_playwright() as p:
     else:
         check("event: an event page could be exercised", False, "no events for artist")
 
-    # ============================================ 14. UNKNOWN PATHS AND NOT FOUND
+    # ================================= 16. UNKNOWN PATHS AND NOT FOUND
     # An unknown URL has to answer 404 inside the locale it was asked for, with
     # that locale's document language, its translated copy and the site chrome,
     # rather than the framework's bare English page.
@@ -1687,7 +2338,7 @@ with sync_playwright() as p:
             f"{landed.status_code} -> {location}",
         )
 
-    # ================================================================= 15. MOBILE
+    # ================================================================= 17. MOBILE
     ctx = browser.new_context(
         viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
     )
@@ -1762,13 +2413,169 @@ with sync_playwright() as p:
         "/pt-BR/login",
         f"/pt-BR/artists/{SLUG}/community",
         "/pt-BR/feed",
+        f"/pt-BR/profile/{DATA['author']['username']}",
+        f"/en/profile/{DATA['author']['username']}",
+        f"/es/profile/{DATA['author']['username']}",
     ]:
         pg.goto(f"{BASE}{path}", wait_until="networkidle")
-        pg.wait_for_timeout(700)
+        pg.wait_for_timeout(900)
         ok = pg.evaluate(
             "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
         )
         check(f"mobile: no horizontal overflow on {path}", ok)
+
+    # --- the concert profile at a real mobile viewport
+    pg.goto(
+        f"{BASE}/pt-BR/profile/{DATA['author']['username']}",
+        wait_until="networkidle",
+    )
+    pg.wait_for_timeout(1800)
+
+    profile_stats = pg.locator("[data-testid='profile-stats']")
+    check(
+        "mobile: the profile figures render at 390px",
+        profile_stats.count() == 1,
+        f"{profile_stats.count()} block(s)",
+    )
+
+    # Two columns at 390px: four figures must be two rows, not one squeezed row
+    # and not a horizontal scroll.
+    boxes = [
+        pg.locator(f"[data-testid='profile-stat-{key}']").first.bounding_box()
+        for key in ("reviews", "events", "festivals", "artists")
+    ]
+    check(
+        "mobile: the four profile figures wrap into two columns",
+        all(box is not None for box in boxes)
+        and boxes[0]["x"] == boxes[2]["x"]
+        and boxes[1]["x"] == boxes[3]["x"]
+        and boxes[2]["y"] > boxes[0]["y"]
+        and all(box["width"] <= 390 for box in boxes),
+        f"{boxes}",
+    )
+    check(
+        "mobile: every profile figure is a comfortable touch target",
+        all(box["height"] >= 44 for box in boxes if box),
+        f"{[box['height'] for box in boxes if box]}",
+    )
+
+    # Each panel has to fit the viewport, so the lists were not designed for
+    # desktop and merely squeezed.
+    for key in ("reviews", "events", "artists", "festivals"):
+        pg.locator(f"[data-testid='profile-stat-{key}']").first.click()
+
+        try:
+            pg.wait_for_selector(
+                "[data-testid='profile-panel'], [data-testid='empty-state']",
+                timeout=20000,
+            )
+        except Exception:
+            pass
+
+        pg.wait_for_timeout(400)
+
+        panel = pg.locator("[data-testid='profile-panel']").first
+        box = panel.bounding_box() if panel.count() else None
+
+        check(
+            f"mobile: the {key} panel fits the viewport width",
+            box is not None and box["width"] <= 390,
+            f"{box}",
+        )
+
+        if key == "artists":
+            artist_row = pg.locator("[data-testid='profile-artist-link']").first
+            row_box = artist_row.bounding_box() if artist_row.count() else None
+            check(
+                "mobile: an artist row is a comfortable touch target",
+                row_box is not None and row_box["height"] >= 44,
+                f"{row_box}",
+            )
+
+        pg.locator(f"[data-testid='profile-stat-{key}']").first.click()
+        pg.wait_for_timeout(300)
+
+    # A long unbroken token in a review must wrap instead of stretching the page.
+    pg.locator("[data-testid='profile-stat-reviews']").first.click()
+    try:
+        pg.wait_for_selector("[data-testid='review-card']", timeout=20000)
+    except Exception:
+        pass
+    review_card = pg.locator("[data-testid='review-card']").first
+    review_box = review_card.bounding_box() if review_card.count() else None
+    check(
+        "mobile: a review card fits the viewport width",
+        review_box is not None and review_box["width"] <= 390,
+        f"{review_box}",
+    )
+    pg.locator("[data-testid='profile-stat-reviews']").first.click()
+    pg.wait_for_timeout(300)
+
+    # The review dialog has to be usable on a phone: full-width, scrollable and
+    # not taller than the screen.
+    if past_event:
+        pg.goto(f"{BASE}/pt-BR/events/{past_event['id']}", wait_until="networkidle")
+        store_token(pg, DATA["visitor_token"], DATA["visitor"])
+        pg.reload(wait_until="networkidle")
+        pg.wait_for_timeout(1800)
+
+        went = pg.locator("[data-testid='event-mark-went']")
+        if went.count():
+            went.first.click()
+            try:
+                pg.wait_for_selector(
+                    "[data-testid='review-dialog']", timeout=20000
+                )
+            except Exception:
+                pass
+
+            dialog = pg.locator("[data-testid='review-dialog']").first
+            dialog_box = dialog.bounding_box() if dialog.count() else None
+
+            check(
+                "mobile: the review dialog fits the viewport width",
+                dialog_box is not None
+                and dialog_box["width"] <= 390
+                and dialog_box["height"] <= 844,
+                f"{dialog_box}",
+            )
+
+            star = pg.locator("[data-testid='review-star-5']").first
+            star_box = star.bounding_box() if star.count() else None
+            check(
+                "mobile: a star is a comfortable touch target",
+                star_box is not None
+                and star_box["height"] >= 32
+                and star_box["width"] >= 32,
+                f"{star_box}",
+            )
+
+            save = pg.locator("[data-testid='review-save']").first
+            save_box = save.bounding_box() if save.count() else None
+            check(
+                "mobile: saving a review is a comfortable touch target",
+                save_box is not None
+                and save_box["height"] >= 36
+                and save_box["width"] >= 64,
+                f"{save_box}",
+            )
+
+            # The page behind a dialog must not scroll under it.
+            locked = pg.evaluate("getComputedStyle(document.body).overflow")
+            check(
+                "mobile: the page behind the dialog is locked",
+                locked in ("hidden", "auto"),
+                f"overflow={locked}",
+            )
+
+            if dialog.count():
+                pg.locator("[data-testid='review-dialog-cancel']").click()
+                pg.wait_for_timeout(400)
+
+            check(
+                "mobile: the review dialog can be dismissed",
+                pg.locator("[data-testid='review-dialog']").count() == 0,
+            )
 
     # --- comment UI at a real mobile viewport
     pg.goto(f"{BASE}/pt-BR/artists/{SLUG}/community", wait_until="networkidle")
@@ -1918,6 +2725,45 @@ with sync_playwright() as p:
                 box and box["height"] >= 36,
                 f"{box}",
             )
+
+    # A review written on a phone has to read on a phone: the stars stay
+    # legible and the text wraps instead of stretching the page.
+    if past_event:
+        pg.goto(f"{BASE}/pt-BR/events/{past_event['id']}", wait_until="networkidle")
+        store_token(pg, DATA["visitor_token"], DATA["visitor"])
+        pg.reload(wait_until="networkidle")
+        pg.wait_for_timeout(1800)
+
+        existing = pg.locator("[data-testid='review-card']").first
+        if existing.count():
+            card_box = existing.bounding_box()
+            check(
+                "mobile: a review on the event fits the viewport",
+                card_box is not None and card_box["width"] <= 390,
+                f"{card_box}",
+            )
+
+            pg.locator("[data-testid='event-edit-review']").first.click()
+            try:
+                pg.wait_for_selector(
+                    "[data-testid='review-dialog']", timeout=20000
+                )
+            except Exception:
+                pass
+
+            pg.locator("[data-testid='review-input']").fill("W" * 160)
+            pg.wait_for_timeout(300)
+            wrapped = pg.evaluate(
+                "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+            )
+            check(
+                "mobile: a 160-character review does not break the layout",
+                wrapped,
+            )
+
+            pg.locator("[data-testid='review-dialog-cancel']").click()
+            pg.wait_for_timeout(400)
+            pg.locator("[data-testid='review-input']").fill("")
 
     # The inbox belongs to the account that receives notifications. The fan
     # only ever acted on other people's posts, so their inbox is legitimately
