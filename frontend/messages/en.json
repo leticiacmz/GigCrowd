@@ -379,5 +379,10 @@
     "festival": "Festival",
     "concert": "Concert",
     "tracking": "{count} people tracking this festival"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "That page does not exist, or it may have moved.",
+    "backHome": "Back to home"
   }
 }

@@ -379,5 +379,10 @@
     "festival": "Festival",
     "concert": "Show",
     "tracking": "{count} pessoas acompanhando este festival"
+  },
+  "notFound": {
+    "title": "Página não encontrada",
+    "description": "Essa página não existe ou pode ter sido movida.",
+    "backHome": "Voltar para o início"
   }
 }
