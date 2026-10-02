@@ -11,8 +11,11 @@ import pytest
 from bson import ObjectId
 
 from app.domain.festival import festival_key
+from app.repositories.follow_repository import FollowRepository
 from app.repositories.show_log_repository import ShowLogRepository
+from app.repositories.user_repository import UserRepository
 from app.services.user_concert_service import UserConcertService
+from app.services.user_stats_service import UserStatsService
 from tests.support.fake_mongo import FakeDatabase
 
 
@@ -1047,3 +1050,213 @@ class TestQueryShape:
         result = await service.get_reviews("leticiacmz")
 
         assert result["reviews"] == []
+
+
+OTHER_AUTHOR = "6a00000000000000000000bb"
+
+
+async def seed_two_authors(db):
+    """Two users, each with one review of a different show.
+
+    The pair is what makes an isolation test meaningful: one review on its own
+    cannot tell a scoped query from an unscoped one that happens to match.
+    """
+
+    await db.users.insert_one(
+        {"_id": ObjectId(USER_ID), "username": "leticiacmz"}
+    )
+    await db.users.insert_one(
+        {"_id": ObjectId(OTHER_AUTHOR), "username": "someone-else"}
+    )
+
+    first = await seed_event(
+        db,
+        event_id="6a00000000000000000000c1",
+        title="Nova at Warehouse",
+        starts_at=NOW - timedelta(days=30),
+    )
+    second = await seed_event(
+        db,
+        event_id="6a00000000000000000000c2",
+        title="Nova encore",
+        starts_at=NOW - timedelta(days=20),
+    )
+
+    await db.show_logs.insert_one(
+        {
+            "_id": "log-by-leticiacmz",
+            "user_id": USER_ID,
+            "event_id": first,
+            "status": "went",
+            "rating": 5,
+            "review": "review written by leticiacmz",
+            "reviewed_at": NOW - timedelta(days=29),
+        }
+    )
+    await db.show_logs.insert_one(
+        {
+            "_id": "log-by-someone-else",
+            "user_id": OTHER_AUTHOR,
+            "event_id": second,
+            "status": "went",
+            "rating": 4,
+            "review": "review written by someone-else",
+            "reviewed_at": NOW - timedelta(days=19),
+        }
+    )
+
+    return first, second
+
+
+class TestReviewsBelongToTheirAuthor:
+    """A profile may only ever show the reviews its owner wrote.
+
+    This is the isolation the profile page depends on. The reviews behind a
+    profile are read from `show_logs` by author, and nothing about a date, an
+    event or an artist may widen that: a public profile is a public list of one
+    person's opinions, and publishing someone else's there misrepresents who
+    wrote it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_profile_lists_only_its_owners_reviews(
+        self,
+        service,
+        db,
+    ):
+
+        first, _ = await seed_two_authors(db)
+
+        result = await service.get_reviews("leticiacmz")
+
+        texts = [review.review for review in result["reviews"]]
+
+        assert texts == ["review written by leticiacmz"]
+        assert result["total"] == 1
+        assert first
+
+    @pytest.mark.asyncio
+    async def test_the_other_profiles_reviews_are_never_returned(
+        self,
+        service,
+        db,
+    ):
+
+        await seed_two_authors(db)
+
+        result = await service.get_reviews("someone-else")
+
+        texts = [review.review for review in result["reviews"]]
+
+        assert texts == ["review written by someone-else"]
+        assert "review written by leticiacmz" not in texts
+
+    @pytest.mark.asyncio
+    async def test_a_user_id_resolves_the_same_list_as_the_username(
+        self,
+        service,
+        db,
+    ):
+
+        await seed_two_authors(db)
+
+        by_name = await service.get_reviews("leticiacmz")
+        by_id = await service.get_reviews(USER_ID)
+
+        assert [review.review for review in by_id["reviews"]] == [
+            review.review for review in by_name["reviews"]
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_paged_list_is_still_scoped_to_the_owner(
+        self,
+        service,
+        db,
+    ):
+
+        await seed_two_authors(db)
+
+        # Several reviews for the owner, newest first, alongside the other
+        # author's review, which must never appear on this page.
+        for index in range(4):
+
+            event_id = await seed_event(
+                db,
+                event_id=f"6a00000000000000000001{index:02d}",
+                title=f"Nova night {index}",
+                starts_at=NOW - timedelta(days=10 - index),
+            )
+
+            await db.show_logs.insert_one(
+                {
+                    "_id": f"log-own-{index}",
+                    "user_id": USER_ID,
+                    "event_id": event_id,
+                    "status": "went",
+                    "rating": 5,
+                    "review": f"own review {index}",
+                    "reviewed_at": NOW - timedelta(days=10 - index),
+                }
+            )
+
+        result = await service.get_reviews("leticiacmz", limit=2)
+        texts = [review.review for review in result["reviews"]]
+
+        assert texts == ["own review 3", "own review 2"]
+        assert result["total"] == 5
+
+    @pytest.mark.asyncio
+    async def test_shows_are_scoped_to_the_owner_too(
+        self,
+        service,
+        db,
+    ):
+
+        first, second = await seed_two_authors(db)
+
+        events = await service.get_events("leticiacmz")
+
+        assert [event.event_id for event in events["events"]] == [first]
+
+        other_events = await service.get_events("someone-else")
+
+        assert [event.event_id for event in other_events["events"]] == [second]
+
+
+class TestStatsCountOnlyTheirOwnersReviews:
+    """The figure on the header counts one person's reviews."""
+
+    @pytest.mark.asyncio
+    async def test_two_authors_count_one_review_each(self, db):
+        alice = "6a00000000000000000000aa"
+        bob = "6a00000000000000000000bb"
+
+        await db.users.insert_one({"_id": ObjectId(alice), "username": "alice"})
+        await db.users.insert_one({"_id": ObjectId(bob), "username": "bob"})
+
+        for owner in (alice, bob):
+
+            await db.show_logs.insert_one(
+                {
+                    "_id": f"log-{owner}",
+                    "user_id": owner,
+                    "event_id": f"event-{owner}",
+                    "status": "went",
+                    "rating": 5,
+                    "review": f"review by {owner}",
+                    "reviewed_at": NOW,
+                }
+            )
+
+        service = UserStatsService(
+            user_repository=UserRepository(db),
+            show_log_repository=ShowLogRepository(db),
+            follow_repository=FollowRepository(db),
+            db=db,
+        )
+
+        alice_stats = await service.get_user_stats("alice")
+        bob_stats = await service.get_user_stats("bob")
+
+        assert alice_stats["reviews_count"] == 1
+        assert bob_stats["reviews_count"] == 1
