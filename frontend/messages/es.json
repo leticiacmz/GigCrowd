@@ -165,7 +165,25 @@
     "ticketUnavailable": "Información de entradas no disponible",
     "postsAboutEvent": "Publicaciones sobre este evento",
     "festivalLineup": "Cartel del festival",
-    "lineupUnavailable": "El cartel del festival aún no está disponible."
+    "lineupUnavailable": "El cartel del festival aún no está disponible.",
+    "loading": "Cargando evento...",
+    "concert": "Concierto",
+    "past": "Ya pasó",
+    "happeningNow": "Sucediendo ahora",
+    "upcoming": "Próximamente",
+    "venueUnavailable": "Recinto no disponible",
+    "locationUnavailable": "Ubicación no disponible",
+    "viewFestivalPage": "Ver página del festival →",
+    "exploreFestival": "Explorar festival →",
+    "openFestivalPage": "Abrir página del festival →",
+    "openInMaps": "Abrir en el mapa ↗",
+    "markGoing": "✓ Voy",
+    "markMaybe": "? Quizá",
+    "markWent": "✓ Fui",
+    "postsAboutEventDescription": "Aquí es donde la comunidad de GigCrowd compartirá fotos, historias y momentos de este evento.",
+    "artistsCount": "{count} artistas",
+    "openingArtist": "Abriendo artista...",
+    "openArtist": "Abrir artista"
   },
   "profile": {
     "myProfile": "Mi Perfil",
@@ -188,7 +206,15 @@
     "notFound": "Usuario no encontrado.",
     "followLabel": "Seguir",
     "followingLabel": "Siguiendo",
-    "loading": "Cargando..."
+    "loading": "Cargando...",
+    "fullName": "Nombre completo",
+    "statShows": "Conciertos",
+    "statGoing": "Asistiré",
+    "statMaybe": "Quizá",
+    "statArtists": "Artistas",
+    "statUpcoming": "Próximos",
+    "statPosts": "Publicaciones",
+    "joined": "Se unió en {date}"
   },
   "notifications": {
     "title": "Notificaciones",
@@ -329,11 +355,29 @@
     "dates": "Fechas",
     "venue": "Local",
     "location": "Ciudad",
-    "lineup": "Cartel"
+    "lineup": "Cartel",
+    "loading": "Cargando festival...",
+    "goBack": "← Volver",
+    "backToEvent": "← Volver al evento",
+    "venueUnavailable": "Recinto no disponible",
+    "unknownCity": "Ciudad desconocida",
+    "officialWebsite": "Sitio oficial ↗",
+    "artistsCount": "{count} artistas",
+    "artists": "Artistas",
+    "searchPlaceholder": "Buscar artistas...",
+    "lineupEmpty": "El cartel del festival aún no está disponible.",
+    "noSearchMatches": "Ningún artista coincide con tu búsqueda.",
+    "openingArtist": "Abriendo artista...",
+    "openArtist": "Abrir artista"
   },
   "theme": {
     "label": "Tema",
     "light": "Modo claro",
     "dark": "Modo oscuro"
+  },
+  "eventCard": {
+    "festival": "Festival",
+    "concert": "Concierto",
+    "tracking": "{count} personas siguiendo este festival"
   }
 }

@@ -165,7 +165,25 @@
     "ticketUnavailable": "Informações de ingresso indisponíveis",
     "postsAboutEvent": "Posts sobre este evento",
     "festivalLineup": "Line-up do festival",
-    "lineupUnavailable": "O line-up do festival ainda não está disponível."
+    "lineupUnavailable": "O line-up do festival ainda não está disponível.",
+    "loading": "Carregando evento...",
+    "concert": "Show",
+    "past": "Já passou",
+    "happeningNow": "Rolando agora",
+    "upcoming": "Em breve",
+    "venueUnavailable": "Local não disponível",
+    "locationUnavailable": "Localização indisponível",
+    "viewFestivalPage": "Ver página do festival →",
+    "exploreFestival": "Explorar festival →",
+    "openFestivalPage": "Abrir página do festival →",
+    "openInMaps": "Abrir no mapa ↗",
+    "markGoing": "✓ Vou",
+    "markMaybe": "? Talvez",
+    "markWent": "✓ Eu fui",
+    "postsAboutEventDescription": "Aqui é onde a comunidade GigCrowd vai compartilhar fotos, histórias e momentos deste evento.",
+    "artistsCount": "{count} artistas",
+    "openingArtist": "Abrindo artista...",
+    "openArtist": "Abrir artista"
   },
   "profile": {
     "myProfile": "Meu Perfil",
@@ -188,7 +206,15 @@
     "notFound": "Usuário não encontrado.",
     "followLabel": "Seguir",
     "followingLabel": "Seguindo",
-    "loading": "Carregando..."
+    "loading": "Carregando...",
+    "fullName": "Nome completo",
+    "statShows": "Shows",
+    "statGoing": "Indo",
+    "statMaybe": "Talvez",
+    "statArtists": "Artistas",
+    "statUpcoming": "Próximos",
+    "statPosts": "Publicações",
+    "joined": "Entrou em {date}"
   },
   "notifications": {
     "title": "Notificações",
@@ -329,11 +355,29 @@
     "dates": "Datas",
     "venue": "Local",
     "location": "Cidade",
-    "lineup": "Line-up"
+    "lineup": "Line-up",
+    "loading": "Carregando festival...",
+    "goBack": "← Voltar",
+    "backToEvent": "← Voltar ao evento",
+    "venueUnavailable": "Local não disponível",
+    "unknownCity": "Cidade desconhecida",
+    "officialWebsite": "Site oficial ↗",
+    "artistsCount": "{count} artistas",
+    "artists": "Artistas",
+    "searchPlaceholder": "Buscar artistas...",
+    "lineupEmpty": "O lineup do festival ainda não está disponível.",
+    "noSearchMatches": "Nenhum artista corresponde à sua busca.",
+    "openingArtist": "Abrindo artista...",
+    "openArtist": "Abrir artista"
   },
   "theme": {
     "label": "Tema",
     "light": "Modo claro",
     "dark": "Modo escuro"
+  },
+  "eventCard": {
+    "festival": "Festival",
+    "concert": "Show",
+    "tracking": "{count} pessoas acompanhando este festival"
   }
 }

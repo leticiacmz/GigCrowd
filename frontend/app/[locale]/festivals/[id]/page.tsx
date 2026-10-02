@@ -19,6 +19,12 @@ import {
   eventAPI,
 } from '../../../lib/api';
 
+import {
+  resolveLocale,
+  formatEventDateRange,
+  byNameInLocale,
+} from '../../../lib/dates';
+
 import Card from '../../../../components/ui/Card';
 import LoadingState from '../../../../components/LoadingState';
 
@@ -67,6 +73,7 @@ export default function FestivalPage() {
   const router = useRouter();
   const params = useParams();
   const festivalId = params.id as string;
+  const locale = resolveLocale(params.locale as string);
   const t = useTranslations('festivals');
 
   const [event, setEvent] = useState<FestivalEvent | null>(null);
@@ -99,10 +106,11 @@ export default function FestivalPage() {
   }
 
   const lineup = useMemo(() => {
-    return [...(event?.festival?.artists ?? [])].sort((a, b) =>
-      a.name.localeCompare(b.name, 'pt-BR')
+    return byNameInLocale(
+      event?.festival?.artists ?? [],
+      locale,
     );
-  }, [event]);
+  }, [event, locale]);
 
   const filteredLineup = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -116,23 +124,15 @@ export default function FestivalPage() {
     );
   }, [lineup, query]);
 
-  function formatFestivalDate(value: string) {
-    return new Intl.DateTimeFormat('pt-BR', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }).format(new Date(value));
-  }
-
   const startDate = event
-    ? formatFestivalDate(event.starts_at)
+    ? formatEventDateRange(event.starts_at, locale)
     : '';
 
   const endDate =
     event?.ends_at &&
     new Date(event.ends_at).getTime() >
       new Date(event.starts_at).getTime()
-      ? formatFestivalDate(event.ends_at)
+      ? formatEventDateRange(event.ends_at, locale)
       : null;
 
   async function handleArtistClick(artist: ArtistSummary) {
@@ -147,7 +147,7 @@ export default function FestivalPage() {
         const existingArtist = await artistAPI.getArtist(artist.slug);
 
         if (existingArtist?.slug) {
-          router.push(`/artists/${existingArtist.slug}`);
+          router.push(`/${locale}/artists/${existingArtist.slug}`);
           return;
         }
       } catch (error) {
@@ -155,7 +155,7 @@ export default function FestivalPage() {
       }
 
       if (!artist.songkick_id) {
-        router.push(`/artists/${artist.slug}`);
+        router.push(`/${locale}/artists/${artist.slug}`);
         return;
       }
 
@@ -171,11 +171,11 @@ export default function FestivalPage() {
       );
 
       if (importedArtist?.slug) {
-        router.push(`/artists/${importedArtist.slug}`);
+        router.push(`/${locale}/artists/${importedArtist.slug}`);
         return;
       }
 
-      router.push(`/artists/${artist.slug}`);
+      router.push(`/${locale}/artists/${artist.slug}`);
     } catch (error) {
       console.error('Failed opening festival artist', error);
     } finally {
@@ -186,7 +186,7 @@ export default function FestivalPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingState message="Loading festival..." />
+        <LoadingState message={t('loading')} />
       </div>
     );
   }
@@ -202,7 +202,7 @@ export default function FestivalPage() {
             onClick={() => router.back()}
             className="text-accent hover:text-accent/80 transition"
           >
-            ← Go back
+            {t('goBack')}
           </button>
         </div>
       </div>
@@ -216,10 +216,10 @@ export default function FestivalPage() {
     <div className="min-h-screen">
       <main className="max-w-6xl mx-auto px-4 py-8">
         <Link
-          href={`/events/${event.id}`}
+          href={`/${locale}/events/${event.id}`}
           className="inline-flex items-center text-sm text-accent hover:text-accent/80 transition"
         >
-          ← Back to event
+          {t('backToEvent')}
         </Link>
 
         <section className="mt-6 rounded-2xl border border-border bg-card-bg p-6 md:p-8">
@@ -245,7 +245,7 @@ export default function FestivalPage() {
               <p className="text-foreground">
                 {event.venue?.name ||
                   event.venue_slug ||
-                  'Venue unavailable'}
+                  t('venueUnavailable')}
               </p>
             </div>
 
@@ -253,7 +253,7 @@ export default function FestivalPage() {
               <p className="text-xs uppercase tracking-wide text-muted-subtle mb-1">{t('location')}</p>
 
               <p className="text-foreground">
-                {event.location?.city || event.venue?.city || 'Unknown city'}
+                {event.location?.city || event.venue?.city || t('unknownCity')}
                 {(event.location?.country || event.venue?.country) && (
                   <>
                     {' • '}
@@ -272,7 +272,7 @@ export default function FestivalPage() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white hover:opacity-90 transition"
               >
-                Official website ↗
+                {t('officialWebsite')}
               </a>
             </div>
           )}
@@ -286,8 +286,10 @@ export default function FestivalPage() {
 
                 <h2 className="text-2xl font-bold">
                   {lineup.length > 0
-                    ? `${lineup.length} artists`
-                    : 'Artists'}
+                    ? t('artistsCount', {
+                        count: lineup.length,
+                      })
+                    : t('artists')}
                 </h2>
               </div>
 
@@ -296,7 +298,7 @@ export default function FestivalPage() {
                   <input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search artists..."
+                    placeholder={t('searchPlaceholder')}
                     className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-accent"
                   />
                 </div>
@@ -307,8 +309,8 @@ export default function FestivalPage() {
               <div className="py-16 text-center">
                 <p className="text-muted-subtle">
                   {lineup.length === 0
-                    ? 'The festival lineup is not available yet.'
-                    : 'No artists match your search.'}
+                    ? t('lineupEmpty')
+                    : t('noSearchMatches')}
                 </p>
               </div>
             ) : (
@@ -343,7 +345,9 @@ export default function FestivalPage() {
                           </p>
 
                           <p className="text-xs text-muted-subtle mt-1">
-                            {isLoading ? 'Opening artist...' : 'Open artist'}
+                            {isLoading
+                              ? t('openingArtist')
+                              : t('openArtist')}
                           </p>
                         </div>
 

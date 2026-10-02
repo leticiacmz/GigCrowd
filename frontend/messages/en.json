@@ -165,7 +165,25 @@
     "ticketUnavailable": "Ticket information unavailable",
     "postsAboutEvent": "Posts about this event",
     "festivalLineup": "Festival lineup",
-    "lineupUnavailable": "The festival lineup is not available yet."
+    "lineupUnavailable": "The festival lineup is not available yet.",
+    "loading": "Loading event...",
+    "concert": "Concert",
+    "past": "Past",
+    "happeningNow": "Happening now",
+    "upcoming": "Upcoming",
+    "venueUnavailable": "Venue unavailable",
+    "locationUnavailable": "Location unavailable",
+    "viewFestivalPage": "View festival page →",
+    "exploreFestival": "Explore festival →",
+    "openFestivalPage": "Open festival page →",
+    "openInMaps": "Open in maps ↗",
+    "markGoing": "✓ I'm going",
+    "markMaybe": "? Maybe",
+    "markWent": "✓ I Went",
+    "postsAboutEventDescription": "This is where the GigCrowd community will share photos, stories and moments from this event.",
+    "artistsCount": "{count} artists",
+    "openingArtist": "Opening artist...",
+    "openArtist": "Open artist"
   },
   "profile": {
     "myProfile": "My Profile",
@@ -188,7 +206,15 @@
     "notFound": "User not found.",
     "followLabel": "Follow",
     "followingLabel": "Following",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "fullName": "Full name",
+    "statShows": "Shows",
+    "statGoing": "Going",
+    "statMaybe": "Maybe",
+    "statArtists": "Artists",
+    "statUpcoming": "Upcoming",
+    "statPosts": "Posts",
+    "joined": "Joined {date}"
   },
   "notifications": {
     "title": "Notifications",
@@ -329,11 +355,29 @@
     "dates": "Dates",
     "venue": "Venue",
     "location": "Location",
-    "lineup": "Lineup"
+    "lineup": "Lineup",
+    "loading": "Loading festival...",
+    "goBack": "← Go back",
+    "backToEvent": "← Back to event",
+    "venueUnavailable": "Venue unavailable",
+    "unknownCity": "Unknown city",
+    "officialWebsite": "Official website ↗",
+    "artistsCount": "{count} artists",
+    "artists": "Artists",
+    "searchPlaceholder": "Search artists...",
+    "lineupEmpty": "The festival lineup is not available yet.",
+    "noSearchMatches": "No artists match your search.",
+    "openingArtist": "Opening artist...",
+    "openArtist": "Open artist"
   },
   "theme": {
     "label": "Theme",
     "light": "Light mode",
     "dark": "Dark mode"
+  },
+  "eventCard": {
+    "festival": "Festival",
+    "concert": "Concert",
+    "tracking": "{count} people tracking this festival"
   }
 }

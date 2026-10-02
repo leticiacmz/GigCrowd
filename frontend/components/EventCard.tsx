@@ -2,27 +2,22 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-
-import {
-  format,
-} from 'date-fns';
+import { useTranslations } from 'next-intl';
 
 import Card from './ui/Card';
 import Badge from './ui/Badge';
 
-import { locales, defaultLocale } from '@/app/i18n';
+import { resolveLocale, formatDateSpan, formatEventTime } from '@/app/lib/dates';
 
 /**
  * Read the locale from the current URL so every event link keeps the reader
  * in the language they are browsing with.
  */
-function useResolvedLocale(): string {
+function useResolvedLocale() {
   const pathname = usePathname() || '';
   const segment = pathname.split('/')[1];
 
-  return locales.includes(segment as (typeof locales)[number])
-    ? segment
-    : defaultLocale;
+  return resolveLocale(segment);
 }
 
 
@@ -97,65 +92,15 @@ function isFestival(event: EventCardProps['event']) {
 
 
 function formatEventDate(
-  event: EventCardProps['event']
+  event: EventCardProps['event'],
+  locale: ReturnType<typeof resolveLocale>,
 ) {
-
-  const startDate =
-    new Date(event.starts_at);
-
-  if (
-    isFestival(event) &&
-    event.ends_at
-  ) {
-
-    const endDate =
-      new Date(event.ends_at);
-
-    const sameYear =
-      startDate.getFullYear() ===
-      endDate.getFullYear();
-
-    if (sameYear) {
-
-      return `${format(
-        startDate,
-        'MMM d'
-      )} – ${format(
-        endDate,
-        'MMM d, yyyy'
-      )}`;
-
-    }
-
-    return `${format(
-      startDate,
-      'MMM d, yyyy'
-    )} – ${format(
-      endDate,
-      'MMM d, yyyy'
-    )}`;
-
-  }
-
-  return format(
-    startDate,
-    'MMM d, yyyy'
-  );
-
-}
-
-
-function formatEventTime(
-  event: EventCardProps['event']
-) {
-
-  if (isFestival(event)) {
-    return null;
-  }
-
-  return format(
-    new Date(event.starts_at),
-    'h:mm a'
+  return formatDateSpan(
+    event.starts_at,
+    isFestival(event)
+      ? event.ends_at
+      : null,
+    locale,
   );
 
 }
@@ -215,11 +160,20 @@ export default function EventCard({
   const locale =
     useResolvedLocale();
 
-  const formattedDate =
-    formatEventDate(event);
+  const t =
+    useTranslations('eventCard');
 
+  const formattedDate =
+    formatEventDate(event, locale);
+
+  // A festival spans days, so it carries no single start time.
   const formattedTime =
-    formatEventTime(event);
+    festival
+      ? null
+      : formatEventTime(
+          event.starts_at,
+          locale
+        );
 
   const venueName =
     getVenueName(event);
@@ -282,8 +236,8 @@ export default function EventCard({
             >
 
               {festival
-                ? 'Festival'
-                : 'Concert'
+                ? t('festival')
+                : t('concert')
               }
 
             </Badge>
@@ -350,9 +304,11 @@ export default function EventCard({
                 text-muted-subtle
               ">
 
-                {event.festival.tracking_count}
-                {' '}
-                people tracking this festival
+                {t('tracking', {
+                  count:
+                    event.festival
+                      .tracking_count,
+                })}
 
               </p>
 

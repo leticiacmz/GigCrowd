@@ -22,12 +22,16 @@ import {
 
 import { isAuthenticated } from '../../../lib/auth';
 import { useAuthAction } from '../../../lib/use-auth-action';
+import {
+  resolveLocale,
+  formatEventDateRange,
+  formatEventTime,
+  byNameInLocale,
+} from '../../../lib/dates';
 
 import Button from '../../../../components/ui/Button';
 import Card from '../../../../components/ui/Card';
 import LoadingState from '../../../../components/LoadingState';
-
-import { format } from 'date-fns';
 
 interface ArtistSummary {
   songkick_id?: string;
@@ -92,7 +96,7 @@ export default function EventDetailPage() {
   const router = useRouter();
   const params = useParams();
   const eventId = params.id as string;
-  const locale = (params.locale as string) || 'en';
+  const locale = resolveLocale(params.locale as string);
   const t = useTranslations('event');
 
   const runAuthAction = useAuthAction({ locale });
@@ -187,12 +191,11 @@ export default function EventDetailPage() {
   }, [event]);
 
   const lineup = useMemo(() => {
-    const artists = event?.festival?.artists ?? [];
-
-    return [...artists].sort((a, b) =>
-      a.name.localeCompare(b.name, 'pt-BR')
+    return byNameInLocale(
+      event?.festival?.artists ?? [],
+      locale,
     );
-  }, [event]);
+  }, [event, locale]);
 
   const linkedArtists = useMemo(() => {
     if (!event) {
@@ -229,23 +232,23 @@ export default function EventDetailPage() {
   }, [artistSlugs, event, lineup]);
 
   const formattedDate = event
-    ? format(new Date(event.starts_at), 'MMMM d, yyyy')
+    ? formatEventDateRange(event.starts_at, locale)
     : '';
 
   const formattedTime = event
-    ? format(new Date(event.starts_at), 'h:mm a')
+    ? formatEventTime(event.starts_at, locale)
     : '';
 
   const eventTypeLabel = isFestival
-    ? 'Festival'
-    : 'Concert';
+    ? t('festival')
+    : t('concert');
 
   const statusLabel =
     eventStatus === 'past'
-      ? 'Past'
+      ? t('past')
       : isEventHappening
-        ? 'Happening now'
-        : 'Upcoming';
+        ? t('happeningNow')
+        : t('upcoming');
 
   const statusClasses =
     eventStatus === 'past'
@@ -326,7 +329,7 @@ export default function EventDetailPage() {
         const existingArtist = await artistAPI.getArtist(artist.slug);
 
         if (existingArtist?.slug) {
-          router.push(`/artists/${existingArtist.slug}`);
+          router.push(`/${locale}/artists/${existingArtist.slug}`);
           return;
         }
       } catch (error) {
@@ -334,7 +337,7 @@ export default function EventDetailPage() {
       }
 
       if (!artist.songkick_id) {
-        router.push(`/artists/${artist.slug}`);
+        router.push(`/${locale}/artists/${artist.slug}`);
         return;
       }
 
@@ -350,11 +353,11 @@ export default function EventDetailPage() {
       );
 
       if (importedArtist?.slug) {
-        router.push(`/artists/${importedArtist.slug}`);
+        router.push(`/${locale}/artists/${importedArtist.slug}`);
         return;
       }
 
-      router.push(`/artists/${artist.slug}`);
+      router.push(`/${locale}/artists/${artist.slug}`);
     } catch (error) {
       console.error('Failed opening festival artist', error);
     } finally {
@@ -365,7 +368,7 @@ export default function EventDetailPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingState message="Loading event..." />
+        <LoadingState message={t('loading')} />
       </div>
     );
   }
@@ -377,10 +380,10 @@ export default function EventDetailPage() {
           <p className="text-muted mb-4">{t('notFound')}</p>
 
           <Link
-            href="/events"
+            href={`/${locale}/events`}
             className="text-accent hover:text-accent/80"
           >
-            ← Back to events
+            {t('backToEvents')}
           </Link>
         </div>
       </div>
@@ -391,10 +394,10 @@ export default function EventDetailPage() {
     <div className="min-h-screen">
       <main className="max-w-6xl mx-auto px-4 py-8">
         <Link
-          href="/events"
+          href={`/${locale}/events`}
           className="inline-flex items-center text-sm text-accent hover:text-accent/80 transition"
         >
-          ← Back to events
+          {t('backToEvents')}
         </Link>
 
         <section className="mt-6 relative overflow-hidden rounded-2xl border border-border bg-card-bg">
@@ -438,7 +441,7 @@ export default function EventDetailPage() {
                     )}
 
                     <Link
-                      href={`/artists/${artist.slug}`}
+                      href={`/${locale}/artists/${artist.slug}`}
                       className="text-accent hover:text-accent/80 transition"
                     >
                       {artist.name}
@@ -469,7 +472,7 @@ export default function EventDetailPage() {
                 <p className="text-foreground">
                   {event.venue?.name ||
                     event.venue_slug ||
-                    'Location unavailable'}
+                    t('locationUnavailable')}
                 </p>
 
                 {(event.location?.city || event.venue?.city) && (
@@ -489,10 +492,10 @@ export default function EventDetailPage() {
             {isFestival && (
               <div className="mt-6">
                 <Link
-                  href={`/festivals/${event.id}`}
+                  href={`/${locale}/festivals/${event.id}`}
                   className="inline-flex items-center text-sm text-accent hover:text-accent/80 transition"
                 >
-                  View festival page →
+                  {t('viewFestivalPage')}
                 </Link>
               </div>
             )}
@@ -605,10 +608,10 @@ export default function EventDetailPage() {
                     </div>
 
                     <Link
-                      href={`/festivals/${event.id}`}
+                      href={`/${locale}/festivals/${event.id}`}
                       className="text-sm text-accent hover:text-accent/80 transition shrink-0"
                     >
-                      Explore festival →
+                      {t('exploreFestival')}
                     </Link>
                   </div>
                 </Card>
@@ -621,7 +624,7 @@ export default function EventDetailPage() {
                   <p className="text-lg font-semibold">
                     {event.venue?.name ||
                       event.venue_slug ||
-                      'Venue unavailable'}
+                      t('venueUnavailable')}
                   </p>
 
                   {(event.location?.city ||
@@ -649,7 +652,7 @@ export default function EventDetailPage() {
                         rel="noopener noreferrer"
                         className="inline-flex mt-3 text-sm text-accent hover:text-accent/80 transition"
                       >
-                        Open in maps ↗
+                        {t('openInMaps')}
                       </a>
                     )}
                 </div>
@@ -678,7 +681,7 @@ export default function EventDetailPage() {
                           }
                           className="w-full"
                         >
-                          ✓ I'm going
+                          {t('markGoing')}
                         </Button>
 
                         <Button
@@ -695,7 +698,7 @@ export default function EventDetailPage() {
                           }
                           className="w-full"
                         >
-                          ? Maybe
+                          {t('markMaybe')}
                         </Button>
                       </>
                     )}
@@ -715,7 +718,7 @@ export default function EventDetailPage() {
                         }
                         className="w-full"
                       >
-                        ✓ I Went
+                        {t('markWent')}
                       </Button>
                     )}
                   </div>
@@ -787,8 +790,7 @@ export default function EventDetailPage() {
                 <h2 className="text-xl font-bold mb-2">{t('postsAboutEvent')}</h2>
 
                 <p className="text-muted-subtle leading-relaxed">
-                  This is where the GigCrowd community will share photos,
-                  stories and moments from this event.
+                  {t('postsAboutEventDescription')}
                 </p>
               </div>
             </Card>
@@ -803,15 +805,17 @@ export default function EventDetailPage() {
                   <p className="text-xs uppercase tracking-wide text-accent mb-2">{t('festivalLineup')}</p>
 
                   <h2 className="text-2xl font-bold">
-                    {lineup.length} artists
+                    {t('artistsCount', {
+                      count: lineup.length,
+                    })}
                   </h2>
                 </div>
 
                 <Link
-                  href={`/festivals/${event.id}`}
+                  href={`/${locale}/festivals/${event.id}`}
                   className="text-sm text-accent hover:text-accent/80 transition"
                 >
-                  Open festival page →
+                  {t('openFestivalPage')}
                 </Link>
               </div>
 
@@ -848,7 +852,9 @@ export default function EventDetailPage() {
                           </span>
 
                           <span className="block text-xs text-muted-subtle mt-1">
-                            {isLoading ? 'Opening artist...' : 'Open artist'}
+                            {isLoading
+                              ? t('openingArtist')
+                              : t('openArtist')}
                           </span>
                         </span>
 

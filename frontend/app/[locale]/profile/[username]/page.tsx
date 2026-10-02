@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { userAPI } from '@/app/lib/api';
 import { isAuthenticated } from '@/app/lib/auth';
 import { useAuthAction } from '@/app/lib/use-auth-action';
+import { resolveLocale, formatDateSpan } from '@/app/lib/dates';
 import FollowButton from '@/components/profile/FollowButton';
 import ProfileStats from '@/components/profile/ProfileStats';
 import UserList, {
@@ -18,8 +19,6 @@ import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 import Avatar from '@/components/ui/Avatar';
 import LoadingState from '@/components/LoadingState';
-
-import { format } from 'date-fns';
 
 
 interface UserProfile {
@@ -51,7 +50,7 @@ export default function ProfilePage() {
     username: string;
     locale: string;
   }>();
-  const locale = localeParam || 'en';
+  const locale = resolveLocale(localeParam);
   const t = useTranslations('profile');
 
   const runAuthAction = useAuthAction({ locale });
@@ -118,10 +117,20 @@ export default function ProfilePage() {
 
 
 
-      const profileStats = await userAPI.getProfileStats(username);
+      // Statistics are a separate call. If it fails the profile is still
+      // worth showing, so the error stops the figure block alone.
+      try {
+        const profileStats = await userAPI.getProfileStats(username);
+        setStats(profileStats);
+      } catch {
+        setStats(null);
+      }
 
-      setStats(profileStats);
 
+    } catch {
+
+      // The profile itself could not be loaded, so there is nothing to show.
+      setUser(null);
 
     } finally {
 
@@ -197,7 +206,7 @@ export default function ProfilePage() {
 
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingState message="Loading profile..." />
+        <LoadingState message={t('loading')} />
       </div>
     );
 
@@ -297,6 +306,7 @@ export default function ProfilePage() {
                   <Button
                     onClick={() => setEditing(true)}
                     variant="outline"
+                    data-testid="profile-edit"
                   >{t('editProfile')}</Button>
 
                 )
@@ -395,7 +405,7 @@ export default function ProfilePage() {
                         full_name:e.target.value
                       })
                     }
-                    placeholder="Full name"
+                    placeholder={t('fullName')}
                   />
 
 
@@ -408,7 +418,7 @@ export default function ProfilePage() {
                         bio:e.target.value
                       })
                     }
-                    placeholder="Bio"
+                    placeholder={t('bio')}
                     className="w-full bg-card-bg border border-border rounded-lg p-3 text-foreground"
                     rows={3}
                   />
@@ -423,7 +433,7 @@ export default function ProfilePage() {
                         location:e.target.value
                       })
                     }
-                    placeholder="Location"
+                    placeholder={t('location')}
                   />
 
 
@@ -455,7 +465,9 @@ export default function ProfilePage() {
                   {
                     user.location &&
                     <p className="text-muted">
-                      📍 {user.location}
+                      <span aria-hidden="true">📍</span>
+                      {' '}
+                      {user.location}
                     </p>
                   }
 
@@ -470,12 +482,13 @@ export default function ProfilePage() {
 
             <p className="text-sm text-muted-subtle">
 
-              Joined {
-                format(
-                  new Date(user.created_at),
-                  'MMMM yyyy'
-                )
-              }
+              {t('joined', {
+                date: formatDateSpan(
+                  user.created_at,
+                  null,
+                  locale,
+                ),
+              })}
 
             </p>
 
