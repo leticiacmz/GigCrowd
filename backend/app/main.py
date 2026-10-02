@@ -38,7 +38,6 @@ from app.routes import (
     follows,
     show_logs,
     spotify_auth,
-    user_stats,
     artist_community,
     notifications,
 )
@@ -248,8 +247,6 @@ app.include_router(follows.router)
 app.include_router(show_logs.router)
 
 app.include_router(spotify_auth.router)
-
-app.include_router(user_stats.router)
 
 app.include_router(artist_community.router)
 

@@ -63,6 +63,7 @@ def get_user_stats_service():
     return UserStatsService(
         user_repository=UserRepository(db),
         show_log_repository=ShowLogRepository(db),
+        follow_repository=FollowRepository(db),
         db=db,
     )
 

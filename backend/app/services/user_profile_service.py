@@ -27,6 +27,63 @@ class UserProfileService:
         }
 
 
+    async def _social_counts(
+        self,
+        user: dict,
+    ) -> tuple[int, int]:
+        """Follower and following counts for a user.
+
+        Counted from the `follows` collection so the figure always matches the
+        list behind it. The denormalized counters on the user document are
+        left untouched, but they are not reported because they drift whenever
+        a counter update is missed.
+        """
+
+        user_id = str(user["_id"])
+
+        if not self.follow_repository:
+            return (
+                user.get("followers_count", 0),
+                user.get("following_count", 0),
+            )
+
+        followers_count = (
+            await self.follow_repository.count_followers(
+                user_id,
+            )
+        )
+
+        following_count = (
+            await self.follow_repository.count_following(
+                user_id,
+            )
+        )
+
+        return followers_count, following_count
+
+
+    async def _public_profile(
+        self,
+        user: dict,
+    ) -> dict:
+
+        followers_count, following_count = (
+            await self._social_counts(user)
+        )
+
+        return {
+            "id": str(user["_id"]),
+            "username": user.get("username"),
+            "full_name": user.get("full_name"),
+            "bio": user.get("bio"),
+            "avatar_url": user.get("avatar_url"),
+            "location": user.get("location"),
+            "followers_count": followers_count,
+            "following_count": following_count,
+            "created_at": user.get("created_at"),
+        }
+
+
     async def get_connections(
         self,
         username: str,
@@ -36,9 +93,8 @@ class UserProfileService:
         """List the people a user follows, or the people following them.
 
         Returns the same public shape for both directions so the UI can render
-        one list component either way. Identifiers in the `follows` collection
-        are stored as strings, so they are resolved in a single batched query
-        rather than one lookup per relationship.
+        one list component either way. The relationships are resolved in a
+        single batched query rather than one lookup per relationship.
         """
         if not self.follow_repository:
             return []
@@ -107,23 +163,9 @@ class UserProfileService:
             return None
 
 
-        return {
-            "id": str(user["_id"]),
-            "username": user.get("username"),
-            "full_name": user.get("full_name"),
-            "bio": user.get("bio"),
-            "avatar_url": user.get("avatar_url"),
-            "location": user.get("location"),
-            "followers_count": user.get(
-                "followers_count",
-                0,
-            ),
-            "following_count": user.get(
-                "following_count",
-                0,
-            ),
-            "created_at": user.get("created_at"),
-        }
+        return await self._public_profile(
+            user
+        )
 
 
 
@@ -157,20 +199,6 @@ class UserProfileService:
             return None
 
 
-        return {
-            "id": str(user["_id"]),
-            "username": user.get("username"),
-            "full_name": user.get("full_name"),
-            "bio": user.get("bio"),
-            "avatar_url": user.get("avatar_url"),
-            "location": user.get("location"),
-            "followers_count": user.get(
-                "followers_count",
-                0,
-            ),
-            "following_count": user.get(
-                "following_count",
-                0,
-            ),
-            "created_at": user.get("created_at"),
-        }
+        return await self._public_profile(
+            user
+        )
