@@ -603,6 +603,41 @@ class TestFestivals:
         assert festival.last_date.year == 2026
 
     @pytest.mark.asyncio
+    async def test_the_row_points_at_the_newest_edition(
+        self,
+        service,
+        db,
+    ):
+
+        # A festival is only reachable through one of its shows, so the row has
+        # to name the edition a reader would want to open.
+        await seed_user(db)
+
+        for index, year in enumerate((2025, 2026)):
+
+            event_id = await seed_event(
+                db,
+                event_id=f"6a00000000000000000000{index + 1:02d}",
+                title=f"Beyond The Valley {year}",
+                event_type="FestivalInstance",
+                starts_at=datetime(
+                    year, 6, 1, tzinfo=UTC,
+                ),
+                festival={
+                    "series_id": "1125073",
+                    "name": f"Beyond The Valley {year}",
+                },
+            )
+
+            await seed_log(db, event_id=event_id)
+
+        result = await service.get_festivals("leticiacmz")
+
+        festival = result["festivals"][0]
+
+        assert festival.event_id == "6a0000000000000000000002"
+
+    @pytest.mark.asyncio
     async def test_two_different_festivals_count_twice(
         self,
         service,

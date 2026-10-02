@@ -28,6 +28,14 @@ class FestivalSummary(BaseModel):
 
     name: str
 
+    event_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "The most recent edition the user logged, so the row can "
+            "lead to the festival page behind it"
+        ),
+    )
+
     editions_count: int = Field(
         default=1,
         description="Distinct editions the user attended",

@@ -276,6 +276,7 @@ class UserConcertService:
         return FestivalSummary(
             key=key,
             name=festival_name(event) or "",
+            event_id=str(event.get("_id")) if event.get("_id") else None,
             editions_count=1,
             shows_count=1,
             first_date=festival_date(event),
@@ -453,6 +454,11 @@ class UserConcertService:
                     "summary": FestivalSummary(
                         key=key,
                         name=festival_name(event) or "",
+                        event_id=str(
+                            event.get("_id")
+                        )
+                        if event.get("_id")
+                        else None,
                         editions_count=1,
                         shows_count=1,
                         first_date=moment,
@@ -490,6 +496,14 @@ class UserConcertService:
                 )
             ):
                 summary.last_date = moment
+
+                # The row links to the newest edition behind it, so the link
+                # follows the festival forward rather than to its first night.
+                summary.event_id = (
+                    str(event.get("_id"))
+                    if event.get("_id")
+                    else summary.event_id
+                )
 
             if not summary.image_url:
                 summary.image_url = festival_image(event)
