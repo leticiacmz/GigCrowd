@@ -92,17 +92,18 @@ app.add_middleware(
     allow_origins=settings.CORS_ORIGINS,
 
     # Allow local network development without hardcoding
-    # the machine's current IP address.
+    # the machine's current IP address or the dev server's port.
     #
     # Examples:
     # http://localhost:3000
     # http://127.0.0.1:3000
+    # http://localhost:3100
     # http://192.168.15.8:3000
     # http://192.168.15.13:3000
     allow_origin_regex=(
         r"^https?://"
         r"(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)"
-        r":3000$"
+        r":\d+$"
     ),
 
     allow_credentials=True,
