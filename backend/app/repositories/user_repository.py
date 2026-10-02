@@ -45,6 +45,51 @@ class UserRepository(BaseRepository):
         )
 
 
+    async def get_by_ids(
+        self,
+        user_ids: list[str]
+    ) -> list[dict]:
+        """Fetch several users with a single query.
+
+        Identifiers may be stored as strings or ObjectIds, so both forms are
+        matched at once instead of issuing a lookup per id.
+        """
+
+        wanted = {
+            str(user_id)
+            for user_id in user_ids
+            if user_id
+        }
+
+        if not wanted:
+            return []
+
+
+        conditions: list[dict] = [
+            {"_id": user_id}
+            for user_id in wanted
+        ]
+
+        for user_id in sorted(wanted):
+
+            try:
+                conditions.append(
+                    {"_id": ObjectId(user_id)}
+                )
+
+            except Exception:
+                continue
+
+
+        cursor = self.collection.find(
+            {"$or": conditions}
+        )
+
+        return await cursor.to_list(
+            length=len(wanted)
+        )
+
+
     async def increment_following_count(
         self,
         user_id: str

@@ -4,6 +4,7 @@ from fastapi import (
     HTTPException,
     status,
 )
+from typing import Literal
 
 from app.auth.dependencies import (
     get_current_active_user,
@@ -11,6 +12,10 @@ from app.auth.dependencies import (
 
 from app.database.connection import (
     get_database,
+)
+
+from app.repositories.follow_repository import (
+    FollowRepository,
 )
 
 from app.repositories.user_repository import (
@@ -47,6 +52,7 @@ def get_profile_service():
 
     return UserProfileService(
         user_repository=UserRepository(db),
+        follow_repository=FollowRepository(db),
     )
 
 
@@ -136,6 +142,69 @@ async def get_public_user_stats(
     return await stats_service.get_user_stats(
         username
     )
+
+
+@router.get(
+    "/profile/{username}/connections",
+)
+async def get_connections(
+
+    username: str,
+
+    direction: Literal["followers", "following"] = "followers",
+
+    limit: int = 50,
+
+    service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    """
+    List the people a user follows, or the people who follow them.
+
+    Public, because a profile's social graph is public, and used by the
+    profile page to render clickable usernames.
+    """
+
+    limit = max(1, min(limit, 100))
+
+    profile = await service.get_profile(
+        username
+    )
+
+    if not profile:
+
+        raise HTTPException(
+
+            status_code=status.HTTP_404_NOT_FOUND,
+
+            detail="User not found",
+
+        )
+
+
+    connections = await service.get_connections(
+
+        username=username,
+
+        direction=direction,
+
+        limit=limit,
+
+    )
+
+
+    return {
+
+        "username": profile["username"],
+
+        "direction": direction,
+
+        "users": connections,
+
+    }
 
 
 @router.get(
