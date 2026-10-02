@@ -205,6 +205,7 @@
     "emptyTitle": "Você está em dia",
     "emptyDescription": "Novos seguidores, curtidas, comentários e respostas aparecerão aqui.",
     "unreadBadge": "Não lida",
+    "markRead": "Marcar como lida",
     "type": {
       "follow": "começou a seguir você",
       "like": "curtiu sua publicação em {artist}",

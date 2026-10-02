@@ -205,6 +205,7 @@
     "emptyTitle": "You are all caught up",
     "emptyDescription": "New followers, likes, comments and replies will show up here.",
     "unreadBadge": "Unread",
+    "markRead": "Mark as read",
     "type": {
       "follow": "started following you",
       "like": "liked your post in {artist}",

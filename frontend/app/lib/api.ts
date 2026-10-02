@@ -5,6 +5,7 @@ import {
   getLoginPath,
   sanitizeNext,
 } from './auth';
+import type { Notification } from '../types/notification';
 
 const API_URL =
   typeof window !== 'undefined'
@@ -71,6 +72,23 @@ function redirectToLogin() {
   window.location.href = getLoginPath(locale, next);
 }
 
+/** Detail text the backend uses when a user must follow an artist to write. */
+const ARTIST_FOLLOW_REQUIRED = 'must follow this artist';
+
+/**
+ * True when a 403 means "follow the artist first" rather than "sign in".
+ *
+ * Only unauthenticated visitors are sent to the login page; a signed-in user
+ * who is not following the artist gets the in-place "follow to participate"
+ * message instead.
+ */
+export function isArtistFollowRequired(detail: unknown): boolean {
+  return (
+    typeof detail === 'string' &&
+    detail.toLowerCase().includes(ARTIST_FOLLOW_REQUIRED)
+  );
+}
+
 // Intercept API responses - handle auth and permission errors
 api.interceptors.response.use(
   (response) => response,
@@ -84,34 +102,20 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // 403 Forbidden -> check if it's a permission issue (not following artist)
-    // rather than an auth issue. If the error detail indicates the user doesn't
-    // follow the artist, show a permission message instead of redirecting.
+    // 403 Forbidden -> a permission problem, not a missing session.
+    //
+    // Following an artist is required to write in their community, and a
+    // signed-in user who does not follow yet must be told so in place. Only a
+    // genuinely unauthenticated request is sent to the login page.
     if (status === 403) {
-      const errorDetail = error.response?.data?.detail || '';
-
-      // If this is a "must follow artist" permission error, don't redirect
-      if (
-        errorDetail &&
-        (errorDetail.toLowerCase().includes('follow') ||
-          errorDetail.toLowerCase().includes('participate') ||
-          errorDetail.toLowerCase().includes('community'))
-      ) {
-        // Allow the error to propagate so the component can show a permission message
+      if (isArtistFollowRequired(error.response?.data?.detail)) {
         return Promise.reject(error);
       }
 
-      // Otherwise, treat as auth failure and redirect to login
       clearStaleAuth();
       redirectToLogin();
       return Promise.reject(error);
     }
-
-    // 401 Unauthorized / 403 Forbidden -> the session is no longer valid.
-    // if (status === 401 || status === 403) {
-    //   clearStaleAuth();
-    //   redirectToLogin();
-    // }
 
     return Promise.reject(error);
   }
@@ -176,9 +180,50 @@ export const eventAPI = {
   },
 };
 
+/** Categories the single feed filter can narrow the timeline to. */
+export type FeedCategory = 'all' | 'community' | 'reviews' | 'events' | 'social';
+
+export const FEED_CATEGORIES: FeedCategory[] = [
+  'all',
+  'community',
+  'reviews',
+  'events',
+  'social',
+];
+
 export const feedAPI = {
-  getFeed: async (params?: any) => {
+  /**
+   * Fetch the unified feed timeline.
+   *
+   * `category` filters that same timeline; it is the only filter the feed
+   * exposes, so there is a single list to reason about.
+   */
+  getFeed: async (params?: { skip?: number; limit?: number; category?: FeedCategory }) => {
     const response = await api.get('/feed', { params });
+    return response.data;
+  },
+};
+
+export const notificationAPI = {
+  /** List the signed-in user's notifications plus the unread count. */
+  getNotifications: async (params?: { skip?: number; limit?: number }) => {
+    const response = await api.get('/notifications', { params });
+    return response.data as {
+      notifications: Notification[];
+      unread_count: number;
+      total: number;
+    };
+  },
+  getUnreadCount: async () => {
+    const response = await api.get('/notifications/unread-count');
+    return response.data.unread_count as number;
+  },
+  markAsRead: async (notificationId: string) => {
+    const response = await api.post(`/notifications/${notificationId}/read`);
+    return response.data;
+  },
+  markAllAsRead: async () => {
+    const response = await api.post('/notifications/read-all');
     return response.data;
   },
 };
@@ -339,6 +384,30 @@ export const userAPI = {
   getProfileStats: async (username: string) => {
     const response = await api.get(`/users/profile/${username}/stats`);
     return response.data;
+  },
+  /**
+   * Public social graph of a profile.
+   * `direction` picks between the people who follow the user and the people
+   * the user follows, so one list component can render both.
+   */
+  getConnections: async (
+    username: string,
+    direction: 'followers' | 'following' = 'followers'
+  ) => {
+    const response = await api.get(
+      `/users/profile/${username}/connections`,
+      { params: { direction } }
+    );
+    return response.data as {
+      username: string;
+      direction: 'followers' | 'following';
+      users: {
+        id: string;
+        username: string;
+        full_name?: string | null;
+        avatar_url?: string | null;
+      }[];
+    };
   },
   updateMe: async (userData) => {
     const response = await api.put('/users/me', userData);

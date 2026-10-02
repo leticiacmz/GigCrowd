@@ -205,6 +205,7 @@
     "emptyTitle": "Ya estás al día",
     "emptyDescription": "Nuevos seguidores, me gusta, comentarios y respuestas aparecerán aquí.",
     "unreadBadge": "Sin leer",
+    "markRead": "Marcar como leída",
     "type": {
       "follow": "empezó a seguirte",
       "like": "le dio me gusta a tu publicación en {artist}",
