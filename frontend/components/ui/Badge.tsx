@@ -1,17 +1,24 @@
 import React from 'react';
 
-interface BadgeProps {
+interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   children: React.ReactNode;
   variant?: 'default' | 'accent' | 'secondary' | 'outline';
   size?: 'sm' | 'md';
   className?: string;
 }
 
+/**
+ * The shared label.
+ *
+ * Unrecognised props reach the root element so callers can attach
+ * `data-testid` and `aria-*` without a wrapper around every badge.
+ */
 export default function Badge({
   children,
   variant = 'default',
   size = 'md',
   className = '',
+  ...props
 }: BadgeProps) {
   const baseStyles = 'inline-flex items-center font-medium rounded-full';
 
@@ -34,6 +41,7 @@ export default function Badge({
 
   return (
     <span
+      {...props}
       className={`${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
     >
       {children}

@@ -27,11 +27,21 @@ import {
   formatEventDateRange,
   formatEventTime,
   byNameInLocale,
+  formatEventSchedule,
+  isHappeningNow,
+  isPastEvent,
 } from '../../../lib/dates';
 
 import Button from '../../../../components/ui/Button';
 import Card from '../../../../components/ui/Card';
 import LoadingState from '../../../../components/LoadingState';
+import ReviewCard from '../../../../components/ReviewCard';
+import ReviewDialog from '../../../../components/ReviewDialog';
+import type {
+  ReviewPayload,
+  ShowLog,
+} from '../../../../app/types/review';
+import type { ProfileReview } from '../../../../app/types/profile';
 
 interface ArtistSummary {
   songkick_id?: string;
@@ -74,8 +84,14 @@ interface Event {
   artist_slugs?: string[];
   venue_slug?: string;
   venue?: Venue | null;
-  starts_at: string;
+  starts_at?: string | null;
   ends_at?: string | null;
+  /**
+   * Resolved by the backend from `starts_at`/`ends_at`, which are optional on
+   * imported events. The client never re-derives it from a date that may be
+   * missing.
+   */
+  is_past?: boolean;
   event_type?: string;
   ticket_url?: string | null;
   sold_out?: boolean;
@@ -103,11 +119,13 @@ export default function EventDetailPage() {
   const tArtist = useTranslations('artist');
 
   const [event, setEvent] = useState<Event | null>(null);
-  const [showLog, setShowLog] = useState<any>(null);
+  const [showLog, setShowLog] = useState<ShowLog | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<EventTab>('information');
   const [loadingArtistSlug, setLoadingArtistSlug] = useState<string | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
 
   useEffect(() => {
     loadEvent();
@@ -141,39 +159,14 @@ export default function EventDetailPage() {
     }
   }
 
-  function getEventStatus(currentEvent: Event): EventStatus {
-    const now = Date.now();
-    const startsAt = new Date(currentEvent.starts_at).getTime();
-    const endsAt = currentEvent.ends_at
-      ? new Date(currentEvent.ends_at).getTime()
-      : null;
-
-    const hasValidEnd =
-      endsAt !== null &&
-      Number.isFinite(endsAt) &&
-      endsAt > startsAt;
-
-    if (now < startsAt) {
-      return 'upcoming';
-    }
-
-    if (hasValidEnd && now <= endsAt) {
-      return 'happening';
-    }
-
-    if (!hasValidEnd) {
-      return 'happening';
-    }
-
-    return 'past';
-  }
-
-  const eventStatus = event
-    ? getEventStatus(event)
-    : 'upcoming';
-
-  const isEventPast = eventStatus === 'past';
-  const isEventHappening = eventStatus === 'happening';
+  /*
+    `isPastEvent` prefers the backend's `is_past` and only falls back to the
+    later of the two dates. The previous local rule returned "happening" for any
+    event without a usable `ends_at`, which left a finished concert reading as
+    ongoing forever and put "I went" permanently out of reach.
+  */
+  const isEventPast = isPastEvent(event);
+  const isEventHappening = isHappeningNow(event);
   const isFestival = event?.event_type === 'FestivalInstance';
 
   const artistSlugs = useMemo(() => {
@@ -231,27 +224,29 @@ export default function EventDetailPage() {
     });
   }, [artistSlugs, event, lineup]);
 
+  // Imported events carry a date often enough that every one of these has to
+  // cope with it being absent, and the wording lives in the message catalog.
   const formattedDate = event
-    ? formatEventDateRange(event.starts_at, locale)
+    ? formatEventSchedule(event, locale, t('dateUnavailable'))
     : '';
 
-  const formattedTime = event
+  const formattedTime = event?.starts_at
     ? formatEventTime(event.starts_at, locale)
-    : '';
+    : null;
 
   const eventTypeLabel = isFestival
     ? t('festival')
     : t('concert');
 
   const statusLabel =
-    eventStatus === 'past'
+    isEventPast
       ? t('past')
       : isEventHappening
         ? t('happeningNow')
         : t('upcoming');
 
   const statusClasses =
-    eventStatus === 'past'
+    isEventPast
       ? 'border-border bg-card-hover text-muted'
       : isEventHappening
         ? 'border-accent/40 bg-accent/10 text-accent'
@@ -293,8 +288,19 @@ export default function EventDetailPage() {
       return;
     }
 
+    /*
+      Attendance is a record of having been there, so it cannot be silently
+      undone with one more tap: pressing "I went" again is how a review is
+      written. Going and maybe stay one-tap toggles.
+    */
+    if (status === 'went' && showLog?.status === 'went') {
+      setReviewOpen(true);
+      return;
+    }
+
     try {
       setSubmitting(true);
+      setAttendanceError(null);
 
       if (showLog?.status === status) {
         await showLogAPI.delete(eventId);
@@ -310,12 +316,56 @@ export default function EventDetailPage() {
 
       await loadShowLog();
       await loadEvent();
+
+      if (status === 'went') {
+        // Attendance is recorded; the review is the natural next step, so the
+        // dialog opens where the reader already is.
+        setReviewOpen(true);
+      }
     } catch (error) {
       console.error('Failed updating attendance', error);
+      setAttendanceError(t('attendanceFailed'));
     } finally {
       setSubmitting(false);
     }
   }
+
+  async function handleReviewSave(payload: ReviewPayload) {
+    const saved = await showLogAPI.saveReview(eventId, payload);
+
+    setShowLog(saved);
+    setReviewOpen(false);
+    await loadEvent();
+  }
+
+  async function handleReviewDelete() {
+    const cleared = await showLogAPI.deleteReview(eventId);
+
+    setShowLog(cleared);
+    await loadEvent();
+  }
+
+  /*
+    The signed-in user's own review, rendered through the same card the profile
+    uses. Reviews other people wrote are shown on the post tab instead, so a
+    reader and a bystander never see the same event page with different rules.
+  */
+  const ownReview: ProfileReview | null =
+    showLog?.rating && isEventPast
+      ? {
+          event_id: eventId,
+          title: event?.title ?? '',
+          starts_at: event?.starts_at ?? null,
+          ends_at: event?.ends_at ?? null,
+          event_type: event?.event_type ?? 'Concert',
+          artist_slugs: artistSlugs,
+          artist_names: linkedArtists.map((artist) => artist.name),
+          rating: showLog.rating,
+          review: showLog.review ?? null,
+          photo_url: showLog.photo_url ?? null,
+          reviewed_at: showLog.reviewed_at ?? null,
+        }
+      : null;
 
   async function handleFestivalArtistClick(artist: ArtistSummary) {
     if (!artist.slug) {
@@ -459,7 +509,7 @@ export default function EventDetailPage() {
                   {formattedDate}
                 </p>
 
-                {!isFestival && (
+                {!isFestival && formattedTime && (
                   <p className="text-sm text-muted mt-1">
                     {formattedTime}
                   </p>
@@ -556,7 +606,7 @@ export default function EventDetailPage() {
                     </p>
                   </div>
 
-                  {!isFestival && (
+                  {!isFestival && formattedTime && (
                     <div>
                       <p className="text-xs uppercase tracking-wide text-muted-subtle mb-1">{t('startTime')}</p>
 
@@ -717,11 +767,46 @@ export default function EventDetailPage() {
                             : 'outlineGradient'
                         }
                         className="w-full"
+                        data-testid="event-mark-went"
                       >
-                        {t('markWent')}
+                        {showLog?.status === 'went'
+                          ? t('editReview')
+                          : t('markWent')}
                       </Button>
                     )}
+
+                    {attendanceError && (
+                      <p
+                        role="alert"
+                        className="text-sm text-accent-text"
+                        data-testid="attendance-error"
+                      >
+                        {attendanceError}
+                      </p>
+                    )}
                   </div>
+
+                  {ownReview && !reviewOpen && (
+                    <div className="border-t border-border pt-6">
+                      <h2 className="text-lg font-bold mb-3">
+                        {t('yourReviewHeading')}
+                      </h2>
+
+                      <ReviewCard
+                        review={ownReview}
+                        locale={locale}
+                      />
+
+                      <Button
+                        variant="outlineGradient"
+                        className="mt-4 w-full"
+                        onClick={() => setReviewOpen(true)}
+                        data-testid="event-edit-review"
+                      >
+                        {t('editReview')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {!isEventPast && (
@@ -778,6 +863,15 @@ export default function EventDetailPage() {
             </aside>
           </div>
         )}
+
+        <ReviewDialog
+          open={reviewOpen}
+          eventTitle={displayTitle}
+          showLog={showLog}
+          onClose={() => setReviewOpen(false)}
+          onSave={handleReviewSave}
+          onDelete={handleReviewDelete}
+        />
 
         {activeTab === 'posts' && isEventPast && (
           <section className="mt-8">

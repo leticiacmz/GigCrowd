@@ -1,486 +1,278 @@
 'use client';
 
-import {
-  useEffect,
-  useState,
-} from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 import Button from './ui/Button';
+import ReviewStars from './ReviewStars';
+import { mediaAPI } from '@/app/lib/api';
+import type { ReviewPayload } from '@/app/types/review';
 
-
+/**
+ * How many characters the review text may hold.
+ *
+ * The backend stores the text as a plain string, so the limit lives here as
+ * well: a reader is told while typing instead of discovering it on save.
+ */
+const MAX_REVIEW_LENGTH = 2000;
 
 interface ReviewEditorProps {
-
   initialRating: number;
-
   initialReview: string;
-
-  loading: boolean;
-
-  onSave: (
-    data:{
-      rating:number;
-      review:string;
-    }
-  ) => Promise<void>;
-
-  onDelete:()=>Promise<void>;
-
+  initialPhotoUrl?: string | null;
+  initialPhotoPublicId?: string | null;
+  /** Reported to the parent so it can disable its own submit while we work. */
+  onBusyChange?: (busy: boolean) => void;
+  onSave: (data: ReviewPayload) => Promise<void>;
+  onDelete?: () => Promise<void>;
 }
 
-
-
-
+/**
+ * The form a review is written in: a rating, some words, and optionally a photo.
+ *
+ * A rating alone is not a review, so the submit stays disabled until there is
+ * text or a photo to go with it. The photo is uploaded through the project's
+ * media endpoint before the review is saved, and a failure is reported in place
+ * rather than silently dropping the picture.
+ */
 export default function ReviewEditor({
-
-  initialRating = 0,
-
-  initialReview = '',
-
-  loading: externalLoading,
-
+  initialRating,
+  initialReview,
+  initialPhotoUrl = null,
+  initialPhotoPublicId = null,
+  onBusyChange,
   onSave,
-
   onDelete,
-
 }: ReviewEditorProps) {
+  const t = useTranslations('review');
 
+  const [rating, setRating] = useState(initialRating);
+  const [review, setReview] = useState(initialReview);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(initialPhotoUrl);
+  const [photoPublicId, setPhotoPublicId] =
+    useState<string | null>(initialPhotoPublicId);
 
-  const [
-    rating,
-    setRating,
-  ] = useState(initialRating);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  const fileInput = useRef<HTMLInputElement>(null);
 
-  const [
-    review,
-    setReview,
-  ] = useState(initialReview);
+  useEffect(() => {
+    setRating(initialRating);
+    setReview(initialReview);
+    setPhotoUrl(initialPhotoUrl);
+    setPhotoPublicId(initialPhotoPublicId);
+    setError(null);
+  }, [initialRating, initialReview, initialPhotoUrl, initialPhotoPublicId]);
 
+  const busy = saving || uploading;
 
-  const [
-    editing,
-    setEditing,
-  ] = useState(
-    !initialReview
-  );
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
 
+  const trimmed = review.trim();
+  const hasSomethingToSay = trimmed.length > 0 || Boolean(photoUrl);
+  const canSubmit = rating >= 1 && hasSomethingToSay && !busy;
+  const remaining = MAX_REVIEW_LENGTH - review.length;
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(false);
+  async function handlePickPhoto(file: File) {
+    setError(null);
+    setUploading(true);
 
+    try {
+      const uploaded = await mediaAPI.uploadImage(file);
 
+      setPhotoUrl(uploaded.url);
+      setPhotoPublicId(uploaded.public_id);
+    } catch {
+      // The review is still worth keeping without the photo, so the failure is
+      // reported in place rather than discarding what was already typed.
+      setPhotoUrl(null);
+      setPhotoPublicId(null);
+      setError(t('photoFailed'));
+    } finally {
+      setUploading(false);
+    }
+  }
 
+  function handleRemovePhoto() {
+    setPhotoUrl(null);
+    setPhotoPublicId(null);
+  }
 
-  useEffect(()=>{
-
-
-    setRating(
-      initialRating
-    );
-
-    setReview(
-      initialReview
-    );
-
-    setEditing(
-      !initialReview
-    );
-
-  },[
-    initialRating,
-    initialReview,
-  ]);
-
-
-
-
-  async function handleSave(){
-
-    // Allow saving with text only (rating can be 0)
-    if(
-      rating === 0 && !review.trim()
-    ){
-
+  async function handleSave() {
+    if (!canSubmit) {
       return;
     }
 
-    try{
+    setError(null);
+    setSaving(true);
 
-      setLoading(true);
-
+    try {
       await onSave({
         rating,
-        review,
+        review: trimmed.length > 0 ? trimmed : null,
+        photo_url: photoUrl,
+        photo_public_id: photoPublicId,
       });
-
-      setEditing(false);
-
-    }finally{
-
-      setLoading(false);
-
+    } catch {
+      setError(t('saveFailed'));
+    } finally {
+      setSaving(false);
     }
-
   }
 
+  async function handleDelete() {
+    setError(null);
+    setSaving(true);
 
-
-
-  async function handleDelete(){
-
-    try{
-
-      setLoading(true);
-
-      await onDelete();
-
-      setRating(0);
-
-      setReview('');
-
-      setEditing(true);
-
-    }finally{
-
-      setLoading(false);
-
+    try {
+      await onDelete?.();
+    } catch {
+      setError(t('deleteFailed'));
+    } finally {
+      setSaving(false);
     }
-
   }
 
-  function renderStars(){
-
-    return (
-      <div
-        className="
-          flex
-          gap-1
-        "
-      >
-
-        {
-          [1,2,3,4,5].map(
-            star => (
-              <button
-                key={star}
-                type="button"
-                onClick={() =>
-                  setRating(star)
-                }
-
-                className="
-                  text-2xl
-                  transition
-                  hover:scale-105
-                "
-
-              >
-
-                <span
-                  className={`
-                    bg-gradient-to-r
-                    from-pink-500
-                    via-purple-500
-                    to-cyan-400
-
-                    bg-clip-text
-                    text-transparent
-
-                    transition
-
-                    ${
-                      star <= rating
-                      ?
-                      'opacity-100'
-                      :
-                      'opacity-35 hover:opacity-80'
-                    }
-                  `}
-
-                >
-
-                  {
-                    star <= rating
-                    ?
-                    '★'
-                    :
-                    '☆'
-                  }
-
-                </span>
-
-              </button>
-
-            )
-          )
-        }
-
-      </div>
-
-    );
-
-  }
-
-
-  /*
-    REVIEW SALVO
-  */
-  if(
-    initialReview &&
-    !editing
-  ){
-
-    return (
-
-      <div
-        className="
-          space-y-4
-        "
-      >
-
-        {renderStars()}
-
-        <p
-          className="
-            text-foreground
-            leading-relaxed
-          "
-        >
-
-          {initialReview}
-
-        </p>
-
-
-        <button
-          type="button"
-          onClick={() =>
-            setEditing(true)
-          }
-
-          className="
-            text-sm
-            font-medium
-
-            bg-gradient-to-r
-            from-pink-500
-            via-purple-500
-            to-cyan-400
-
-            bg-clip-text
-            text-transparent
-
-            hover:opacity-80
-            transition
-          "
-
-        >
-
-          Edit review
-
-        </button>
-
-      </div>
-
-    );
-
-  }
-
-
-  /*
-    FORMULÁRIO
-  */
   return (
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-foreground">{t('yourRating')}</p>
 
-    <div
-      className="
-        space-y-5
-      "
-    >
+        <ReviewStars
+          rating={rating}
+          size="lg"
+          disabled={busy}
+          onChange={setRating}
+        />
+      </div>
 
-      {renderStars()}
+      <div className="space-y-2">
+        <label
+          className="text-sm font-medium text-foreground"
+          htmlFor="review-text"
+        >
+          {t('yourReview')}
+        </label>
 
+        <textarea
+          id="review-text"
+          data-testid="review-input"
+          value={review}
+          maxLength={MAX_REVIEW_LENGTH}
+          disabled={busy}
+          onChange={(event) => setReview(event.target.value)}
+          placeholder={t('placeholder')}
+          rows={4}
+          className="w-full resize-none break-anywhere rounded-lg border border-border bg-card-bg p-3 text-foreground placeholder:text-muted-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+        />
 
-      {
-        initialReview && editing && (
-          <div
-            className="
-              flex
-              justify-end
-            "
-          >
-            <button
+        <p className="text-xs text-muted-subtle">
+          {t('characters', { count: remaining })}
+        </p>
+      </div>
 
+      <div className="space-y-3">
+        <p className="text-sm font-medium text-foreground">{t('yourPhoto')}</p>
+
+        {photoUrl ? (
+          <div className="space-y-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photoUrl}
+              alt={t('photoAlt')}
+              data-testid="review-photo-preview"
+              className="h-40 w-full rounded-lg border border-border object-cover"
+            />
+
+            <Button
               type="button"
-              onClick={() =>
-                setEditing(false)
-              }
-
-              className="
-                text-xs
-                font-medium
-
-                bg-gradient-to-r
-                from-pink-500
-                via-purple-500
-                to-cyan-400
-
-                bg-clip-text
-                text-transparent
-
-                hover:opacity-80
-                transition
-              "
-
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={handleRemovePhoto}
+              data-testid="review-photo-remove"
             >
-
-              Cancel
-
-            </button>
-
+              {t('removePhoto')}
+            </Button>
           </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outlineGradient"
+              disabled={busy}
+              onClick={() => fileInput.current?.click()}
+              data-testid="review-photo-add"
+            >
+              {uploading ? t('uploadingPhoto') : t('addPhoto')}
+            </Button>
 
-        )
-      }
+            <p className="text-xs text-muted-subtle">{t('photoHint')}</p>
+          </div>
+        )}
 
+        {/*
+          The control stays in the DOM so replacing a photo does not need a
+          second permission prompt path; it is reached by the button above.
+        */}
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          data-testid="review-photo-input"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
 
-      <textarea
-        value={review}
-        onChange={
-          event =>
-            setReview(
-              event.target.value
-            )
-        }
+            if (file) {
+              void handlePickPhoto(file);
+            }
 
-        placeholder="Share your experience about this show..."
+            event.target.value = '';
+          }}
+        />
+      </div>
 
-        className="
-          w-full
-          min-h-[130px]
-          rounded-lg
-          p-4
-          bg-[#111111]
+      {error && (
+        <p role="alert" className="text-sm text-accent-text" data-testid="review-error">
+          {error}
+        </p>
+      )}
 
-          border
-          border-border
-
-          text-white
-          placeholder:text-muted-subtle
-
-          focus:outline-none
-          focus:border-purple-500
-          focus:ring-1
-          focus:ring-purple-500
-
-          resize-none
-          transition
-        "
-
-      />
-
-
-      <div
-        className="
-          flex
-          justify-end
-          items-center
-          gap-4
-        "
-      >
-
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {onDelete && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={handleDelete}
+            data-testid="review-delete"
+          >
+            {t('deleteReview')}
+          </Button>
+        )}
 
         <Button
-          variant="outline"
-          disabled={
-            loading ||
-            externalLoading ||
-            (rating === 0 && !review.trim())
-          }
+          type="button"
+          size="sm"
+          variant="primary"
+          disabled={!canSubmit}
           onClick={handleSave}
-
-          className="
-            !px-4
-            !py-1.5
-            !text-sm
-            !rounded-md
-
-            border
-            border-purple-500
-
-            bg-transparent
-
-            bg-gradient-to-r
-            from-pink-500
-            via-purple-500
-            to-cyan-400
-
-            bg-clip-text
-            text-transparent
-
-            hover:scale-105
-            transition-transform
-"
-
+          data-testid="review-save"
         >
-
-          {
-            loading || externalLoading
-            ?
-            'Saving...'
-            :
-            initialReview
-            ?
-            'Save changes'
-            :
-            'Save review'
-          }
-
+          {saving ? t('saving') : t('saveReview')}
         </Button>
-
-
-        {
-          initialReview && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={
-                loading ||
-                externalLoading
-              }
-
-              className="
-                text-xs
-                font-medium
-
-                bg-gradient-to-r
-                from-pink-500
-                via-purple-500
-                to-cyan-400
-
-                bg-clip-text
-                text-transparent
-
-                hover:opacity-80
-                transition
-              "
-
-            >
-
-              Delete review
-
-            </button>
-          )
-        }
-
-
       </div>
 
-
+      {!hasSomethingToSay && (
+        <p className="text-xs text-muted-subtle">{t('needsSomething')}</p>
+      )}
     </div>
-
   );
 }
