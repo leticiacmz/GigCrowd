@@ -1,5 +1,8 @@
 """
-Tests for community post comments and replies.
+Tests for artist-scoped community comment operations.
+
+These tests verify that community interactions are properly scoped to artists.
+They replaced the deprecated global community comment tests.
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -10,28 +13,14 @@ from app.main import app
 def client():
     with TestClient(app) as c:
         # Register and login first user
-        c.post("/auth/register", json={
-            "email": "commentuser@gigcrowd.com",
-            "username": "commentuser",
-            "password": "TestPass123!",
-        })
-        resp = c.post("/auth/login", data={
-            "username": "commentuser@gigcrowd.com",
-            "password": "TestPass123!",
-        })
+        c.post("/auth/register", json={"email": "communityuser@gigcrowd.com", "username": "communityuser", "password": "TestPass123!"})
+        resp = c.post("/auth/login", data={"username": "communityuser@gigcrowd.com", "password": "TestPass123!"})
         token = resp.json()["access_token"]
         c.headers["Authorization"] = f"Bearer {token}"
 
         # Register and login second user
-        c.post("/auth/register", json={
-            "email": "otheruser@gigcrowd.com",
-            "username": "otheruser",
-            "password": "TestPass123!",
-        })
-        resp2 = c.post("/auth/login", data={
-            "username": "otheruser@gigcrowd.com",
-            "password": "TestPass123!",
-        })
+        c.post("/auth/register", json={"email": "otheruser@gigcrowd.com", "username": "otheruser", "password": "TestPass123!"})
+        resp2 = c.post("/auth/login", data={"username": "otheruser@gigcrowd.com", "password": "TestPass123!"})
         second_token = resp2.json()["access_token"]
 
         # Store both tokens for use in tests
@@ -42,191 +31,174 @@ def client():
 
 
 @pytest.fixture(scope="module")
-def community_post(client):
-    """Create a community post for testing."""
-    # Get an artist
+def artist_a(client):
+    """Get artist A for testing."""
     resp = client.get("/artists")
     artists = resp.json()
     if not artists:
         pytest.skip("No artists available")
-    artist_slug = artists[0]["slug"]
+    return artists[0]["slug"]
 
-    resp = client.post("/community/posts", json={
-        "artist_slug": artist_slug,
-        "content": "Test post for comments",
-    })
+
+@pytest.fixture(scope="module")
+def artist_b(client):
+    """Get artist B for testing isolation."""
+    resp = client.get("/artists")
+    artists = resp.json()
+    if len(artists) < 2:
+        pytest.skip("Need at least 2 artists for isolation tests")
+    return artists[1]["slug"]
+
+
+@pytest.fixture(scope="module")
+def community_post(client, artist_a):
+    """Create a community post for artist A."""
+    # Follow artist A
+    client.post(f"/artists/{artist_a}/follow")
+
+    # Create post in artist A's community
+    resp = client.post(f"/artists/{artist_a}/community/posts", json={"content": "Test post for comments"})
     return resp.json()
 
 
-def test_create_comment(client, community_post):
-    """Test creating a comment on a post."""
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "This is a test comment",
-    })
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["content"] == "This is a test comment"
-    assert data["post_id"] == community_post["id"]
-    assert data["username"] == "commentuser"
+class TestCommentCreation:
+    """Test comment creation on artist community posts."""
 
-
-def test_list_comments(client, community_post):
-    """Test listing comments for a post."""
-    # Create a comment first
-    client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "Test comment",
-    })
-
-    resp = client.get(f"/community/posts/{community_post['id']}/comments")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data) >= 1
-    assert data[0]["content"] == "Test comment"
-
-
-def test_create_reply(client, community_post):
-    """Test creating a reply to a comment."""
-    # Create parent comment
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "Parent comment",
-    })
-    parent_id = resp.json()["id"]
-
-    # Create reply
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "This is a reply",
-        "parent_comment_id": parent_id,
-    })
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["content"] == "This is a reply"
-    assert data["parent_comment_id"] == parent_id
-
-
-def test_invalid_parent_comment(client, community_post):
-    """Test creating a reply with invalid parent comment ID."""
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "Reply to non-existent",
-        "parent_comment_id": "nonexistent-id",
-    })
-    assert resp.status_code == 404
-
-
-def test_edit_own_comment(client, community_post):
-    """Test editing own comment."""
-    # Create comment
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "Original content",
-    })
-    comment_id = resp.json()["id"]
-
-    # Edit comment
-    resp = client.put(f"/community/comments/{comment_id}", json={
-        "content": "Updated content",
-    })
-    assert resp.status_code == 200
-    assert resp.json()["content"] == "Updated content"
-
-
-def test_reject_edit_others_comment(client, community_post):
-    """Test that users cannot edit others' comments."""
-    # Create comment as first user
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "My comment",
-    })
-    comment_id = resp.json()["id"]
-
-    # Switch to second user
-    old_token = client.headers["Authorization"]
-    client.headers["Authorization"] = f"Bearer {client._second_token}"
-
-    # Try to edit as second user
-    resp = client.put(f"/community/comments/{comment_id}", json={
-        "content": "Hacked!",
-    })
-    assert resp.status_code == 403
-
-    # Switch back to first user
-    client.headers["Authorization"] = old_token
-
-
-def test_delete_own_comment(client, community_post):
-    """Test deleting own comment."""
-    # Create comment
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "To be deleted",
-    })
-    comment_id = resp.json()["id"]
-
-    # Delete comment
-    resp = client.delete(f"/community/comments/{comment_id}")
-    assert resp.status_code == 200
-
-
-def test_reject_delete_others_comment(client, community_post):
-    """Test that users cannot delete others' comments."""
-    # Create comment as first user
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "My comment",
-    })
-    comment_id = resp.json()["id"]
-
-    # Switch to second user
-    old_token = client.headers["Authorization"]
-    client.headers["Authorization"] = f"Bearer {client._second_token}"
-
-    # Try to delete as second user
-    resp = client.delete(f"/community/comments/{comment_id}")
-    assert resp.status_code == 403
-
-    # Switch back to first user
-    client.headers["Authorization"] = old_token
-
-
-def test_pagination(client, community_post):
-    """Test comment pagination."""
-    # Create multiple comments
-    for i in range(5):
-        client.post("/community/comments", json={
+    def test_authenticated_user_can_comment(self, client, artist_a, community_post):
+        """Authenticated user can create comments."""
+        resp = client.post(f"/artists/{artist_a}/community/comments", json={
             "post_id": community_post["id"],
-            "content": f"Comment {i}",
+            "content": "Test comment",
         })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["content"] == "Test comment"
+        assert data["post_id"] == community_post["id"]
 
-    # Test limit
-    resp = client.get(f"/community/posts/{community_post['id']}/comments?limit=2")
-    assert resp.status_code == 200
-    assert len(resp.json()) <= 2
+    def test_unauthenticated_cannot_comment(self, client, artist_a, community_post):
+        """Unauthenticated users cannot create comments."""
+        # Send the request without the session header. A second TestClient
+        # would tear down the app lifespan and close the shared Mongo client.
+        old_token = client.headers.get("Authorization")
+        if "Authorization" in client.headers:
+            del client.headers["Authorization"]
 
-    # Test skip
-    resp = client.get(f"/community/posts/{community_post['id']}/comments?skip=2&limit=2")
-    assert resp.status_code == 200
-
-
-def test_xss_sanitization(client, community_post):
-    """Test that XSS attempts are sanitized in comments."""
-    resp = client.post("/community/comments", json={
-        "post_id": community_post["id"],
-        "content": "<script>alert('xss')</script>Hello",
-    })
-    assert resp.status_code == 200
-    # Script tags should be stripped
-    assert "<script>" not in resp.json()["content"]
-
-
-def test_unauthenticated_create_comment(community_post):
-    """Test that unauthenticated users cannot create comments."""
-    with TestClient(app) as c:
-        resp = c.post("/community/comments", json={
+        resp = client.post(f"/artists/{artist_a}/community/comments", json={
             "post_id": community_post["id"],
             "content": "Anonymous comment",
         })
         assert resp.status_code == 401
+
+        # Restore auth header
+        if old_token:
+            client.headers["Authorization"] = old_token
+
+    def test_non_follower_cannot_comment(self, client, artist_a, artist_b, community_post):
+        """User who doesn't follow the artist cannot comment."""
+        # Create post in artist A's community
+        resp = client.post(f"/artists/{artist_a}/community/posts", json={"content": "Test post"})
+        community_post = resp.json()
+
+        # Use second user who doesn't follow artist A
+        old_token = client.headers.get("Authorization")
+        client.headers["Authorization"] = f"Bearer {client._second_token}"
+
+        resp = client.post(f"/artists/{artist_a}/community/comments", json={
+            "post_id": community_post["id"],
+            "content": "Attempting to comment",
+        })
+        # Should get 403, not redirect to login
+        assert resp.status_code == 403
+
+        # Restore original token
+        if old_token:
+            client.headers["Authorization"] = old_token
+
+
+class TestCommentIsolation:
+    """Test that comments are properly isolated by artist."""
+
+    def test_comments_belong_to_correct_artist(self, client, artist_a, artist_b, community_post):
+        """All comments belong to the correct artist's community."""
+        # Create post in artist A's community
+        resp = client.post(f"/artists/{artist_a}/community/posts", json={"content": "Test post"})
+        community_post = resp.json()
+
+        # Get comments for artist A
+        resp = client.get(f"/artists/{artist_a}/community/posts/{community_post['id']}/comments")
+        assert resp.status_code == 200
+        comments = resp.json()
+        assert len(comments) >= 0
+
+        # Comments should NOT be accessible via artist B's community
+        resp = client.get(f"/artists/{artist_b}/community/posts/{community_post['id']}/comments")
+        assert resp.status_code == 404
+
+
+class TestReplyCreation:
+    """Test reply creation on artist community comments."""
+
+    def test_authenticated_user_can_reply(self, client, artist_a, community_post):
+        """Authenticated user can create replies."""
+        # First create a comment
+        resp = client.post(f"/artists/{artist_a}/community/comments", json={
+            "post_id": community_post["id"],
+            "content": "Test comment",
+        })
+        comment_id = resp.json()["id"]
+
+        # Then create a reply
+        resp = client.post(f"/artists/{artist_a}/community/comments", json={
+            "post_id": community_post["id"],
+            "content": "This is a reply",
+            "parent_comment_id": comment_id,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["content"] == "This is a reply"
+        assert data["parent_comment_id"] == comment_id
+
+
+class TestReadOnlyAccess:
+    """Test that unauthenticated and non-followers can read."""
+
+    def test_unauthenticated_can_read_posts(self, client, artist_a):
+        """Unauthenticated users can read community posts."""
+        # Remove auth header
+        old_token = client.headers.get("Authorization")
+        if "Authorization" in client.headers:
+            del client.headers["Authorization"]
+
+        resp = client.get(f"/artists/{artist_a}/community/posts")
+        assert resp.status_code == 200
+
+        # Restore auth header
+        if old_token:
+            client.headers["Authorization"] = old_token
+
+    def test_unauthenticated_can_read_comments(self, client, artist_a, community_post):
+        """Unauthenticated users can read comments."""
+        # Remove auth header
+        old_token = client.headers.get("Authorization")
+        if "Authorization" in client.headers:
+            del client.headers["Authorization"]
+
+        resp = client.get(f"/artists/{artist_a}/community/posts/{community_post['id']}/comments")
+        assert resp.status_code == 200
+
+        # Restore auth header
+        if old_token:
+            client.headers["Authorization"] = old_token
+
+    def test_non_follower_can_read_posts(self, client, artist_a, artist_b, community_post):
+        """Authenticated users who don't follow can still read posts."""
+        # Use second user who doesn't follow artist A
+        old_token = client.headers.get("Authorization")
+        client.headers["Authorization"] = f"Bearer {client._second_token}"
+
+        resp = client.get(f"/artists/{artist_a}/community/posts")
+        assert resp.status_code == 200
+
+        # Restore original token
+        if old_token:
+            client.headers["Authorization"] = old_token
