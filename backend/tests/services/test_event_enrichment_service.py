@@ -751,7 +751,40 @@ class TestReportOnly:
 
         assert client.calls == []
         assert report["eligible"] == 1
-        assert report["missing_dates"] == 1
+        assert report["missing_start_date"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_missing_end_date_is_not_reported_as_undated(self):
+        """A concert has a start and no end; that is not a date problem.
+
+        Reporting the two as one figure claimed 191 undated events when exactly
+        one was undated, which is the kind of number that makes an operator stop
+        trusting the report.
+        """
+
+        concert = undated_event(
+            event_type="Concert",
+            starts_at=datetime(2022, 10, 31, tzinfo=UTC),
+            ends_at=None,
+        )
+
+        service, _ = build([concert])
+
+        report = await service.report_only(
+            fields=DATE_FIELDS
+        )
+
+        assert report["missing_start_date"] == 0
+
+    @pytest.mark.asyncio
+    async def test_an_undated_event_is_reported_as_undated(self):
+        service, _ = build([undated_event()])
+
+        report = await service.report_only(
+            fields=DATE_FIELDS
+        )
+
+        assert report["missing_start_date"] == 1
 
     @pytest.mark.asyncio
     async def test_unreadable_events_are_counted_separately(self):

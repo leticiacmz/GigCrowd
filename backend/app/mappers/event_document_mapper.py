@@ -4,6 +4,41 @@ from app.domain.event import Event
 class EventDocumentMapper:
 
     @staticmethod
+    def _read_location(
+        value,
+    ):
+        """Read a stored location without failing on an older shape.
+
+        Location is a structured field, but some early documents stored it as a
+        plain string - "Central Park, NY". Passing that through raised a
+        validation error, which surfaced as a 500 on the event page and a
+        "not found" message to the reader, for a row that was perfectly readable.
+
+        A bare string is kept as the place's name rather than discarded, so the
+        information survives and the page renders. Anything that is neither a
+        mapping nor a string is reported as no location rather than guessed at.
+        """
+
+        if value is None:
+            return None
+
+        if isinstance(
+            value,
+            dict,
+        ):
+            return value or None
+
+        if isinstance(
+            value,
+            str,
+        ):
+            text = value.strip()
+
+            return {"name": text} if text else None
+
+        return None
+
+    @staticmethod
     def to_domain(
         document: dict,
     ) -> Event:
@@ -103,16 +138,28 @@ class EventDocumentMapper:
             # DATE PROVENANCE
             # ====================================================
 
-            date_status=document.get(
-                "date_status"
+            date_status=(
+                document.get(
+                    "date_status"
+                )
+                or (
+                    "source"
+                    if (
+                        document.get("starts_at")
+                        or document.get("ends_at")
+                    )
+                    else "unavailable"
+                )
             ),
 
             # ====================================================
             # LOCATION
             # ====================================================
 
-            location=document.get(
-                "location"
+            location=EventDocumentMapper._read_location(
+                document.get(
+                    "location"
+                )
             ),
 
             # ====================================================

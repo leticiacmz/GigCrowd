@@ -3077,7 +3077,7 @@ with sync_playwright() as p:
         check("festival: a festival date could be exercised", False, "none found")
     else:
         festival_event_id = festival_seed["id"]
-        festival_series = festival_seed["series_id"]
+        festival_series = festival_seed["festival"]["series_id"]
 
         payload = httpx.get(
             f"{API}/events/{festival_event_id}/festival", timeout=60
@@ -3326,33 +3326,62 @@ with sync_playwright() as p:
                 )
 
     # A date the source does not state has to say so, not show a guess.
+    #
+    # The fallback is localized per screen: the event page says the date is "to
+    # be announced", the festival page says it is unavailable. Both are honest
+    # and both are translated, so the check uses each screen's own wording rather
+    # than one string for both.
     undated = _find_undated_event()
 
     if undated:
-        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
-        pg = ctx.new_page()
-        pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(
-            f"{BASE}/en/events/{undated}", wait_until="networkidle"
-        )
-        pg.wait_for_timeout(1200)
+        for locale, fallback in (
+            ("en", "Date to be announced"),
+            ("pt-BR", "Data a ser anunciada"),
+            ("es", "Fecha por anunciar"),
+        ):
+            ctx = browser.new_context(
+                viewport={"width": 1280, "height": 900}
+            )
+            pg = ctx.new_page()
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.goto(
+                f"{BASE}/{locale}/events/{undated}",
+                wait_until="networkidle",
+            )
+            pg.wait_for_timeout(1200)
 
-        body = pg.inner_text("body")
+            body = pg.inner_text("body")
 
-        check(
-            "event: a date the source never stated is marked unavailable",
-            "Date unavailable" in body,
-            "expected the localized fallback, not a guess",
-        )
-        check(
-            "event: no invented date is shown for an undated event",
-            not re.search(r"\b(19|20)\d{2}\b", body.split("Date unavailable")[0][-400:])
-            or True,
-            "informational",
-        )
+            check(
+                f"event: the {locale} page says an unstated date is to be announced",
+                fallback in body,
+                f"expected {fallback!r}",
+            )
 
-        pg.close()
-        ctx.close()
+            # The stronger half: the page must not print a date at all. A year
+            # anywhere near the date field would mean a guess was rendered.
+            date_slot = pg.evaluate(
+                """() => {
+                    const label = Array.from(
+                        document.querySelectorAll('p')
+                    ).find(p => /^(date|data|fecha)$/i.test(
+                        p.textContent.trim()
+                    ));
+                    return label && label.parentElement
+                        ? label.parentElement.innerText
+                        : null;
+                }"""
+            )
+
+            check(
+                f"event: the {locale} page shows no invented date",
+                date_slot is not None
+                and not re.search(r"\b(19|20)\d{2}\b", date_slot),
+                f"date field={date_slot!r}",
+            )
+
+            pg.close()
+            ctx.close()
     else:
         check(
             "event: every stored event has a date now",

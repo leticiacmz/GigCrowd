@@ -881,14 +881,28 @@ class EventEnrichmentService:
             if plan.eligible
         ]
 
+        # A missing start date and a missing end date are different problems and
+        # are counted separately on purpose.
+        #
+        # A concert genuinely has no end: it starts and it is over. A festival
+        # that ends on the sixth and a concert on the third look identical in
+        # storage, so reporting them as one "missing date" figure made the report
+        # claim 191 undated events when exactly one was undated. Only a missing
+        # start means the event cannot be placed in time at all.
         return {
             "total_missing_something": len(plans),
             "eligible": len(eligible),
             "no_source": len(plans) - len(eligible),
-            "missing_dates": sum(
+            "missing_start_date": sum(
                 1
                 for plan in plans
                 if "starts_at" in plan.reasons
+            ),
+            "missing_end_date": sum(
+                1
+                for plan in plans
+                if "ends_at" in plan.reasons
+                and "starts_at" not in plan.reasons
             ),
             "missing_lineup": sum(
                 1
