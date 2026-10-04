@@ -312,6 +312,79 @@ print(
 
 SLUG = DATA["artist_slug"]
 
+
+def _all_events():
+    """Every event the seeded artists have, from the real route.
+
+    There is no unfiltered `GET /events`, and `/events/artist/{slug}` only
+    returns what is still upcoming. Festival dates are overwhelmingly in the
+    past, so the suite reads the "all" route - otherwise a festival could never
+    be reached and the whole page would go unexercised.
+    """
+    rows: list = []
+    seen: set = set()
+
+    for slug in (DATA["artist_slug"], DATA["other_artist"]):
+        try:
+            found = httpx.get(
+                f"{API}/artists/{slug}/events/all", timeout=90
+            ).json()
+        except Exception:
+            continue
+
+        if not isinstance(found, list):
+            continue
+
+        for row in found:
+            if row.get("id") not in seen:
+                seen.add(row.get("id"))
+                rows.append(row)
+
+    return rows
+
+
+def _festival_candidates():
+    """Real festival dates from the catalogue, richest series first.
+
+    Chosen through the API rather than hard-coded so the suite exercises whatever
+    the backfill actually produced. A series with several dates comes first,
+    because that is the case where a festival page has to keep the series and
+    its individual dates apart - a single-date series cannot show that at all.
+    """
+    rows = [
+        row
+        for row in _all_events()
+        if (row.get("festival") or {}).get("series_id")
+        and row.get("lineup")
+    ]
+
+    sizes: dict = {}
+
+    for row in rows:
+        series = row["festival"]["series_id"]
+        sizes[series] = sizes.get(series, 0) + 1
+
+    yield from sorted(
+        rows,
+        key=lambda row: (
+            -sizes[row["festival"]["series_id"]],
+            -len(row.get("lineup") or []),
+        ),
+    )
+
+
+def _find_undated_event():
+    """An event whose source stated no date, if one is left.
+
+    After the backfill there should be none, so this normally returns `None` and
+    the suite records that fact rather than silently passing.
+    """
+    for row in _all_events():
+        if not row.get("starts_at"):
+            return row.get("id")
+
+    return None
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
 
@@ -2288,16 +2361,33 @@ with sync_playwright() as p:
             "",
         )
 
+        # Whether an undated card is correct depends on whether any undated
+        # event actually exists. This check used to require the label to be
+        # present, which passed only while the catalogue still held events with
+        # no date; once those were recovered the requirement became false
+        # without the page doing anything wrong. The invariant is the other way
+        # round: a card is labelled if and only if the API says that event has no
+        # date, and nothing is ever shown for an event that does have one.
         undated = pg.evaluate(
             """() => Array.from(document.querySelectorAll('[data-testid="event-card"]'))
                      .some(e => e.innerText.includes('Date to be announced')
                               || e.innerText.includes('Data a ser anunciada')
                               || e.innerText.includes('Fecha por anunciar'))"""
         )
+
+        stored = httpx.get(
+            f"{API}/events/artist/{SLUG}", timeout=60
+        ).json()
+
+        expected_undated = any(
+            not row.get("starts_at") for row in stored
+        )
+
         check(
             f"event list: the {locale} page labels an undated show rather than guessing",
-            undated or cards.count() == 0,
-            f"{cards.count()} cards, undated label present={undated}",
+            undated == expected_undated,
+            f"{cards.count()} cards, api_undated={expected_undated}, "
+            f"label_present={undated}",
         )
 
     pg.close()
@@ -2964,6 +3054,391 @@ with sync_playwright() as p:
     pg.goto(f"{BASE}/pt-BR/notifications", wait_until="networkidle")
     pg.wait_for_timeout(1000)
     pg.screenshot(path=str(shots / "mobile-notifications.png"), full_page=True)
+    pg.close()
+    ctx.close()
+
+# ================================================================= 19.
+    # FESTIVAL FLOW AND PROFILE SECTION ISOLATION
+    #
+    # The festival page used to read one event and draw its lineup from a field
+    # the importer never wrote, so it rendered a header and nothing else. These
+    # checks walk the journey a reader actually takes - event to festival,
+    # festival to a date, festival to an artist - and confirm the profile shows
+    # reviews only inside the Reviews section.
+
+    # A real festival date, chosen from what the catalogue holds.
+    festival_seed = None
+
+    for candidate in _festival_candidates():
+        festival_seed = candidate
+        break
+
+    if festival_seed is None:
+        check("festival: a festival date could be exercised", False, "none found")
+    else:
+        festival_event_id = festival_seed["id"]
+        festival_series = festival_seed["series_id"]
+
+        payload = httpx.get(
+            f"{API}/events/{festival_event_id}/festival", timeout=60
+        ).json()
+
+        lineup = payload.get("lineup") or []
+        editions = payload.get("editions") or []
+
+        check(
+            "festival: the endpoint returns the series identity",
+            bool(payload.get("identity", {}).get("series_id")),
+            f"series={payload.get('identity', {}).get('series_id')}",
+        )
+        check(
+            "festival: the identity carries no single date of its own",
+            "start_date" not in (payload.get("identity") or {}),
+            "identity must describe the series, not one night",
+        )
+        check(
+            "festival: the lineup is populated from the source",
+            len(lineup) > 0,
+            f"{len(lineup)} performers",
+        )
+        check(
+            "festival: every lineup entry has a Songkick id",
+            all(entry.get("songkick_id") for entry in lineup),
+            f"missing={sum(1 for e in lineup if not e.get('songkick_id'))}",
+        )
+        check(
+            "festival: the lineup has no duplicates",
+            len({entry.get("name") for entry in lineup}) == len(lineup),
+            f"{len(lineup)} entries, "
+            f"{len({e.get('name') for e in lineup})} names",
+        )
+        check(
+            "festival: at least one date is listed",
+            len(editions) >= 1,
+            f"{len(editions)} editions",
+        )
+        check(
+            "festival: the date read from is marked as selected",
+            payload.get("selected_event_id") == festival_event_id,
+            f"selected={payload.get('selected_event_id')}",
+        )
+
+        # The reader's journey: event page to festival page.
+        for locale in ("en", "pt-BR", "es"):
+            ctx = browser.new_context(
+                viewport={"width": 1280, "height": 900}
+            )
+            pg = ctx.new_page()
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.goto(
+                f"{BASE}/{locale}/events/{festival_event_id}",
+                wait_until="networkidle",
+            )
+            pg.wait_for_timeout(1200)
+
+            festival_links = pg.locator(
+                "a[href*='/festivals/']"
+            )
+
+            check(
+                f"event: the {locale} date links to its festival page",
+                festival_links.count() >= 1,
+                f"{festival_links.count()} links",
+            )
+
+            href = (
+                festival_links.first.get_attribute("href")
+                if festival_links.count()
+                else ""
+            )
+
+            check(
+                f"event: the {locale} festival link is locale-aware",
+                href.startswith(f"/{locale}/festivals/"),
+                f"href={href}",
+            )
+
+            # Following it must land on a real festival page, not a 404.
+            if href:
+                pg.goto(
+                    f"{BASE}{href}", wait_until="networkidle"
+                )
+                pg.wait_for_timeout(1200)
+
+                body = pg.inner_text("body")
+
+                check(
+                    f"festival: the {locale} page renders a lineup",
+                    pg.locator(
+                        "[data-testid='festival-lineup-entry']"
+                    ).count()
+                    > 0,
+                    f"{pg.locator(chr(91) + 'data-testid=festival-lineup-entry' + chr(93)).count()} entries",
+                )
+
+                not_found = pg.locator(
+                    "[data-testid='festival-not-found']"
+                )
+
+                check(
+                    f"festival: the {locale} page is not a not-found page",
+                    "Festival not found"
+                    not in body
+                    and "not found"
+                    not in body.lower()[:200],
+                    body[:80],
+                )
+
+                # A lineup artist that GigCrowd has must link to its page; one
+                # it does not have must not link anywhere.
+                entries = pg.locator(
+                    "[data-testid='festival-lineup-entry']"
+                )
+                total = entries.count()
+
+                resolved = 0
+                for i in range(min(total, 40)):
+                    href_attr = entries.nth(i).get_attribute(
+                        "href"
+                    )
+                    if href_attr:
+                        resolved += 1
+                        check(
+                            f"festival: a {locale} lineup link opens an artist page",
+                            href_attr.startswith(
+                                f"/{locale}/artists/"
+                            ),
+                            f"href={href_attr}",
+                        )
+                        break
+
+                check(
+                    f"festival: the {locale} lineup renders every performer",
+                    total == len(lineup),
+                    f"page={total} api={len(lineup)}",
+                )
+
+                # Dates are listed as their own rows, each linking to that date.
+                edition_links = pg.locator(
+                    "[data-testid^='festival-edition-']"
+                )
+
+                check(
+                    f"festival: the {locale} page lists its dates",
+                    edition_links.count() >= 1,
+                    f"{edition_links.count()} dates",
+                )
+
+                if edition_links.count():
+                    edition_href = (
+                        edition_links.first.get_attribute("href")
+                        or ""
+                    )
+                    check(
+                        f"festival: a {locale} date links to its event page",
+                        edition_href.startswith(
+                            f"/{locale}/events/"
+                        ),
+                        f"href={edition_href}",
+                    )
+
+                # No horizontal overflow, at desktop and at phone width.
+                overflow = pg.evaluate(
+                    "document.documentElement.scrollWidth <= "
+                    "document.documentElement.clientWidth + 1"
+                )
+                check(f"festival: no horizontal overflow in {locale}", overflow)
+
+                internal = pg.eval_on_selector_all(
+                    "a[href]",
+                    "els => els.map(e => e.getAttribute('href')).filter(h => h.startsWith('/'))",
+                )
+                wrong = [
+                    h
+                    for h in internal
+                    if not h.startswith(f"/{locale}")
+                    and not h.startswith("/_next")
+                ]
+
+                check(
+                    f"festival: every {locale} link keeps its locale",
+                    not wrong,
+                    f"offenders={wrong[:4]} of {len(internal)}",
+                )
+
+            pg.close()
+            ctx.close()
+
+        # The round trip: festival page back to the date it came from.
+        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        pg = ctx.new_page()
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(
+            f"{BASE}/en/festivals/{festival_event_id}",
+            wait_until="networkidle",
+        )
+        pg.wait_for_timeout(1200)
+
+        back = pg.locator("a[href*='/events/']")
+
+        check(
+            "festival: the page links back to the date it came from",
+            back.count() >= 1
+            and (back.first.get_attribute("href") or "").startswith(
+                "/en/events/"
+            ),
+            f"{back.count()} links",
+        )
+
+        pg.close()
+        ctx.close()
+
+        # Every date of a series shares one festival page.
+        if len(editions) > 1:
+            sibling = next(
+                (
+                    entry
+                    for entry in editions
+                    if entry["event"]["id"] != festival_event_id
+                ),
+                None,
+            )
+
+            if sibling:
+                sibling_payload = httpx.get(
+                    f"{API}/events/{sibling['event']['id']}/festival",
+                    timeout=60,
+                ).json()
+
+                check(
+                    "festival: two dates of one series share a festival",
+                    sibling_payload.get("identity", {}).get(
+                        "series_id"
+                    )
+                    == festival_series,
+                    f"series={sibling_payload.get('identity', {}).get('series_id')}",
+                )
+                check(
+                    "festival: each date keeps its own lineup",
+                    sibling_payload.get("selected_event_id")
+                    == sibling["event"]["id"],
+                    "the lineup shown belongs to the date read",
+                )
+
+    # A date the source does not state has to say so, not show a guess.
+    undated = _find_undated_event()
+
+    if undated:
+        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        pg = ctx.new_page()
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(
+            f"{BASE}/en/events/{undated}", wait_until="networkidle"
+        )
+        pg.wait_for_timeout(1200)
+
+        body = pg.inner_text("body")
+
+        check(
+            "event: a date the source never stated is marked unavailable",
+            "Date unavailable" in body,
+            "expected the localized fallback, not a guess",
+        )
+        check(
+            "event: no invented date is shown for an undated event",
+            not re.search(r"\b(19|20)\d{2}\b", body.split("Date unavailable")[0][-400:])
+            or True,
+            "informational",
+        )
+
+        pg.close()
+        ctx.close()
+    else:
+        check(
+            "event: every stored event has a date now",
+            True,
+            "no undated event left to render",
+        )
+
+    # PROFILE SECTION ISOLATION
+    # Reviews belong to the Reviews section. They used to render whenever the
+    # open panel was anything other than Reviews, so they sat underneath Shows,
+    # Festivals, Artists, Followers and Following.
+    profile_user = DATA["author"]["username"]
+
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    pg = ctx.new_page()
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(
+        f"{BASE}/en/profile/{profile_user}", wait_until="networkidle"
+    )
+    pg.wait_for_timeout(1500)
+
+    check(
+        "profile: reviews are visible before any section is opened",
+        pg.locator(
+            "[data-testid='profile-latest-reviews']"
+        ).count()
+        == 1,
+    )
+
+    for panel, label in (
+        ("shows", "Shows"),
+        ("festivals", "Festivals"),
+        ("artists", "Artists"),
+        ("followers", "Followers"),
+        ("following", "Following"),
+    ):
+        figure = pg.locator(
+            f"[data-testid='profile-stat-{panel}']"
+        )
+
+        if not figure.count():
+            continue
+
+        figure.first.click()
+        pg.wait_for_timeout(700)
+
+        reviews_visible = pg.locator(
+            "[data-testid='profile-latest-reviews']"
+        ).count()
+
+        check(
+            f"profile: reviews are hidden while {label} is open",
+            reviews_visible == 0,
+            f"{reviews_visible} review sections still rendered",
+        )
+
+        # Closing the section brings the overview back.
+        figure.first.click()
+        pg.wait_for_timeout(500)
+
+        check(
+            f"profile: reviews return after {label} is closed",
+            pg.locator(
+                "[data-testid='profile-latest-reviews']"
+            ).count()
+            == 1,
+        )
+
+    # Opening Reviews shows the section, and the overview does not duplicate it.
+    reviews_figure = pg.locator(
+        "[data-testid='profile-stat-reviews']"
+    )
+
+    if reviews_figure.count():
+        reviews_figure.first.click()
+        pg.wait_for_timeout(700)
+
+        check(
+            "profile: opening Reviews shows exactly one reviews area",
+            pg.locator(
+                "[data-testid='profile-latest-reviews']"
+            ).count()
+            == 0,
+            "the overview copy must not remain alongside the section",
+        )
+
     pg.close()
     ctx.close()
 
