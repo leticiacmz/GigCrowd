@@ -435,11 +435,13 @@ function ProfileView({
         )}
 
         {/*
-          The newest reviews are shown without being asked for, because a
-          profile is what someone thought of these shows. The figure above
-          opens the longer list, so the two are never on screen at once.
+          The newest reviews are shown only when nothing is open. A review
+          belongs to the Reviews section: while Shows, Festivals, Artists,
+          Followers or Following is open, an unrelated list of reviews must not
+          sit underneath it, and the panel itself already shows reviews when
+          Reviews is the open section.
         */}
-        {panel !== 'reviews' && (
+        {panel === null && (
           <section
             aria-labelledby="latest-reviews-heading"
             data-testid="profile-latest-reviews"

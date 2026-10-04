@@ -185,6 +185,20 @@ export const eventAPI = {
     const response = await api.get(`/events/${eventId}`);
     return response.data;
   },
+
+  /**
+   * The festival behind an event: its identity, every date held for it, and
+   * the lineup of the date asked about.
+   *
+   * One request on purpose. The festival page used to be assembled in the
+   * browser from a single event, which meant it could only ever show that one
+   * date and whatever lineup happened to be inlined in it - so it showed an
+   * empty page for a festival with thirty artists on the bill.
+   */
+  getFestival: async (eventId: string) => {
+    const response = await api.get(`/events/${eventId}/festival`);
+    return response.data;
+  },
   getAttendance: async (eventId: string) => {
     const response = await api.get(`/events/${eventId}/attendance`);
     return response.data;

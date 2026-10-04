@@ -77,6 +77,21 @@ interface Location {
   longitude?: number | null;
 }
 
+interface LineupArtist {
+  name: string;
+  /**
+   * The Songkick artist id, taken from the artist's own URL on the source
+   * page. Its absence means the source listed a performer without one, so the
+   * entry is still shown but cannot be matched to an artist.
+   */
+  songkick_id?: string | null;
+  slug?: string | null;
+  url?: string | null;
+  image?: string | null;
+  genres?: string[];
+  order?: number;
+}
+
 interface Event {
   id: string;
   title: string;
@@ -97,6 +112,12 @@ interface Event {
   sold_out?: boolean;
   free?: boolean;
   festival?: Festival | null;
+  /**
+   * How the dates above were resolved. `unavailable` is a real state the page
+   * has to render honestly; it is not an invitation to invent a date.
+   */
+  date_status?: string | null;
+  lineup?: LineupArtist[];
   location?: Location | null;
   going_count?: number;
   maybe_count?: number;
@@ -183,9 +204,22 @@ export default function EventDetailPage() {
       : [];
   }, [event]);
 
+  /**
+   * The lineup as the event's own source announced it.
+   *
+   * This used to be read from `event.festival.artists`, which the importer
+   * never populated, so a festival with thirty artists on the bill rendered an
+   * empty list. The event carries its own lineup now, with each performer's
+   * Songkick id, so the same data the festival page shows is available here.
+   *
+   * Entries are shown as names rather than links: this endpoint does not resolve
+   * them to GigCrowd artists, and a link to a page that may not exist - or an
+   * artist created on click to make one - would both be worse than the name.
+   * The festival page resolves and links them.
+   */
   const lineup = useMemo(() => {
     return byNameInLocale(
-      event?.festival?.artists ?? [],
+      event?.lineup ?? [],
       locale,
     );
   }, [event, locale]);
@@ -917,47 +951,39 @@ export default function EventDetailPage() {
                 <p className="py-12 text-center text-muted-subtle">{t('lineupUnavailable')}</p>
               ) : (
                 <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {lineup.map((artist) => {
-                    const isLoading = loadingArtistSlug === artist.slug;
+                  {lineup.map((artist) => (
+                    <div
+                      key={
+                        artist.songkick_id ||
+                        artist.name
+                      }
+                      data-testid="event-lineup-entry"
+                      className="flex items-center gap-3 rounded-xl border border-border bg-background/20 p-4 text-left"
+                    >
+                      {artist.image ? (
+                        <img
+                          src={artist.image}
+                          alt=""
+                          loading="lazy"
+                          className="h-12 w-12 rounded-full object-cover shrink-0"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full bg-card-hover flex items-center justify-center text-lg shrink-0">
+                          ♪
+                        </div>
+                      )}
 
-                    return (
-                      <button
-                        key={artist.songkick_id || artist.slug}
-                        type="button"
-                        onClick={() => handleFestivalArtistClick(artist)}
-                        disabled={isLoading}
-                        className="flex items-center gap-3 rounded-xl border border-border bg-background/20 p-4 text-left hover:border-accent hover:bg-card-hover transition disabled:opacity-60 disabled:cursor-wait"
-                      >
-                        {artist.image ? (
-                          <img
-                            src={artist.image}
-                            alt={artist.name}
-                            className="h-12 w-12 rounded-full object-cover shrink-0"
-                          />
-                        ) : (
-                          <div className="h-12 w-12 rounded-full bg-card-hover flex items-center justify-center text-lg shrink-0">
-                            ♪
-                          </div>
-                        )}
-
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-medium truncate">
-                            {artist.name}
-                          </span>
-
-                          <span className="block text-xs text-muted-subtle mt-1">
-                            {isLoading
-                              ? t('openingArtist')
-                              : t('openArtist')}
-                          </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium truncate">
+                          {artist.name}
                         </span>
 
-                        <span className="text-accent shrink-0">
-                          →
+                        <span className="block text-xs text-muted-subtle mt-1">
+                          {t('artistNotImported')}
                         </span>
-                      </button>
-                    );
-                  })}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
             </Card>
