@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
+from app.domain.lineup import LineupEntry
+
 
 class Event(BaseModel):
 
@@ -68,6 +70,36 @@ class Event(BaseModel):
         description=(
             "Festival metadata such as series, edition, "
             "name and tracking count"
+        ),
+    )
+
+    # ============================================================
+    # LINEUP
+    # ============================================================
+
+    lineup: List[LineupEntry] = Field(
+        default_factory=list,
+        description=(
+            "Performers announced for this event, in the "
+            "order the source lists them. Empty when the "
+            "source names no one, which is different from "
+            "a lineup that could not be read."
+        ),
+    )
+
+    # ============================================================
+    # DATE PROVENANCE
+    # ============================================================
+
+    date_status: Optional[str] = Field(
+        default=None,
+        description=(
+            "How the dates on this event were resolved: "
+            "'source' when they came from the provider, "
+            "'unavailable' when the provider exposed none, "
+            "'parser_failed' when a date was present but "
+            "could not be read. Used to decide which events "
+            "are still worth a second visit."
         ),
     )
 

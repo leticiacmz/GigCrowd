@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.event import Event
+from app.domain.event_schedule import parse_source_datetime
+from app.domain.lineup import LineupEntry
 from app.domain.venue import Venue
 
 
@@ -118,6 +120,39 @@ class SongkickEventMapper:
             event_type = "Concert"
 
         # ========================================================
+        # LINEUP
+        # ========================================================
+        #
+        # Performers are kept as structured entries with their Songkick
+        # identity. They are not folded into the event's artist list: that
+        # list is the GigCrowd artists this show belongs to, while the lineup
+        # is who Songkick announces for it, most of whom are not imported yet.
+
+        lineup = SongkickEventMapper._parse_lineup(
+            songkick_event_data.get("lineup")
+            or songkick_event_data.get(
+                "performers"
+            )
+        )
+
+        # ========================================================
+        # DATE PROVENANCE
+        # ========================================================
+
+        date_status = (
+            songkick_event_data.get(
+                "date_status"
+            )
+        )
+
+        if not date_status:
+            date_status = (
+                "source"
+                if (starts_at or ends_at)
+                else "unavailable"
+            )
+
+        # ========================================================
         # EXTERNAL IDS
         # ========================================================
 
@@ -219,6 +254,10 @@ class SongkickEventMapper:
 
             festival=festival,
 
+            lineup=lineup,
+
+            date_status=date_status,
+
             location=location,
 
             source=source,
@@ -252,47 +291,94 @@ class SongkickEventMapper:
         value: Any,
     ) -> datetime | None:
 
-        if not value:
+        # Date parsing has one definition, owned by the module that defines
+        # what an event's schedule means. Reading a provider's ISO string here
+        # is the same operation `as_utc` performs on a stored date.
+        return parse_source_datetime(value)
 
-            return None
+    # ============================================================
+    # LINEUP
+    # ============================================================
 
-        if isinstance(
-            value,
-            datetime,
-        ):
+    @staticmethod
+    def _parse_lineup(
+        entries: Any,
+    ) -> list[LineupEntry]:
+        """Read a lineup, keeping only what the source actually stated.
 
-            return value
+        An entry without a name is dropped: there is nothing to show. An entry
+        without a Songkick id is kept, because the artist is still real, but it
+        carries no identifier and so cannot be matched to a GigCrowd artist
+        yet. Nothing is invented to fill either gap.
+        """
 
         if not isinstance(
-            value,
-            str,
+            entries,
+            list,
         ):
+            return []
 
-            return None
+        from app.domain.lineup import (
+            dedupe_lineup,
+            LineupEntry,
+        )
 
-        try:
+        parsed: list[LineupEntry] = []
 
-            normalized = (
-                value.strip()
+        for entry in entries:
+
+            if not isinstance(
+                entry,
+                dict,
+            ):
+                continue
+
+            name = entry.get("name")
+
+            if not name:
+                continue
+
+            genres = entry.get(
+                "genres"
             )
 
-            normalized = (
-                normalized.replace(
-                    "Z",
-                    "+00:00",
+            if isinstance(
+                genres,
+                str,
+            ):
+                genres = [genres]
+
+            if not isinstance(
+                genres,
+                list,
+            ):
+                genres = []
+
+            parsed.append(
+                LineupEntry(
+                    name=str(name).strip(),
+                    songkick_id=(
+                        str(
+                            entry["songkick_id"],
+                        )
+                        if entry.get(
+                            "songkick_id"
+                        )
+                        else None
+                    ),
+                    url=entry.get("url"),
+                    slug=entry.get("slug"),
+                    image=entry.get("image"),
+                    genres=[
+                        str(genre)
+                        for genre in genres
+                        if genre
+                    ],
+                    order=len(parsed),
                 )
             )
 
-            return datetime.fromisoformat(
-                normalized
-            )
-
-        except (
-            ValueError,
-            TypeError,
-        ):
-
-            return None
+        return dedupe_lineup(parsed)
 
     # ============================================================
     # VENUE

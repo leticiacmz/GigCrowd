@@ -155,6 +155,12 @@ def _project(document: dict, projection: Optional[dict]) -> dict:
 
     Only `{field: 1}` projections are supported, which is all the code under
     test asks for. `_id` is kept unless it is explicitly excluded.
+
+    Dotted paths are supported because Mongo supports them: asking for
+    `{"source.url": 1}` returns `{"source": {"url": ...}}`, not a flat key.
+    Dropping them instead - which this used to do - made a query look like it
+    returned no source data, so a test could pass for a reason that had nothing
+    to do with the code under test.
     """
     if not projection:
         return document
@@ -169,13 +175,46 @@ def _project(document: dict, projection: Optional[dict]) -> dict:
             if field not in drop
         }
 
-    projected = {
-        field: value for field, value in document.items() if field in keep
-    }
+    projected: dict = {}
+
+    for field in keep:
+        value, found = _read_path(document, field)
+
+        if not found:
+            continue
+
+        _write_path(projected, field, value)
+
     if "_id" in document and "_id" not in drop:
         projected["_id"] = document["_id"]
 
     return projected
+
+
+def _read_path(document: dict, path: str):
+    """Read a dotted path, reporting whether it existed."""
+
+    value: object = document
+
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return (None, False)
+
+        value = value[part]
+
+    return (value, True)
+
+
+def _write_path(target: dict, path: str, value) -> None:
+    """Write a dotted path, creating the intermediate documents."""
+
+    parts = path.split(".")
+    current = target
+
+    for part in parts[:-1]:
+        current = current.setdefault(part, {})
+
+    current[parts[-1]] = value
 
 
 class FakeCursor:
@@ -345,10 +384,23 @@ class FakeCollection:
             ]
         )
 
-    async def find_one(self, query: Optional[dict] = None) -> Optional[dict]:
+    async def find_one(
+        self,
+        query: Optional[dict] = None,
+        projection: Optional[dict] = None,
+    ) -> Optional[dict]:
+        """One matching document, optionally projected.
+
+        The projection argument exists because motor accepts it on `find_one`
+        too. Without it a query that narrows fields would raise here while
+        working against a real database, so the double would reject valid code
+        rather than test it.
+        """
         for document in self.documents:
             if matches(document, query):
-                return copy.deepcopy(document)
+                return copy.deepcopy(
+                    _project(document, projection)
+                )
         return None
 
     async def find_one_and_update(

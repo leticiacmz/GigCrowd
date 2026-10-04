@@ -1,6 +1,9 @@
 from app.domain.event import Event
 from app.domain.event_schedule import is_past
-from app.schemas.event_response import EventResponse
+from app.schemas.event_response import (
+    EventResponse,
+    LineupEntryResponse,
+)
 from app.schemas.venue_response import VenueResponse
 
 
@@ -38,6 +41,21 @@ class EventResponseMapper:
             is_past=is_past(event),
 
             event_type=event.event_type,
+
+            date_status=event.date_status,
+
+            lineup=[
+                LineupEntryResponse(
+                    name=entry.name,
+                    songkick_id=entry.songkick_id,
+                    slug=entry.slug,
+                    url=entry.url,
+                    image=entry.image,
+                    genres=entry.genres,
+                    order=entry.order,
+                )
+                for entry in event.lineup
+            ],
 
             ticket_url=event.ticket_url,
 

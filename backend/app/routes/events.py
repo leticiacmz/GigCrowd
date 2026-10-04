@@ -119,6 +119,45 @@ async def get_event(
     return event
 
 @router.get(
+    "/{event_id}/festival"
+)
+async def get_event_festival(
+
+    event_id: str,
+
+    db=Depends(get_database),
+
+):
+
+    """The festival behind this event: identity, every date, and the lineup.
+
+    One request by design. A festival page that fetched each edition, and then
+    each artist in the lineup, would issue a request per row and stall on
+    exactly the pages that have the most to show.
+    """
+
+    from app.services.festival_service import (
+        FestivalService,
+    )
+
+    festival = await FestivalService(
+        EventRepository(db),
+        artist_repository=ArtistRepository(db),
+    ).get_festival(event_id)
+
+    if not festival:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "This event does not belong to a festival"
+            ),
+        )
+
+    return festival
+
+
+@router.get(
     "/{event_id}/attendance"
 )
 async def get_event_attendance(

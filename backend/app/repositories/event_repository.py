@@ -62,6 +62,32 @@ class EventRepository(BaseRepository):
         )
 
     # ============================================================
+    # GET RAW DOCUMENT BY ID
+    # ============================================================
+
+    async def get_document_by_id(
+        self,
+        event_id: str,
+    ):
+
+        """The stored document, for callers that read provider metadata.
+
+        Reporting a festival means reading fields the domain `Event` does not
+        model - the raw Songkick URL, the provider's own series id - so that
+        answer is built from the document rather than by inventing the missing
+        fields on the domain object.
+        """
+
+        if not ObjectId.is_valid(event_id):
+            return None
+
+        return await self.find_one(
+            {
+                "_id": ObjectId(event_id)
+            }
+        )
+
+    # ============================================================
     # UPCOMING FILTER
     # ============================================================
 

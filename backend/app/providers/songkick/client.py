@@ -10,6 +10,10 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.core.logger import get_logger
+from app.domain.festival import (
+    festival_data_from_url,
+    songkick_artist_reference,
+)
 
 
 logger = get_logger("songkick_client")
@@ -599,49 +603,30 @@ class SongkickClient:
             if h1 else None
         )
 
-        # Extract lineup from .lineup-list
-        lineup = []
-        seen_names = set()
+        source = self._read_jsonld_event(
+            soup,
+            festival_url,
+        )
 
-        lineup_list = soup.select_one(".lineup-list")
-        if lineup_list:
-            artists = lineup_list.select(
-                ".artist-profile"
+        # Extract lineup from .lineup-list
+        lineup = self._parse_lineup_dom(
+            soup,
+            festival_url,
+        )
+
+        # The lineup DOM and the structured block describe the same people.
+        # They are merged rather than one overwriting the other: the DOM knows
+        # the rendered order, the structured block knows the ids and genres.
+        if lineup:
+
+            lineup = self._merge_lineup_sources(
+                lineup,
+                source.get("lineup") or [],
             )
 
-            for artist in artists:
-                name_elem = artist.select_one(
-                    ".artist-name"
-                )
-                if not name_elem:
-                    continue
+        elif source.get("lineup"):
 
-                name = name_elem.get_text(strip=True)
-                if not name:
-                    continue
-
-                # Deduplicate by normalized name
-                normalized = name.lower().strip()
-                if normalized in seen_names:
-                    continue
-
-                seen_names.add(normalized)
-
-                # Try to extract artist link/slug
-                link = artist.find("a", href=True)
-                artist_url = None
-                if link:
-                    href = link.get("href", "")
-                    if href:
-                        artist_url = urljoin(
-                            festival_url,
-                            href,
-                        ).split("?")[0]
-
-                lineup.append({
-                    "name": name,
-                    "url": artist_url,
-                })
+            lineup = list(source["lineup"])
 
         logger.info(
             f"Festival lineup extracted: "
@@ -652,11 +637,207 @@ class SongkickClient:
             "url": festival_url,
             "status": response.status_code,
             "lineup": lineup,
-            "festival_name": festival_name,
-            "date_range": None,
-            "venue": None,
-            "location": None,
+            "festival_name": (
+                (source.get("festival") or {}).get("name")
+                or festival_name
+            ),
+            "festival": source.get("festival"),
+            "start_date": source.get("start_date"),
+            "end_date": source.get("end_date"),
+            "venue": source.get("venue"),
+            "location": source.get("location"),
+            "description": source.get("description"),
+            "songkick_image": source.get(
+                "songkick_image"
+            ),
+            "event_status": source.get(
+                "event_status"
+            ),
+            "ticket_url": source.get("ticket_url"),
         }
+
+    @classmethod
+    def _parse_lineup_dom(
+        cls,
+        soup: BeautifulSoup,
+        festival_url: str,
+    ) -> list[dict]:
+        """Read the rendered lineup, keeping each artist's Songkick identity.
+
+        Songkick renders an `.artist-profile` element that carries its own
+        `href` attribute rather than wrapping an anchor, so the URL has to be
+        read from the element. Reading it from a nested `<a>` instead - which is
+        what this did before - silently produced an empty URL for every artist
+        and threw away every Songkick artist id on the page.
+        """
+
+        from app.domain.lineup import (
+            dedupe_lineup,
+            LineupEntry,
+        )
+
+        lineup_list = soup.select_one(".lineup-list")
+
+        if not lineup_list:
+            return []
+
+        entries: list[LineupEntry] = []
+
+        for element in lineup_list.select(
+            ".artist-profile"
+        ):
+            name_elem = element.select_one(
+                ".artist-name"
+            )
+
+            name = (
+                name_elem.get_text(strip=True)
+                if name_elem
+                else None
+            )
+
+            if not name:
+                continue
+
+            # The href lives on the element itself, but a nested anchor is
+            # accepted too so a markup change cannot lose the ids again.
+            href = element.get("href")
+
+            if not href:
+                anchor = element.find("a", href=True)
+                href = anchor.get("href") if anchor else None
+
+            if href:
+                href = urljoin(
+                    festival_url,
+                    href,
+                ).split("?")[0]
+
+            songkick_id, slug = (
+                songkick_artist_reference(href)
+            )
+
+            entries.append(
+                LineupEntry(
+                    name=name,
+                    songkick_id=songkick_id,
+                    slug=slug,
+                    url=href,
+                    image=(
+                        element.select_one(
+                            ".artist-image"
+                        ).get("data-src")
+                        if element.select_one(
+                            ".artist-image"
+                        )
+                        else None
+                    ),
+                    order=len(entries),
+                )
+            )
+
+        return [
+            entry.model_dump()
+            for entry in dedupe_lineup(entries)
+        ]
+
+    @staticmethod
+    def _merge_lineup_sources(
+        dom_lineup: list[dict],
+        structured_lineup: list[dict],
+    ) -> list[dict]:
+        """Combine the rendered order with the structured performer details.
+
+        The DOM gives the order Songkick displays; the structured block gives
+        the Songkick ids and genres. Entries are matched on id first and on
+        name second, and nothing is dropped because one side is missing it.
+        """
+
+        by_id = {
+            entry.get("songkick_id"): entry
+            for entry in structured_lineup
+            if entry.get("songkick_id")
+        }
+
+        by_name = {
+            " ".join(
+                str(entry.get("name") or "")
+                .casefold()
+                .split()
+            ): entry
+            for entry in structured_lineup
+            if entry.get("name")
+        }
+
+        merged: list[dict] = []
+        consumed: set[str] = set()
+
+        for position, entry in enumerate(dom_lineup):
+
+            match = by_id.get(
+                entry.get("songkick_id")
+            )
+
+            if match is None:
+                match = by_name.get(
+                    " ".join(
+                        str(entry.get("name") or "")
+                        .casefold()
+                        .split()
+                    )
+                )
+
+            if match is not None and match is not entry:
+                combined = dict(entry)
+
+                for field in (
+                    "songkick_id",
+                    "url",
+                    "slug",
+                    "genres",
+                ):
+                    if not combined.get(field) and match.get(field):
+                        combined[field] = match[field]
+
+                merged.append(combined)
+                consumed.add(id(match))
+                continue
+
+            merged.append(dict(entry))
+
+        # A performer present only in the structured block is still a real
+        # performer, so it is appended rather than discarded.
+        for entry in structured_lineup:
+            if id(entry) in consumed:
+                continue
+            if any(
+                item.get("songkick_id")
+                == entry.get("songkick_id")
+                and item.get("songkick_id")
+                for item in merged
+            ):
+                continue
+            if any(
+                " ".join(
+                    str(item.get("name") or "")
+                    .casefold()
+                    .split()
+                )
+                == " ".join(
+                    str(entry.get("name") or "")
+                    .casefold()
+                    .split()
+                )
+                for item in merged
+            ):
+                continue
+
+            merged.append(dict(entry))
+
+        for position, entry in enumerate(merged):
+            entry["order"] = position
+
+        return merged
 
     @staticmethod
     def normalize_artist_name(name: str) -> str:
@@ -761,15 +942,122 @@ class SongkickClient:
     # EVENT DETAIL ENRICHMENT
     # ============================================================
 
+    @classmethod
+    def _read_jsonld_event(
+        cls,
+        soup: BeautifulSoup,
+        source_url: str,
+    ) -> dict:
+        """Read the event a page describes out of its structured data.
+
+        Songkick wraps its JSON-LD in a list rather than emitting one object, so
+        a reader that only accepts a top-level dict reads nothing at all from a
+        festival page - which is exactly where the missing dates are.
+
+        The date is taken from `startDate`/`endDate` because that is what the
+        page states; nothing is inferred from the title when they are absent.
+        """
+
+        for script in soup.find_all(
+            "script",
+            type="application/ld+json",
+        ):
+            try:
+                value = json.loads(
+                    script.string or script.get_text()
+                )
+            except Exception:
+                continue
+
+            for block in cls._iter_jsonld_blocks(
+                value
+            ):
+                block_type = block.get(
+                    "@type"
+                )
+
+                types = (
+                    block_type
+                    if isinstance(
+                        block_type,
+                        list,
+                    )
+                    else [block_type]
+                )
+
+                if not any(
+                    str(entry) in {
+                        "MusicEvent",
+                        "Event",
+                        "Festival",
+                    }
+                    for entry in types
+                ):
+                    continue
+
+                parsed = cls._jsonld_to_event(
+                    block,
+                    source_url,
+                )
+
+                if parsed:
+                    return parsed
+
+        return {}
+
+    @staticmethod
+    def _iter_jsonld_blocks(
+        value,
+    ):
+        """Yield every JSON-LD object in a payload, however it is wrapped."""
+
+        if isinstance(
+            value,
+            list,
+        ):
+            for item in value:
+                yield from SongkickClient._iter_jsonld_blocks(
+                    item
+                )
+            return
+
+        if not isinstance(
+            value,
+            dict,
+        ):
+            return
+
+        graph = value.get("@graph")
+
+        if isinstance(
+            graph,
+            list,
+        ):
+            for item in graph:
+                yield from SongkickClient._iter_jsonld_blocks(
+                    item
+                )
+
+        # A bare wrapper carries no type of its own.
+        if value.get("@type") in (
+            None,
+            "list",
+        ) and "startDate" not in value:
+            return
+
+        yield value
+
     async def enrich_event_details(
         self,
         event: dict,
     ) -> dict:
         """
-        Fetch an event page and extract details not available
-        from the calendar page.
+        Fetch an event page and extract what the catalogue is missing.
 
-        Only fetches unique events (deduplicated by caller).
+        The page's own structured data is the source: it states the date, the
+        venue and - for a festival - the lineup. Nothing is guessed from the
+        title, so an event the source does not date stays undated and is marked
+        for a later attempt rather than being given a plausible-looking date.
         """
 
         event_url = event.get("url")
@@ -790,105 +1078,209 @@ class SongkickClient:
 
         soup = BeautifulSoup(response.text, "html.parser")
 
-        enriched = dict(event)
-
-        # Extract JSON-LD
-        jsonld_scripts = soup.find_all(
-            "script",
-            type="application/ld+json",
+        source = self._read_jsonld_event(
+            soup,
+            event_url,
         )
 
-        for script in jsonld_scripts:
-            try:
-                data = json.loads(
-                    script.string or script.get_text()
-                )
-            except Exception:
-                continue
+        enriched = dict(event)
 
-            if not isinstance(data, dict):
-                continue
-
-            if data.get("@type") != "MusicEvent":
-                continue
-
-            # Extract ticket URL from offers
-            offers = data.get("offers", [])
-            if isinstance(offers, dict):
-                offers = [offers]
-
-            for offer in offers:
-                if not isinstance(offer, dict):
-                    continue
-
-                offer_url = offer.get("url")
-                if offer_url:
-                    enriched["ticket_url"] = offer_url
-                    break
-
-            # Extract official website
-            official_website = (
-                data.get("officialWebsite")
-                or data.get("eventWebsite")
+        if not source:
+            logger.warning(
+                "[ENRICH] No readable structured event data "
+                f"on {event_url}"
             )
-            if official_website:
-                enriched["official_website"] = official_website
+            enriched["date_status"] = "parser_failed"
+            return enriched
 
-            # Extract event image
-            image = data.get("image")
-            if image:
-                if isinstance(image, list) and image:
-                    enriched["songkick_image"] = image[0]
-                elif isinstance(image, str):
-                    enriched["songkick_image"] = image
+        # --------------------------------------------------------
+        # Dates
+        # --------------------------------------------------------
 
-            # Extract event status
-            event_status = data.get("eventStatus")
-            if event_status:
-                enriched["event_status"] = event_status
+        if source.get("start_date"):
+            enriched["start_date"] = source["start_date"]
 
-            # Extract venue details
-            location = data.get("location", {})
-            if isinstance(location, dict):
-                venue = enriched.get("venue", {})
-                if not isinstance(venue, dict):
-                    venue = {}
+        if source.get("end_date"):
+            enriched["end_date"] = source["end_date"]
 
-                venue_name = location.get("name")
-                if venue_name:
-                    venue["name"] = venue_name
+        enriched["date_status"] = (
+            "source"
+            if (
+                source.get("start_date")
+                or source.get("end_date")
+            )
+            else "unavailable"
+        )
 
-                address = location.get("address", {})
-                if isinstance(address, dict):
-                    street = address.get("streetAddress")
-                    if street:
-                        venue["street"] = street
+        # --------------------------------------------------------
+        # Festival identity and lineup
+        # --------------------------------------------------------
 
-                    address_locality = address.get("addressLocality")
-                    if address_locality:
-                        venue["city"] = address_locality
+        if source.get("festival"):
+            enriched["festival"] = source["festival"]
+            enriched["is_festival"] = True
 
-                    address_country = address.get("addressCountry")
-                    if address_country:
-                        venue["country"] = address_country
+        if source.get("lineup"):
+            enriched["lineup"] = source["lineup"]
 
-                    postal_code = address.get("postalCode")
-                    if postal_code:
-                        venue["postal_code"] = postal_code
+        # --------------------------------------------------------
+        # Venue, location and presentation
+        # --------------------------------------------------------
 
-                geo = location.get("geo", {})
-                if isinstance(geo, dict):
-                    lat = geo.get("latitude")
-                    lon = geo.get("longitude")
-                    if lat and lon:
-                        venue["latitude"] = lat
-                        venue["longitude"] = lon
+        venue = source.get("venue")
 
-                enriched["venue"] = venue
+        if isinstance(
+            venue,
+            dict,
+        ):
+            current = enriched.get("venue")
 
-            break
+            merged = dict(
+                current
+                if isinstance(current, dict)
+                else {}
+            )
+
+            address = venue.get("address")
+
+            for field, value in (
+                ("name", venue.get("name")),
+                ("url", venue.get("url")),
+            ):
+                if value and not merged.get(field):
+                    merged[field] = value
+
+            if isinstance(
+                address,
+                dict,
+            ):
+                for field, value in (
+                    ("street", address.get("streetAddress")),
+                    ("city", address.get("addressLocality")),
+                    ("country", address.get("addressCountry")),
+                    ("postal_code", address.get("postalCode")),
+                ):
+                    if value and not merged.get(field):
+                        merged[field] = value
+
+            if merged:
+                enriched["venue"] = merged
+
+        location = self._location_from_jsonld(
+            source
+        )
+
+        if location:
+            current_location = enriched.get(
+                "location"
+            )
+
+            merged_location = dict(
+                current_location
+                if isinstance(
+                    current_location,
+                    dict,
+                )
+                else {}
+            )
+
+            for field, value in location.items():
+                if value is not None and merged_location.get(
+                    field
+                ) in (None, ""):
+                    merged_location[field] = value
+
+            if merged_location:
+                enriched["location"] = merged_location
+
+        for field in (
+            "ticket_url",
+            "description",
+            "event_status",
+        ):
+            value = source.get(field)
+
+            if value and not enriched.get(field):
+                enriched[field] = value
+
+        if source.get("songkick_image"):
+            enriched["songkick_image"] = source[
+                "songkick_image"
+            ]
+
+        # The lineup DOM carries the ids the structured block sometimes omits.
+        if source.get("is_festival"):
+
+            try:
+
+                lineup = await self.get_festival_lineup(
+                    event_url
+                )
+
+            except Exception as exc:
+
+                logger.warning(
+                    f"[ENRICH] Lineup read failed for "
+                    f"{event_url}: {exc}"
+                )
+
+                lineup = {}
+
+            if lineup.get("lineup"):
+                enriched["lineup"] = lineup["lineup"]
+
+        logger.info(
+            "[ENRICH] completed: "
+            f"{event_url} | "
+            f"start={enriched.get('start_date')} | "
+            f"end={enriched.get('end_date')} | "
+            f"lineup={len(enriched.get('lineup') or [])}"
+        )
 
         return enriched
+
+    @classmethod
+    def _location_from_jsonld(
+        cls,
+        source: dict,
+    ) -> dict:
+        """Read city, country and coordinates from the page's address."""
+
+        venue = source.get("venue")
+
+        if not isinstance(
+            venue,
+            dict,
+        ):
+            return {}
+
+        address = venue.get("address")
+
+        location: dict = {}
+
+        if isinstance(
+            address,
+            dict,
+        ):
+            city = address.get("addressLocality")
+            country = address.get("addressCountry")
+
+            if isinstance(
+                country,
+                dict,
+            ):
+                country = (
+                    country.get("name")
+                    or country.get("code")
+                )
+
+            if city:
+                location["city"] = city
+
+            if country:
+                location["country"] = country
+
+        return location
 
     # ============================================================
     # GIGOGRAPHY
@@ -3323,9 +3715,9 @@ class SongkickClient:
                 else "concert"
             )
 
-        if not start_date:
-            return None
-
+        # An event the source dates is kept; one it does not date is kept too,
+        # marked `date_status`, so enrichment can revisit it instead of the
+        # catalogue quietly losing a real show.
         attendance_mode = (
             data.get(
                 "eventAttendanceMode"
@@ -3416,6 +3808,69 @@ class SongkickClient:
             "name"
         )
 
+        # --------------------------------------------------------
+        # Lineup
+        #
+        # The Songkick artist id only appears in the artist's
+        # own URL, so it is parsed from there rather than
+        # derived from the name.
+        # --------------------------------------------------------
+
+        lineup = cls._lineup_from_performers(
+            performers
+        )
+
+        festival_metadata = None
+
+        if event_type == "festival":
+
+            festival_metadata = (
+                cls._festival_metadata_from_jsonld(
+                    data,
+                    url,
+                )
+            )
+
+            if festival_metadata:
+                festival_metadata[
+                    "artists"
+                ] = lineup
+
+        image = data.get(
+            "image"
+        )
+
+        if isinstance(
+            image,
+            list,
+        ) and image:
+            image = image[0]
+
+        # --------------------------------------------------------
+        # Dates
+        #
+        # An event whose source exposes no date is kept, marked as
+        # undated, so it can be revisited by enrichment instead of
+        # silently disappearing from the catalogue. A date that is
+        # present but unreadable is reported separately.
+        # --------------------------------------------------------
+
+        end_date = data.get(
+            "endDate"
+        )
+
+        if start_date or end_date:
+
+            date_status = "source"
+
+        elif cls._jsonld_claims_a_date(data):
+
+            date_status = "parser_failed"
+
+        else:
+
+            date_status = "unavailable"
+
         return {
             "id": event_id,
             "songkick_id": event_id,
@@ -3424,9 +3879,8 @@ class SongkickClient:
             "name": name,
             "original_name": name,
             "start_date": start_date,
-            "end_date": data.get(
-                "endDate"
-            ),
+            "end_date": end_date,
+            "date_status": date_status,
             "event_status": data.get(
                 "eventStatus"
             ),
@@ -3437,20 +3891,15 @@ class SongkickClient:
             ),
             "venue": venue,
             "performers": performers,
+            "lineup": lineup,
             "offers": data.get(
                 "offers",
                 [],
             ),
-            "songkick_image": data.get(
-                "image"
-            ),
+            "songkick_image": image,
             "source_page": source_url,
             "raw": data,
-            "festival": (
-                data
-                if event_type == "festival"
-                else None
-            ),
+            "festival": festival_metadata,
             "is_festival": (
                 event_type == "festival"
             ),
@@ -3474,6 +3923,161 @@ class SongkickClient:
             ),
             "secondary_detail": None,
         }
+
+    @staticmethod
+    def _jsonld_claims_a_date(
+        data: dict,
+    ) -> bool:
+        """Whether a JSON-LD block carries a date field at all.
+
+        Distinguishes "the source exposed no date" from "the source exposed a
+        date this parser could not read", because only the second is a parser
+        problem worth retrying.
+        """
+
+        for field in (
+            "startDate",
+            "endDate",
+        ):
+            value = data.get(field)
+
+            if value:
+                return True
+
+        return False
+
+    @classmethod
+    def _lineup_from_performers(
+        cls,
+        performers: list[dict],
+    ) -> list[dict]:
+        """Turn JSON-LD performers into structured lineup entries.
+
+        Each entry keeps the Songkick artist id found in the performer's URL, so
+        the same artist appearing twice collapses to one entry and can later be
+        resolved to a real GigCrowd artist.
+        """
+
+        from app.domain.lineup import (
+            dedupe_lineup,
+            LineupEntry,
+        )
+
+        entries: list[LineupEntry] = []
+
+        for performer in performers:
+
+            name = performer.get("name")
+
+            if not name:
+                continue
+
+            same_as = performer.get(
+                "same_as"
+            )
+
+            songkick_id, slug = (
+                songkick_artist_reference(
+                    same_as
+                )
+            )
+
+            genres = performer.get(
+                "genre"
+            )
+
+            if isinstance(
+                genres,
+                str,
+            ):
+                genres = [genres]
+
+            if not isinstance(
+                genres,
+                list,
+            ):
+                genres = []
+
+            entries.append(
+                LineupEntry(
+                    name=str(name).strip(),
+                    songkick_id=songkick_id,
+                    slug=slug,
+                    url=(
+                        str(same_as).split("?")[0]
+                        if same_as
+                        else None
+                    ),
+                    genres=[
+                        str(genre)
+                        for genre in genres
+                        if isinstance(genre, str)
+                        and genre
+                    ],
+                    order=len(entries),
+                )
+            )
+
+        return [
+            entry.model_dump()
+            for entry in dedupe_lineup(entries)
+        ]
+
+    @classmethod
+    def _festival_metadata_from_jsonld(
+        cls,
+        data: dict,
+        url: str | None,
+    ) -> dict | None:
+        """Build the festival identity half from a concrete festival page.
+
+        The series id comes from the page URL, which is structured and stable.
+        The name is only carried for display: it is never used to decide that
+        two events are the same festival.
+        """
+
+        if not url:
+            return None
+
+        from_url = festival_data_from_url(
+            url
+        )
+
+        if not from_url:
+            return None
+
+        series_id = from_url.get(
+            "series_id"
+        )
+
+        if not series_id:
+            return None
+
+        image = data.get("image")
+
+        if isinstance(
+            image,
+            list,
+        ) and image:
+            image = image[0]
+
+        metadata = {
+            "series_id": str(series_id),
+            "name": data.get("name"),
+            "url": str(url).split("?")[0],
+            "official_url": None,
+            "edition": None,
+            "tracking_count": None,
+            "artist_ids": [],
+            "artists": [],
+            "image_url": (
+                str(image)
+                if image
+                else None
+            ),
+        }
+
+        return metadata
 
     # ============================================================
     # EVENT REFERENCES

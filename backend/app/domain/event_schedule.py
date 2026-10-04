@@ -65,6 +65,52 @@ def as_utc(value: Any) -> Optional[datetime]:
     return value.astimezone(UTC)
 
 
+def parse_source_datetime(value: Any) -> Optional[datetime]:
+    """Turn a date as a provider states it into an aware UTC datetime.
+
+    A provider's structured data carries dates as ISO 8601 *strings* -
+    `"2024-08-24T13:00:00"`, or a bare `"2024-08-24"` for a festival day that
+    has no stated time. Those strings are not `datetime` objects, so anything
+    that normalises with `as_utc` alone will silently drop them and leave the
+    event looking undated even though the source stated a date.
+
+    A naive value is read as UTC, matching how `as_utc` treats a naive stored
+    date, so both entry points agree on what a bare date means.
+
+    Returns `None` only when the value genuinely is not a date. A value that
+    looks like a date but cannot be read is reported as a parse failure by the
+    caller rather than being discarded here.
+    """
+    if isinstance(value, datetime):
+        return as_utc(value)
+
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip()
+
+    if not text:
+        return None
+
+    # Songkick uses "Z" for UTC, which `fromisoformat` rejects on some versions.
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        # A bare date is common and valid; a time without a date is not.
+        try:
+            parsed = datetime.strptime(
+                text,
+                "%d/%m/%Y",
+            )
+        except ValueError:
+            return None
+
+    return as_utc(parsed)
+
+
 def event_date(event: Any) -> Optional[datetime]:
     """The event's own date: when it starts, or when it ends if it has no start.
 

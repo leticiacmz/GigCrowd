@@ -12,9 +12,23 @@ strongest signal down:
 Years are never stripped from a title to fake a match. "Gigcrowd Fest 2025" and
 "Gigcrowd Fest 2026" are adjacent editions, and collapsing them would report a
 figure that does not exist.
+
+The two levels are kept apart on purpose:
+
+FESTIVAL IDENTITY
+    The series itself: Songkick series id, canonical URL and name.
+
+CONCRETE EVENT / EDITION
+    One dated instance: its own Songkick event id, title, URL, date range,
+    venue and lineup. Several of these belong to one identity.
+
+The identity never absorbs an edition's dates and an edition never invents a
+name for the series, so a festival page can list every date without any single
+date pretending to be the festival as a whole.
 """
 from __future__ import annotations
 
+import re
 import unicodedata
 from datetime import datetime
 from typing import Any, Optional
@@ -184,3 +198,138 @@ def festival_date(event: Any) -> Optional[datetime]:
         starts_at = getattr(event, "starts_at", None)
 
     return as_utc(starts_at)
+
+
+def festival_data_from_url(
+    url: Any,
+) -> Optional[dict[str, Any]]:
+    """Read the festival series id and event id out of a Songkick URL.
+
+    Songkick addresses a concrete festival date as
+    `/festivals/{series_id}-{slug}/id/{event_id}-{slug}`, so one URL carries
+    both levels: the series the festival is and the edition this date is.
+    """
+
+    if not url:
+        return None
+
+    text = str(url)
+
+    series_match = re.search(
+        r"/festivals/(\d+)(?:-[^/?#]+)?",
+        text,
+    )
+
+    if not series_match:
+        return None
+
+    event_match = re.search(
+        r"/id/(\d+)",
+        text,
+    )
+
+    return {
+        "series_id": series_match.group(1),
+        "event_id": (
+            event_match.group(1)
+            if event_match
+            else None
+        ),
+    }
+
+
+def songkick_artist_reference(
+    url: Any,
+) -> tuple[Optional[str], Optional[str]]:
+    """Read a Songkick artist id and slug out of an artist URL.
+
+    Songkick addresses an artist as `/artists/{id}-{slug}`, and that URL is the
+    only place the numeric id appears on a lineup entry. It is parsed here
+    rather than guessed from the artist's name.
+
+    Returns `(songkick_id, slug)`; either may be `None` when the URL does not
+    carry it. Nothing is inferred when the source is silent.
+    """
+
+    if not url:
+        return (None, None)
+
+    match = re.search(
+        r"/artists/(\d+)(?:-([^/?#]+))?",
+        str(url),
+    )
+
+    if not match:
+        return (None, None)
+
+    return (
+        match.group(1),
+        match.group(2),
+    )
+
+
+def festival_identity(
+    event: Any,
+) -> Optional[dict[str, Any]]:
+    """The festival series an event belongs to, or `None` when it is not one.
+
+    This is the identity half only: who runs the festival and where it lives.
+    Dates, venue and lineup belong to the concrete event and are deliberately
+    left out, so a page cannot mistake one night for the whole festival.
+
+    The series id always comes from structured source data - the event's own
+    metadata or the series segment of its Songkick URL. A name is carried
+    through for display but never used to decide that two events are the same
+    festival, because two festivals can share a name across cities and years.
+    """
+
+    metadata = festival_metadata(event)
+
+    if not isinstance(
+        metadata,
+        dict,
+    ):
+        return None
+
+    series_id = metadata.get(
+        "series_id"
+    )
+
+    if not series_id:
+
+        for candidate in (
+            metadata.get("url"),
+            metadata.get("official_url"),
+        ):
+
+            from_url = festival_data_from_url(
+                candidate
+            )
+
+            if from_url:
+                series_id = from_url.get(
+                    "series_id"
+                )
+                break
+
+    if not series_id:
+        return None
+
+    identity: dict[str, Any] = {
+        "series_id": str(series_id),
+        "name": metadata.get("name"),
+        "url": metadata.get("url"),
+        "official_url": metadata.get(
+            "official_url"
+        ),
+        "edition": metadata.get("edition"),
+    }
+
+    tracking = metadata.get(
+        "tracking_count"
+    )
+
+    if tracking is not None:
+        identity["tracking_count"] = tracking
+
+    return identity
