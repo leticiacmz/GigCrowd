@@ -244,12 +244,33 @@ class MediaUploadService:
 
         The SDK call is synchronous and does its own networking, so it runs in
         a worker thread to keep the event loop free.
+
+        `cloudinary.uploader` is a submodule. `import cloudinary` on its own does
+        not bind it as an attribute, so `cloudinary.uploader.upload` raises
+        `AttributeError` at upload time unless the submodule is imported for its
+        side effect. The unit tests never reached this line because they inject
+        an uploader double, so the failure only surfaced from a real review
+        photo.
         """
 
         import asyncio
 
+        # `cloudinary.uploader` is a submodule that `import cloudinary` does not
+        # bind as an attribute, so `self.uploader.uploader` raises
+        # `AttributeError` in a process where nothing has imported the submodule
+        # yet. Importing the name is the reliable way to reach it; an import of
+        # `cloudinary.uploader` alone is not, because a submodule already in
+        # `sys.modules` is not re-bound onto its parent package.
+        from cloudinary import uploader as sdk_uploader
+
+        module = getattr(
+            self.uploader,
+            "uploader",
+            None,
+        )
+
         return await asyncio.to_thread(
-            self.uploader.uploader.upload,
+            (module or sdk_uploader).upload,
             content,
             **options,
         )

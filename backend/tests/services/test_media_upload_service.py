@@ -74,6 +74,122 @@ def service(cloudinary: FakeCloudinary) -> MediaUploadService:
     )
 
 
+class TestRealSdkSurface:
+    """The uploader the other tests inject is not the one the SDK exposes.
+
+    Every other test substitutes a double, so none of them touch the line that
+    actually talks to Cloudinary. That is how `cloudinary.uploader.upload` could
+    raise `AttributeError` while the suite stayed green: `import cloudinary` does
+    not bind the `uploader` submodule as an attribute, so the attribute access
+    only resolves when the submodule has been imported.
+
+    These tests run against the installed SDK with its `upload` call
+    intercepted, so the import and attribute path is the real one and no
+    request leaves the machine.
+    """
+
+    def test_the_sdk_does_not_bind_uploader_on_a_plain_import(self):
+        """This is the fact the upload path has to work around."""
+
+        import subprocess
+        import sys
+
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import cloudinary;"
+                    "print(hasattr(cloudinary, 'uploader'))"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert probe.stdout.strip() == "False", (
+            "the SDK now binds `uploader` itself, so the explicit "
+            "import in _run_upload can be revisited"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_real_upload_works_before_the_submodule_was_imported(
+        self,
+        monkeypatch,
+    ):
+        """Reproduces the state a fresh server process starts in.
+
+        The SDK's `uploader` submodule is bound onto the `cloudinary` package the
+        first time something imports it. Merely importing `cloudinary` does not
+        bind it, so the upload path meets an attribute that is not there yet.
+
+        Any other test that imports `cloudinary.uploader` - including this one -
+        binds it for the whole process and hides the problem. Deleting the
+        attribute puts the process back into the state a fresh interpreter is in,
+        which is what makes this test able to fail.
+        """
+
+        import cloudinary
+        import cloudinary.uploader
+
+        sent: list[tuple] = []
+
+        def fake_upload(content, **options):
+            sent.append((content, options))
+            return {
+                "secure_url": (
+                    "https://res.cloudinary.com/demo/image/upload/x.jpg"
+                ),
+                "public_id": "reviews/x",
+                "width": 1200,
+                "height": 800,
+                "bytes": len(A_JPEG),
+            }
+
+        monkeypatch.setattr(
+            cloudinary.uploader,
+            "upload",
+            fake_upload,
+        )
+
+        # The real SDK module, exactly as the service configures it in
+        # production. Nothing is injected, so the attribute access is the real
+        # one.
+        subject = MediaUploadService(
+            uploader=cloudinary,
+            cloud_name="demo",
+            api_key="key",
+            api_secret="secret",
+            max_size_mb=1,
+        )
+
+        bound = cloudinary.uploader
+
+        del cloudinary.uploader
+
+        try:
+            assert not hasattr(
+                cloudinary,
+                "uploader",
+            ), "the unbinding did not take effect"
+
+            uploaded = await subject._run_upload(
+                A_JPEG,
+                {
+                    "resource_type": "image",
+                    "folder": "reviews",
+                },
+            )
+        finally:
+            cloudinary.uploader = bound
+
+        assert sent, "the SDK upload call was never reached"
+        assert sent[0][0] == A_JPEG
+        assert sent[0][1]["folder"] == "reviews"
+        assert uploaded["public_id"] == "reviews/x"
+
+
 class TestValidation:
 
     @pytest.mark.asyncio
