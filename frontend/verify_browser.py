@@ -25,6 +25,15 @@ from playwright.sync_api import sync_playwright
 BASE = os.environ.get("BASE", "http://localhost:3000").rstrip("/")
 API = os.environ.get("API", "http://localhost:8000").rstrip("/")
 
+# How a navigation waits for the page.
+#
+# Not `networkidle`. Artist images and festival lineups point at third-party
+# hosts, so a page can keep a request open long after it has rendered, and
+# waiting for the network to fall quiet times out on a page that is actually
+# fine. Every navigation below is followed by an explicit wait for the element
+# it is about to assert on, which is the thing that has to have happened.
+NAV_WAIT = "domcontentloaded"
+
 results = []
 
 
@@ -111,12 +120,55 @@ def seed():
         slugs.append(slug)
         names[slug] = name
 
-        if len(slugs) == 2:
+        if len(slugs) >= 12:
             break
 
-    assert len(slugs) >= 2, f"need two distinct artists to test isolation, got {slugs}"
+    # Attendance is only recordable against a show that has already happened, so
+    # the artists are chosen for having one rather than for being first in the
+    # listing. A catalogue where the first two acts are all-touring is a normal
+    # state of a small dataset; a suite that fails there is testing the
+    # catalogue rather than the product.
+    #
+    # The first choice needs two finished shows, because the author attends one
+    # of them as a review and another as a plain attendance.
+    histories: dict[str, list] = {}
 
-    artist_slug, other_artist = slugs[0], slugs[1]
+    for slug in slugs:
+        try:
+            history = httpx.get(
+                f"{API}/artists/{slug}/events/all", timeout=120
+            ).json()
+        except Exception:
+            continue
+
+        if isinstance(history, list):
+            histories[slug] = history
+
+    def finished(slug: str) -> list:
+        return [row for row in histories.get(slug, []) if row.get("is_past")]
+
+    rich = [slug for slug in slugs if len(finished(slug)) >= 2]
+    any_history = [slug for slug in slugs if len(finished(slug)) >= 1]
+
+    assert rich and any(
+        slug not in rich for slug in any_history
+    ), (
+        "need one artist with two finished shows and a distinct artist with "
+        f"one; catalogue has {[(s, len(finished(s))) for s in slugs]}"
+    )
+
+    artist_slug = rich[0]
+
+    other_artist = next(
+        slug for slug in any_history if slug != artist_slug
+    )
+
+    past_history: list = []
+
+    for slug in (artist_slug, other_artist):
+        past_history.extend(
+            (row, slug) for row in finished(slug)
+        )
 
     stamp = suffix()
     # Distinct markers make the artist-isolation checks unambiguous: each
@@ -181,22 +233,10 @@ def seed():
         ).json()
 
     # Attendance has to be recorded against a show that has already happened,
-    # so the past events are read from the route that returns an artist's whole
-    # history. `/events/artist/{slug}` only returns what is still to come, and
-    # "went" on a future event is refused with a 400 by design.
-    past_event = None
-
-    for past_artist in (artist_slug, other_artist):
-        history = httpx.get(
-            f"{API}/artists/{past_artist}/events/all", timeout=120
-        ).json()
-
-        past_event = next(
-            (event for event in history if event.get("is_past")), None
-        )
-
-        if past_event:
-            break
+    # and `/events/artist/{slug}` only returns what is still to come, so the
+    # finished shows come from the histories already gathered above.
+    past_event = past_history[0][0]
+    past_artist_slug = past_history[0][1]
 
     assert past_event, "need a finished event to record attendance against"
 
@@ -222,21 +262,15 @@ def seed():
     # anything, and the author's profile needs rows behind both figures. The
     # author also follows the visitor, so their profile has people on both
     # sides of the connection.
-    author_past = []
-
-    for other_past in (other_artist, artist_slug):
-        history = httpx.get(
-            f"{API}/artists/{other_past}/events/all", timeout=120
-        ).json()
-
-        author_past = [
-            event
-            for event in history
-            if event.get("is_past") and event["id"] != past_event["id"]
-        ][:2]
-
-        if len(author_past) == 2:
-            break
+    #
+    # Drawn from both artists' histories, so the author can end up having seen
+    # two different artists - which is what gives "Artists I have seen" more
+    # than one row to count.
+    author_past = [
+        event
+        for event, _ in past_history
+        if event["id"] != past_event["id"]
+    ][:2]
 
     assert len(author_past) == 2, "need two more finished events for the author"
 
@@ -266,9 +300,106 @@ def seed():
 
         attendance_seeded = attendance_response.status_code in (200, 201)
 
+    # A festival date, attended. Its lineup carries several acts, so it is the
+    # attended show that proves a lineup does not become personal attendance:
+    # only the date's own direct artist reference counts, and the rest of the
+    # bill must stay off the author's history.
+    festival_attended_id = None
+    festival_lineup_slugs: list = []
+
+    taken = {past_event["id"]} | {
+        event["id"] for event in author_past
+    }
+
+    catalogue: list = []
+
+    for event, _ in past_history:
+        catalogue.append(event)
+
+    for row in catalogue:
+        lineup = row.get("lineup") or []
+
+        if row.get("id") in taken or not row.get("is_past") or not lineup:
+            continue
+
+        slugs_on_bill = [
+            entry.get("slug")
+            for entry in lineup
+            if isinstance(entry, dict) and entry.get("slug")
+        ]
+
+        if not slugs_on_bill:
+            continue
+
+        with api(author_token) as client:
+            festival_response = client.post(
+                "/show-logs",
+                json={"event_id": row["id"], "status": "went", "rating": 4},
+            )
+
+        if festival_response.status_code in (200, 201):
+            festival_attended_id = row["id"]
+            festival_lineup_slugs = slugs_on_bill
+            break
+
+    # An artist the author follows and has never been to a show of. Following is
+    # an intention, and a concert history must not quietly become a list of
+    # intentions: this is the row that proves the Artists section is attendance.
+    #
+    # Derived from the author's whole attendance rather than picked by name,
+    # because the catalogue is small: a third unrelated artist often does not
+    # exist, while one of the two chosen artists frequently went un-attended.
+    # Picking a name that does not exist would make the check vacuous.
+    #
+    # It has to be the *whole* attendance, including the festival date above.
+    # A festival date names its own artist directly, so reading only the two
+    # concerts here picked an artist the author had in fact been to see and made
+    # the check contradict itself.
+    attended_slugs = set()
+
+    for attended in author_past:
+        attended_slugs |= set(attended.get("artist_slugs") or [])
+
+        if attended.get("artist_slug"):
+            attended_slugs.add(attended["artist_slug"])
+
+    if festival_attended_id:
+        festival_event = next(
+            (
+                candidate
+                for candidate in httpx.get(
+                    f"{API}/artists/{artist_slug}/events/all", timeout=120
+                ).json()
+                if candidate["id"] == festival_attended_id
+            ),
+            None,
+        )
+
+        if festival_event:
+            attended_slugs |= set(
+                festival_event.get("artist_slugs") or []
+            )
+
+            if festival_event.get("artist_slug"):
+                attended_slugs.add(festival_event["artist_slug"])
+
+    never_seen_artist = next(
+        (
+            slug
+            for slug in (artist_slug, other_artist)
+            if slug not in attended_slugs
+        ),
+        None,
+    )
+
+    with api(author_token) as client:
+        if never_seen_artist:
+            client.post(f"/artists/{never_seen_artist}/follow")
+
     return {
         "artist_slug": artist_slug,
         "other_artist": other_artist,
+        "never_seen_artist": never_seen_artist,
         "artist_name": names[artist_slug],
         "author_token": author_token,
         "author": author,
@@ -286,6 +417,9 @@ def seed():
         "has_attendance": attendance_seeded,
         "review_note": review_note,
         "past_event": past_event,
+        "past_artist_slug": past_artist_slug,
+        "festival_attended_id": festival_attended_id,
+        "festival_lineup_slugs": festival_lineup_slugs,
     }
 
 
@@ -311,6 +445,14 @@ print(
 )
 
 SLUG = DATA["artist_slug"]
+
+# The artist whose history actually holds a finished show.
+#
+# The attendance seed accepts a past event from either seeded artist, so the
+# primary artist does not necessarily have one. Anything that needs a real
+# finished event card has to ask this artist, or it will audit an empty list and
+# report a missing element.
+PAST_SLUG = DATA["past_artist_slug"]
 
 
 def _all_events():
@@ -396,7 +538,7 @@ with sync_playwright() as p:
         ctx = browser.new_context(color_scheme=scheme)
         pg = ctx.new_page()
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(f"{BASE}/en", wait_until="networkidle")
+        pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
         check(
             f"theme: system {scheme} resolves to {scheme}",
             pg.evaluate("document.documentElement.getAttribute('data-theme')")
@@ -405,7 +547,7 @@ with sync_playwright() as p:
 
         pg.goto(
             f"{BASE}/en/profile/{DATA['author']['username']}",
-            wait_until="networkidle",
+            wait_until=NAV_WAIT,
         )
         pg.wait_for_timeout(1500)
 
@@ -457,7 +599,7 @@ with sync_playwright() as p:
         "console",
         lambda message: console.append(message.text) if message.type == "error" else None,
     )
-    pg.goto(f"{BASE}/en", wait_until="networkidle")
+    pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
     check(
         "theme: system light resolves to light",
         pg.evaluate("document.documentElement.getAttribute('data-theme')") == "light",
@@ -536,12 +678,12 @@ with sync_playwright() as p:
         f"{layout_before} -> {layout_after}",
     )
 
-    pg.reload(wait_until="networkidle")
+    pg.reload(wait_until=NAV_WAIT)
     check(
         "theme: survives a reload",
         pg.evaluate("document.documentElement.getAttribute('data-theme')") == toggled,
     )
-    pg.goto(f"{BASE}/pt-BR", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR", wait_until=NAV_WAIT)
     check(
         "theme: survives navigation in another locale",
         pg.evaluate("document.documentElement.getAttribute('data-theme')") == toggled,
@@ -555,7 +697,7 @@ with sync_playwright() as p:
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
 
-    pg.goto(f"{BASE}/en/artists/{SLUG}", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/artists/{SLUG}", wait_until=NAV_WAIT)
 
     # In dev the first hit on a route is compiled on demand, so the client
     # bundle can land after network idle. Wait for the strip rather than
@@ -585,13 +727,13 @@ with sync_playwright() as p:
     )
 
     # Following the tab must land on the community page itself.
-    pg.goto(f"{BASE}/en/artists/{SLUG}", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/artists/{SLUG}", wait_until=NAV_WAIT)
     pg.locator("[data-testid='artist-tab-community']").wait_for(
         state="attached", timeout=45000
     )
     pg.locator("[data-testid='artist-tab-community']").click()
     pg.wait_for_url(f"**/en/artists/{SLUG}/community", timeout=15000)
-    pg.wait_for_load_state("networkidle")
+    pg.wait_for_timeout(900)  # content settles; assertions auto-wait
     check("artist tabs: Community opens a dedicated page", pg.url.endswith("/community"), pg.url)
     check(
         "community page names the artist",
@@ -606,7 +748,7 @@ with sync_playwright() as p:
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
 
-    pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(600)
 
     check(
@@ -635,7 +777,7 @@ with sync_playwright() as p:
     )
 
     # Opening the comments of a signed-out visitor must not redirect.
-    pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(600)
     pg.locator("[data-testid='community-post-comments-toggle']").first.click()
     pg.wait_for_timeout(600)
@@ -663,7 +805,7 @@ with sync_playwright() as p:
         "community: another artist's post is not listed here",
         DATA["other_marker"] not in body,
     )
-    pg.goto(f"{BASE}/en/artists/{DATA['other_artist']}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/artists/{DATA['other_artist']}/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(900)
     other_body = pg.content()
     check(
@@ -681,9 +823,9 @@ with sync_playwright() as p:
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until=NAV_WAIT)
     store_token(pg, DATA["visitor_token"], DATA["visitor"])
-    pg.reload(wait_until="networkidle")
+    pg.reload(wait_until=NAV_WAIT)
     pg.wait_for_timeout(800)
 
     gate = pg.locator("[data-testid='participation-gate']")
@@ -813,9 +955,9 @@ with sync_playwright() as p:
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until=NAV_WAIT)
     store_token(pg, DATA["fan_token"], DATA["fan"])
-    pg.reload(wait_until="networkidle")
+    pg.reload(wait_until=NAV_WAIT)
     pg.wait_for_timeout(800)
     pg.locator("[data-testid='community-post-comments-toggle']").first.click()
     pg.wait_for_timeout(800)
@@ -829,7 +971,7 @@ with sync_playwright() as p:
     )
     username_link.first.click()
     pg.wait_for_url("**/en/profile/**", timeout=15000)
-    pg.wait_for_load_state("networkidle")
+    pg.wait_for_timeout(900)  # content settles; assertions auto-wait
     check(
         "usernames: community author link navigates to the profile",
         "/en/profile/" in pg.url,
@@ -837,7 +979,7 @@ with sync_playwright() as p:
     )
 
     # Same link in pt-BR must keep the reader's language.
-    pg.goto(f"{BASE}/pt-BR/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR/artists/{SLUG}/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(700)
     pg.locator("[data-testid='community-post-comments-toggle']").first.click()
     pg.wait_for_timeout(800)
@@ -852,7 +994,7 @@ with sync_playwright() as p:
     check("usernames: profile opens in pt-BR", "/pt-BR/profile/" in pg.url, pg.url)
 
     # Locale is preserved in every supported language.
-    pg.goto(f"{BASE}/es/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/es/artists/{SLUG}/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(700)
     es_href = pg.locator("[data-testid='community-username-link']").first.get_attribute("href")
     check(
@@ -863,7 +1005,7 @@ with sync_playwright() as p:
 
     # A locale-less profile URL must land on the single canonical localized
     # route, never on a second, unprefixed copy of the page.
-    pg.goto(f"{BASE}/profile/{DATA['author']['username']}", wait_until="networkidle")
+    pg.goto(f"{BASE}/profile/{DATA['author']['username']}", wait_until=NAV_WAIT)
     pg.wait_for_timeout(800)
     check(
         "usernames: the unprefixed profile URL resolves to one localized route",
@@ -873,7 +1015,7 @@ with sync_playwright() as p:
     )
 
     # Usernames are also clickable in the social graph.
-    pg.goto(f"{BASE}/en/profile/{DATA['author']['username']}", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/profile/{DATA['author']['username']}", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1000)
     pg.locator("[data-testid='profile-followers-toggle']").click()
     pg.wait_for_timeout(1500)
@@ -887,7 +1029,7 @@ with sync_playwright() as p:
     )
 
     # =============================================================== 7. FEED
-    pg.goto(f"{BASE}/en/feed", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/feed", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
 
     check("feed: requires authentication and is reachable", "/en/feed" in pg.url, pg.url)
@@ -934,7 +1076,7 @@ with sync_playwright() as p:
 
     seen = {}
     for key in filter_keys:
-        pg.goto(f"{BASE}/en/feed", wait_until="networkidle")
+        pg.goto(f"{BASE}/en/feed", wait_until=NAV_WAIT)
         pg.wait_for_timeout(1200)
         # The active filter is client state, so drive it through the chip.
         chip = pg.locator(f"[data-testid='feed-filter-{key}']")
@@ -971,7 +1113,7 @@ with sync_playwright() as p:
     # The unified timeline must be paged in before it can be compared with a
     # filter: comparing against the first page alone would fail for any
     # activity that is simply older than that page.
-    pg.goto(f"{BASE}/en/feed", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/feed", wait_until=NAV_WAIT)
     pg.wait_for_selector("[data-testid='feed-item']", timeout=20000)
     paged = 1
     while paged < 12:
@@ -1040,7 +1182,7 @@ with sync_playwright() as p:
 
     # Every row in the unified timeline must lead somewhere real, in the
     # reader's locale.
-    pg.goto(f"{BASE}/en/feed", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/feed", wait_until=NAV_WAIT)
     pg.wait_for_selector("[data-testid='feed-item']", timeout=20000)
     rows = pg.locator("[data-testid='feed-item']")
     targets = pg.locator("[data-testid='feed-target-link']")
@@ -1084,7 +1226,7 @@ with sync_playwright() as p:
         check("feed: the target link resolves to a real page", False, "skipped")
     else:
         community_target.click()
-        pg.wait_for_load_state("networkidle")
+        pg.wait_for_timeout(900)  # content settles; assertions auto-wait
         pg.wait_for_timeout(1200)
         check(
             "feed: the target link resolves to a real page",
@@ -1099,9 +1241,9 @@ with sync_playwright() as p:
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{BASE}/en", wait_until="networkidle")
+    pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
     store_token(pg, DATA["author_token"], DATA["author"])
-    pg.goto(f"{BASE}/en", wait_until="networkidle")
+    pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
     pg.wait_for_timeout(800)
 
     nav = pg.locator("nav").first.inner_text()
@@ -1130,7 +1272,7 @@ with sync_playwright() as p:
     )
 
     # The author was followed, liked and commented on, so they have a full inbox.
-    pg.goto(f"{BASE}/en/notifications", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/notifications", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
     check("notifications: route is reachable", "/en/notifications" in pg.url, pg.url)
 
@@ -1152,7 +1294,7 @@ with sync_playwright() as p:
     )
 
     # Actor -> profile, in the reader's locale.
-    pg.goto(f"{BASE}/pt-BR/notifications", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR/notifications", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
     actor_link = pg.locator("[data-testid='notification-actor-link']").first
     check(
@@ -1164,7 +1306,7 @@ with sync_playwright() as p:
     pg.wait_for_url("**/pt-BR/profile/**", timeout=15000)
     check("notifications: the actor link opens the profile", "/pt-BR/profile/" in pg.url, pg.url)
 
-    pg.goto(f"{BASE}/en/notifications", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/notifications", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
     target_link = pg.locator("[data-testid='notification-target-link']").first
     target_href = target_link.get_attribute("href")
@@ -1188,7 +1330,7 @@ with sync_playwright() as p:
     )
 
     # Mark one as read through its own control.
-    pg.goto(f"{BASE}/en/notifications", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/notifications", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
     unread_before = pg.locator("[data-testid='notification-unread-dot']").count()
     first = pg.locator("[data-testid='notification-item']").first
@@ -1231,7 +1373,7 @@ with sync_playwright() as p:
     )
 
     # The unread badge in the navbar reflects the same state.
-    pg.goto(f"{BASE}/en", wait_until="networkidle")
+    pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1500)
     bell_now = pg.locator("nav a[data-testid='notifications-link']").first
     badge = bell_now.locator("span").last
@@ -1249,7 +1391,7 @@ with sync_playwright() as p:
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{BASE}/en/profile/{DATA['author']['username']}", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/profile/{DATA['author']['username']}", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1000)
 
     for kind in ("followers", "following"):
@@ -1307,7 +1449,7 @@ with sync_playwright() as p:
         ("/es/artists", "Artistas"),
     ]
     for path, expected in cases:
-        pg.goto(f"{BASE}{path}", wait_until="networkidle")
+        pg.goto(f"{BASE}{path}", wait_until=NAV_WAIT)
         check(
             f"i18n: {path} renders '{expected[:28]}'",
             expected in pg.content(),
@@ -1318,7 +1460,7 @@ with sync_playwright() as p:
         "/es": ["Your Feed", "Welcome Back", "Create your account", "Every concert", "Notifications"],
     }
     for path, bad in leaks.items():
-        pg.goto(f"{BASE}{path}", wait_until="networkidle")
+        pg.goto(f"{BASE}{path}", wait_until=NAV_WAIT)
         # Visible text only: the raw HTML also carries the serialized message
         # catalog, whose English key names are not something anyone reads.
         visible = pg.evaluate("document.body.innerText")
@@ -1326,7 +1468,7 @@ with sync_playwright() as p:
         check(f"i18n: no English leak on {path}", not found, ", ".join(found))
 
     for path, lang in [("/pt-BR", "pt-BR"), ("/es", "es")]:
-        pg.goto(f"{BASE}{path}", wait_until="networkidle")
+        pg.goto(f"{BASE}{path}", wait_until=NAV_WAIT)
         check(
             f"i18n: html lang={lang} on {path}",
             pg.evaluate("document.documentElement.getAttribute('lang')") == lang,
@@ -1345,12 +1487,12 @@ with sync_playwright() as p:
     ]
     pt_body = ""
     for path, _ in accented:
-        pg.goto(f"{BASE}{path}", wait_until="networkidle")
+        pg.goto(f"{BASE}{path}", wait_until=NAV_WAIT)
         pg.wait_for_timeout(500)
         pt_body += pg.content()
 
     for path, phrase in accented:
-        pg.goto(f"{BASE}{path}", wait_until="networkidle")
+        pg.goto(f"{BASE}{path}", wait_until=NAV_WAIT)
         pg.wait_for_timeout(500)
         body = pg.content()
         check(f"i18n: pt-BR {path} renders '{phrase}'", phrase in body)
@@ -1360,7 +1502,7 @@ with sync_playwright() as p:
 
     # Localized community gate copy. A signed-out visitor is offered sign in,
     # not a Follow button, so assert the instruction the gate is built around.
-    pg.goto(f"{BASE}/pt-BR/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR/artists/{SLUG}/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(800)
     pt_gate = pg.locator("[data-testid='participation-gate']")
     check(
@@ -1369,7 +1511,7 @@ with sync_playwright() as p:
         and "Siga este artista para participar" in pt_gate.inner_text(),
         pt_gate.inner_text().replace("\n", " | ")[:140] if pt_gate.count() else "no gate",
     )
-    pg.goto(f"{BASE}/es/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/es/artists/{SLUG}/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(800)
     es_gate = pg.locator("[data-testid='participation-gate']")
     check(
@@ -1380,7 +1522,7 @@ with sync_playwright() as p:
     )
 
     # The retired global community URL still resolves.
-    pg.goto(f"{BASE}/en/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(800)
     check("i18n: retired /community redirects to artists", "/en/artists" in pg.url, pg.url)
 
@@ -1465,16 +1607,30 @@ with sync_playwright() as p:
         ),
         (
             "event card date",
-            f"{BASE}/en/artists/{SLUG}/events",
+            f"{BASE}/en/artists/{PAST_SLUG}/events",
             "[data-testid='event-card'] .text-muted",
+            # The gigography behind this page is fetched client-side, so the
+            # cards are not in the document at navigation time.
+            "[data-testid='event-card']",
         ),
     ]
 
-    for label, url, selector in audit_targets:
-        pg.goto(url, wait_until="networkidle")
+    for target in audit_targets:
+        label, url, selector = target[0], target[1], target[2]
+
+        # What has to exist before the audited element can be measured.
+        ready = target[3] if len(target) > 3 else selector
+
+        pg.goto(url, wait_until=NAV_WAIT)
         store_token(pg, DATA["author_token"], DATA["author"])
-        pg.reload(wait_until="networkidle")
-        pg.wait_for_timeout(1200)
+        pg.reload(wait_until=NAV_WAIT)
+
+        try:
+            pg.wait_for_selector(ready, timeout=30000)
+        except Exception:
+            pass
+
+        pg.wait_for_timeout(800)
 
         element = pg.locator(selector).first
         if element.count() == 0:
@@ -1491,7 +1647,7 @@ with sync_playwright() as p:
         )
 
     # Body text itself must not be pure black: hierarchy is kept on purpose.
-    pg.goto(f"{BASE}/en", wait_until="networkidle")
+    pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
     body_color = pg.evaluate("getComputedStyle(document.body).color")
     check(
         "contrast: body text is not pure black (hierarchy preserved)",
@@ -1516,12 +1672,27 @@ with sync_playwright() as p:
         api_artists = client.get(
             f"/users/profile/{username}/artists"
         ).json()
+        api_artists_seen = client.get(
+            f"/users/profile/{username}/artists-seen"
+        ).json()
         api_festivals = client.get(
             f"/users/profile/{username}/festivals"
         ).json()
         api_events = client.get(
             f"/users/profile/{username}/events"
         ).json()
+
+        # The three states the Shows section breaks down into. Each is read
+        # from the endpoint rather than derived from another, so a figure that
+        # disagrees with its own list is visible here instead of hidden by a
+        # second opinion of the same data.
+        api_shows = {
+            state: client.get(
+                f"/users/profile/{username}/events",
+                params={"status": state},
+            ).json()
+            for state in ("attended", "want-to-go", "maybe")
+        }
         # The connections route answers with an envelope, so the people are
         # read out of it rather than from the object itself.
         followers = client.get(
@@ -1571,15 +1742,71 @@ with sync_playwright() as p:
         f"count={stats['festivals_count']} rows={len(api_festivals['festivals'])}",
     )
     check(
-        "profile: the artists figure counts the follows behind it",
+        "profile: the artists figure counts the artists actually seen",
+        stats["artists_seen"] == len(api_artists_seen["artists"]),
+        f"count={stats['artists_seen']} "
+        f"rows={len(api_artists_seen['artists'])}",
+    )
+    check(
+        "profile: the artists figure is not the follows behind it",
         stats["followed_artists_count"] == len(api_artists["artists"]),
-        f"count={stats['followed_artists_count']} rows={len(api_artists['artists'])}",
+        f"followed={stats['followed_artists_count']} "
+        f"rows={len(api_artists['artists'])}",
     )
     check(
         "profile: the shows figure counts the attended rows behind it",
         stats["shows_attended"] == len(api_events["events"])
         or stats["shows_attended"] >= len(api_events["events"]),
         f"count={stats['shows_attended']} page={len(api_events['events'])}",
+    )
+
+    # The breakdown has to agree with the header statistics, which are counted
+    # by a different service from the one that lists the shows.
+    breakdown_matches_stats = (
+        api_shows["attended"]["counts"]["attended"]
+        == stats["shows_attended"]
+        and api_shows["attended"]["counts"]["want-to-go"]
+        == stats["shows_going"]
+        and api_shows["attended"]["counts"]["maybe"]
+        == stats["shows_maybe"]
+    )
+
+    check(
+        "profile: the shows breakdown agrees with the header statistics",
+        breakdown_matches_stats,
+        f"counts={api_shows['attended']['counts']} vs "
+        f"attended={stats['shows_attended']} "
+        f"going={stats['shows_going']} "
+        f"maybe={stats['shows_maybe']}",
+    )
+
+    check(
+        "profile: the three show states partition the logged shows",
+        sum(
+            api_shows[state]["total"]
+            for state in ("attended", "want-to-go", "maybe")
+        )
+        == stats["shows_attended"] + stats["shows_going"] + stats["shows_maybe"],
+        f"totals={[api_shows[s]['total'] for s in api_shows]}",
+    )
+
+    check(
+        "profile: each show state reports its own rows",
+        all(
+            # The response speaks the product's wording, the same words the
+            # `status` filter accepts, so a client never has to translate
+            # between what it asked for and what it read back.
+            api_shows[state]["status"] == state
+            and api_shows[state]["total"] >= len(api_shows[state]["events"])
+            and set(api_shows[state]["counts"]) == {
+                "attended",
+                "want-to-go",
+                "maybe",
+            }
+            for state in ("attended", "want-to-go", "maybe")
+        ),
+        f"echoed={[api_shows[s]['status'] for s in api_shows]} "
+        f"keys={sorted(api_shows['attended']['counts'])}",
     )
 
     # The author really did post, follow artists and log a show, so zeros here
@@ -1623,17 +1850,26 @@ with sync_playwright() as p:
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{BASE}/en/profile/{username}", wait_until="networkidle")
-    pg.wait_for_timeout(1500)
+    pg.goto(f"{BASE}/en/profile/{username}", wait_until=NAV_WAIT)
 
-    # Four clickable figures: reviews, shows, festivals and followed artists.
+    # The figures are only rendered once the statistics arrive, so waiting for
+    # them is what makes reading them meaningful. Every assertion below is
+    # about a figure or a panel opened from one.
+    try:
+        pg.wait_for_selector("[data-testid='profile-stats']", timeout=30000)
+    except Exception:
+        pass
+
+    pg.wait_for_timeout(600)
+
+    # Four clickable figures: reviews, shows, festivals and the artists seen.
     # The retired analytics counters (going, maybe, upcoming, posts) had no rows
     # behind them, so they are gone rather than left as dead numbers.
     shown = {
         "reviews_count": "profile-stat-reviews",
         "shows_attended": "profile-stat-events",
         "festivals_count": "profile-stat-festivals",
-        "followed_artists_count": "profile-stat-artists",
+        "artists_seen": "profile-stat-artists",
     }
 
     for key, test_id in shown.items():
@@ -1679,7 +1915,7 @@ with sync_playwright() as p:
         ("reviews", "profile-reviews", bool(api_reviews["reviews"])),
         ("events", "profile-events", bool(api_events["events"])),
         ("festivals", "profile-festivals", bool(api_festivals["festivals"])),
-        ("artists", "profile-artists", bool(api_artists["artists"])),
+        ("artists", "profile-artists-seen", bool(api_artists_seen["artists"])),
     ]
 
     for key, list_test_id, has_rows in panels:
@@ -1699,6 +1935,14 @@ with sync_playwright() as p:
 
         # A figure has to open the panel that belongs to it. An empty list is
         # still a list, so the container is what is checked, not its rows.
+        #
+        # The Shows panel holds a diary rather than a flat list, so the
+        # container it is checked against is the breakdown that always renders.
+        if key == "events":
+            rendered_list = pg.locator(
+                "[data-testid='profile-shows-breakdown']"
+            )
+
         check(
             f"profile: the {key} figure opens its list",
             panel.count() == 1
@@ -1711,7 +1955,7 @@ with sync_playwright() as p:
             "reviews": len(api_reviews["reviews"]),
             "events": len(api_events["events"]),
             "festivals": len(api_festivals["festivals"]),
-            "artists": len(api_artists["artists"]),
+            "artists": len(api_artists_seen["artists"]),
         }[key]
 
         if has_rows:
@@ -1752,16 +1996,60 @@ with sync_playwright() as p:
             )
 
         if key == "artists":
-            artist_links = pg.locator("[data-testid='profile-artist-link']")
+            # A row is a link to the artist, and to nothing else. The community
+            # is a different place, reached from the artist's own page.
+            page_links = pg.locator(
+                "[data-testid='profile-artist-page-link']"
+            )
+            page_hrefs = page_links.evaluate_all(
+                "els => els.map(e => e.getAttribute('href'))"
+            )
+
             check(
-                "profile: a followed artist opens that artist's community",
-                artist_links.count() >= 1
-                and (artist_links.first.get_attribute("href") or "").endswith(
-                    "/community"
+                "profile: an artist seen links to that artist's own page",
+                bool(page_hrefs)
+                and all(
+                    (href or "").startswith("/en/artists/")
+                    and (href or "").endswith("/community") is False
+                    for href in page_hrefs
                 ),
-                artist_links.first.get_attribute("href")
-                if artist_links.count()
-                else "no artist rows",
+                f"hrefs={page_hrefs[:3]}",
+            )
+
+            check(
+                "profile: the artists list offers no community destination",
+                pg.locator(
+                    "[data-testid='profile-panel'] a[href$='/community']"
+                ).count()
+                == 0,
+            )
+
+            # The only figure on a row is how many shows it means.
+            counts = pg.eval_on_selector_all(
+                "[data-testid='profile-artists-seen'] "
+                "[data-testid='profile-artist-shows']",
+                "els => els.map(e => e.innerText.replace(/\\s+/g,' ').trim())",
+            )
+
+            check(
+                "profile: every artist row states how many shows it means",
+                len(counts) == len(api_artists_seen["artists"])
+                and all(counts),
+                f"rows={len(counts)} artists="
+                f"{len(api_artists_seen['artists'])} sample={counts[:2]}",
+            )
+
+            # A community post count beside "3 shows" would make a concert
+            # history read as a popularity chart, so it must be gone entirely.
+            page_text = pg.inner_text(
+                "[data-testid='profile-panel']"
+            ).lower()
+
+            check(
+                "profile: no community post counts sit beside the artists",
+                "post" not in page_text and "posts" not in page_text,
+                f"mentions a post count: "
+                f"{[w for w in ('post', 'posts') if w in page_text]}",
             )
 
         # Tapping the same figure again closes the panel.
@@ -1772,18 +2060,22 @@ with sync_playwright() as p:
             pg.locator("[data-testid='profile-panel']").count() == 0,
         )
 
-    # A community is where a follow leads, so the artists panel has to name the
-    # artists the API reported rather than a row of generic cards.
+    # The artists panel has to name the artists the endpoint reported, because
+    # attendance is the only thing that puts an artist there.
     pg.locator("[data-testid='profile-stat-artists']").first.click()
     try:
-        pg.wait_for_selector("[data-testid='profile-artists']", timeout=20000)
+        pg.wait_for_selector(
+            "[data-testid='profile-artists-seen']", timeout=20000
+        )
     except Exception:
         pass
     rendered_artists = pg.eval_on_selector_all(
-        "[data-testid='profile-artists'] li",
+        "[data-testid='profile-artists-seen'] li",
         "els => els.map(e => e.innerText.replace(/\\s+/g, ' ').trim())",
     )
-    expected_artists = {artist["name"] for artist in api_artists["artists"]}
+    expected_artists = {
+        artist["name"] for artist in api_artists_seen["artists"]
+    }
     matched = [
         name
         for name in expected_artists
@@ -1791,13 +2083,541 @@ with sync_playwright() as p:
     ]
 
     check(
-        "profile: the followed artists are the ones the endpoint reported",
+        "profile: the artists are the ones the endpoint reported",
         len(rendered_artists) > 0
         and len(matched) == len(expected_artists),
         f"{len(matched)}/{len(expected_artists)} named, page shows {rendered_artists[:3]}",
     )
+
+    # An artist the author follows and has never been to a show of must not be
+    # in the list. This is the whole difference between "artists seen" and the
+    # list this replaced.
+    followed_only = DATA["never_seen_artist"]
+
+    if followed_only:
+        followed_names = {
+            artist["slug"] for artist in api_artists["artists"]
+        }
+
+        check(
+            "profile: an artist who is only followed is not among the artists "
+            "seen",
+            followed_only in followed_names
+            and followed_only
+            not in {artist["slug"] for artist in api_artists_seen["artists"]},
+            f"followed={followed_only} "
+            f"seen={sorted(a['slug'] for a in api_artists_seen['artists'])}",
+        )
+
+    # A festival lineup is not personal attendance.
+    #
+    # This used to assert the opposite - that attending a festival date added its
+    # lineup to the artist's count - which was true of the implementation and
+    # wrong about the product. Someone can buy a festival ticket and see one act
+    # on it, so only the event's own direct artist reference counts.
+    #
+    # Absence from the list is not the way to prove it, because an artist on a
+    # festival bill may also have been seen at a concert and be in the list for
+    # that reason. What can be checked is the arithmetic: every artist's count
+    # must be explained by attended events that name them directly, and a festival
+    # date names nobody.
+    direct_counts: dict = {}
+
+    for event in api_shows["attended"]["events"]:
+
+        for slug in event.get("artist_slugs") or []:
+
+            direct_counts[slug] = direct_counts.get(slug, 0) + 1
+
+    overcounted = {
+        artist["slug"]: (artist["shows_count"], direct_counts.get(artist["slug"], 0))
+        for artist in api_artists_seen["artists"]
+        if artist["shows_count"] > direct_counts.get(artist["slug"], 0)
+    }
+
+    festival_lineup_only = [
+        slug
+        for slug in DATA["festival_lineup_slugs"]
+        if direct_counts.get(slug, 0) == 0
+        and slug in {artist["slug"] for artist in api_artists_seen["artists"]}
+    ]
+
+    check(
+        "profile: a festival lineup adds nobody to the history",
+        not overcounted and not festival_lineup_only,
+        f"festival={DATA['festival_attended_id']} "
+        f"lineup={DATA['festival_lineup_slugs']} "
+        f"overcounted={overcounted} "
+        f"lineup_only_counted={festival_lineup_only}",
+    )
+
+    check(
+        "profile: an artist followed but never attended is absent",
+        not (
+            DATA["never_seen_artist"]
+            and DATA["never_seen_artist"]
+            in {artist["slug"] for artist in api_artists_seen["artists"]}
+        ),
+        f"followed-only={DATA['never_seen_artist']}",
+    )
+
+    # The count is of distinct attended events, so it can never exceed the number
+    # of shows the person attended.
+    attended_total = api_shows["attended"]["total"]
+
+    check(
+        "profile: no artist's show count exceeds the shows actually attended",
+        all(
+            0 < artist["shows_count"] <= attended_total
+            for artist in api_artists_seen["artists"]
+        ),
+        f"attended={attended_total} counts="
+        f"{[a['shows_count'] for a in api_artists_seen['artists']]}",
+    )
     pg.locator("[data-testid='profile-stat-artists']").first.click()
     pg.wait_for_timeout(400)
+
+    # Clicking an artist has to arrive at that artist's page, not at a
+    # community and not at a 404. The route is checked rather than the click,
+    # because a link with the right href is what a reader gets either way.
+    pg.locator("[data-testid='profile-stat-artists']").first.click()
+
+    try:
+        pg.wait_for_selector(
+            "[data-testid='profile-artists-seen']", timeout=20000
+        )
+    except Exception:
+        pass
+
+    artist_rows = pg.locator(
+        "[data-testid='profile-artist-page-link']"
+    )
+
+    if artist_rows.count():
+        first_href = artist_rows.first.get_attribute("href") or ""
+
+        artist_rows.first.click()
+
+        try:
+            pg.wait_for_url(f"**{first_href}", timeout=20000)
+        except Exception:
+            pass
+
+        check(
+            "profile: clicking an artist opens that artist's page",
+            f"/artists/" in pg.url and "/community" not in pg.url,
+            pg.url,
+        )
+
+        # The page has to actually be an artist page, not a soft 404 that happens
+        # to share the route. The heading is client-rendered, so waiting for it is
+        # what makes the check meaningful rather than a race.
+        try:
+            pg.wait_for_selector("h1", timeout=20000)
+        except Exception:
+            pass
+
+        headings = pg.locator("h1").all_inner_texts()
+
+        check(
+            "profile: the artist page renders behind that row",
+            bool(headings) and "profile/" not in pg.url,
+            f"url={pg.url} heading={headings[:1]}",
+        )
+
+        pg.goto(f"{BASE}/en/profile/{username}", wait_until=NAV_WAIT)
+
+        try:
+            pg.wait_for_selector(
+                "[data-testid='profile-stats']", timeout=30000
+            )
+        except Exception:
+            pass
+
+        pg.wait_for_timeout(600)
+
+        pg.locator("[data-testid='profile-stat-events']").first.click()
+
+        try:
+            pg.wait_for_selector(
+                "[data-testid='profile-shows-breakdown']", timeout=20000
+            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # ATTENDED SHOWS AS A DIARY
+    # The attended state is a calendar page: grouped by year, then by month,
+    # with the day number leading each row. The grouping is read back from the
+    # rendered structure and compared against the endpoint's own dates, so a
+    # diary grouped by anything other than when the show happened fails here.
+    # ------------------------------------------------------------------
+
+    pg.locator("[data-testid='profile-shows-attended']").click()
+
+    try:
+        pg.wait_for_selector("[data-testid='profile-diary']", timeout=20000)
+    except Exception:
+        pass
+
+    pg.wait_for_timeout(400)
+
+    check(
+        "profile: the attended shows read as a diary",
+        pg.locator("[data-testid='profile-diary']").count() == 1
+        and pg.locator("[data-testid='profile-events']").get_attribute(
+            "data-show-layout"
+        )
+        == "diary",
+        pg.locator("[data-testid='profile-events']").get_attribute(
+            "data-show-layout"
+        )
+        or "no diary",
+    )
+
+    diary_years = pg.eval_on_selector_all(
+        "[data-testid='profile-diary'] "
+        "[data-testid='profile-diary-year']",
+        "els => els.map(e => e.getAttribute('data-year'))",
+    )
+    diary_months = pg.eval_on_selector_all(
+        "[data-testid='profile-diary'] "
+        "[data-testid='profile-diary-month']",
+        "els => els.map(e => e.getAttribute('data-month'))",
+    )
+    diary_days = pg.eval_on_selector_all(
+        "[data-testid='profile-diary'] [data-testid='profile-diary-day']",
+        "els => els.map(e => e.innerText.trim())",
+    )
+
+    check(
+        "profile: the diary is grouped by year and by month",
+        bool(diary_years)
+        and bool(diary_months)
+        and len(diary_days) == len(api_shows["attended"]["events"]),
+        f"years={diary_years} months={diary_months} "
+        f"days={len(diary_days)} "
+        f"events={len(api_shows['attended']['events'])}",
+    )
+
+    # The day on each row has to be the day of the show, which means comparing
+    # against the endpoint's own dates rather than against what is on screen.
+    #
+    # The day is read in the browser's own timezone, because that is how the row
+    # renders it: every other date on the product is formatted for the reader's
+    # locale, so a show at midnight UTC on the 31st is the 30th for a reader in
+    # São Paulo. Slicing the UTC string here would be asserting that a page
+    # shows UTC, which is not what it promises.
+    expected_days = sorted(
+        pg.evaluate(
+            "values => values.map(v => String(new Date(v).getDate())"
+            ".padStart(2, '0'))",
+            [
+                event["starts_at"]
+                for event in api_shows["attended"]["events"]
+                if event.get("starts_at")
+            ],
+        )
+    )
+
+    rendered_days = sorted(
+        day.strip()[:2]
+        for day in diary_days
+        if day.strip()[:2].isdigit()
+    )
+
+    check(
+        "profile: each diary row leads with the day of its show",
+        rendered_days == expected_days,
+        f"rendered={rendered_days} expected={expected_days} "
+        f"labels={diary_days} "
+        f"tz={pg.evaluate('Intl.DateTimeFormat().resolvedOptions().timeZone')}",
+    )
+
+    # A multi-day event is printed as the span it really was, read from the
+    # event's own end date. One with no span is printed as a single day.
+    spans = [day for day in diary_days if "\u2013" in day]
+
+    multi_day = [
+        event
+        for event in api_shows["attended"]["events"]
+        if event.get("ends_at")
+        and event.get("starts_at")
+        and event["ends_at"][:10] != event["starts_at"][:10]
+    ]
+
+    check(
+        "profile: a multi-day event shows its real date span",
+        len(spans) == len(multi_day),
+        f"rows showing a span={spans} "
+        f"events with a span={len(multi_day)}",
+    )
+
+    check(
+        "profile: the diary reads newest first",
+        diary_years == sorted(diary_years, reverse=True)
+        and diary_months == sorted(diary_months, reverse=True),
+        f"years={diary_years} months={diary_months}",
+    )
+
+    # A diary is grouped by when a show happened, never by when the row was
+    # written. An event with an old start date and a new creation date must land
+    # in its own month, which is what makes the sort above meaningful.
+    dated_events = [
+        event for event in api_shows["attended"]["events"] if event.get("starts_at")
+    ]
+
+    if dated_events:
+        oldest = min(dated_events, key=lambda event: event["starts_at"])
+
+        # Read in the reader's timezone for the same reason the day is.
+        oldest_month = pg.evaluate(
+            "value => { const d = new Date(value);"
+            " return String(d.getFullYear()) +"
+            " String(d.getMonth() + 1).padStart(2, '0'); }",
+            oldest["starts_at"],
+        )
+
+        check(
+            "profile: the diary is grouped by the show's own date",
+            oldest_month in diary_months,
+            f"oldest={oldest['starts_at']} "
+            f"looked for {oldest_month} in {diary_months}",
+        )
+
+    # The diary rows are event links, so the count on the header is advertising
+    # something openable.
+    diary_hrefs = pg.eval_on_selector_all(
+        "[data-testid='profile-diary'] a[href]",
+        "els => els.map(e => e.getAttribute('href'))",
+    )
+
+    check(
+        "profile: every diary row links to its event",
+        bool(diary_hrefs)
+        and all(
+            (href or "").startswith("/en/events/") for href in diary_hrefs
+        ),
+        f"hrefs={diary_hrefs[:3]}",
+    )
+
+    # The section is left closed so the breakdown checks below start from a
+    # collapsed profile. Tapping the same figure again toggles it shut, and a
+    # section left open would make the next open a close.
+    pg.locator("[data-testid='profile-stat-events']").first.click()
+
+    try:
+        pg.wait_for_function(
+            "() => document.querySelector(\"[data-testid='profile-panel']\")"
+            " === null",
+            timeout=15000,
+        )
+    except Exception:
+        pass
+
+    check(
+        "profile: the Shows section closes after the diary",
+        pg.locator("[data-testid='profile-panel']").count() == 0,
+    )
+
+    # ------------------------------------------------------------------
+    # SHOWS BREAKDOWN
+    # Shows is one section that opens into the three states a show can be in.
+    # Each figure has to be the endpoint's own number for that state, and each
+    # state has to lead to the events the endpoint listed for it.
+    # ------------------------------------------------------------------
+
+    pg.locator("[data-testid='profile-stat-events']").first.click()
+
+    try:
+        pg.wait_for_selector(
+            "[data-testid='profile-shows-breakdown']", timeout=20000
+        )
+    except Exception:
+        pass
+
+    breakdown = pg.locator("[data-testid='profile-shows-breakdown']")
+
+    check(
+        "profile: the Shows section breaks into three states",
+        breakdown.count() == 1
+        and pg.locator("[data-testid='profile-shows-attended']").count() == 1
+        and pg.locator("[data-testid='profile-shows-want-to-go']").count() == 1
+        and pg.locator("[data-testid='profile-shows-maybe']").count() == 1,
+        f"breakdown={breakdown.count()}",
+    )
+
+    # The figure on each control is the count the endpoint reported for that
+    # state, not the header total and not a guess.
+    #
+    # The list container only appears once the rows have arrived, so waiting for
+    # it is what makes the counts meaningful: the controls render immediately
+    # with zeroes and fill in when the request resolves.
+    try:
+        pg.wait_for_selector("[data-testid='profile-events']", timeout=20000)
+    except Exception:
+        pass
+
+    pg.wait_for_timeout(400)
+
+    for state in ("attended", "want-to-go", "maybe"):
+        expected = api_shows[state]["total"]
+
+        figure_text = pg.locator(
+            f"[data-testid='profile-shows-{state}']"
+        ).inner_text()
+
+        digits = "".join(
+            ch for ch in figure_text.split("\n")[0] if ch.isdigit()
+        )
+
+        check(
+            f"profile: the {state} figure is the endpoint's count",
+            digits == str(expected),
+            f"shown={digits!r} endpoint={expected}",
+        )
+
+    # Attended is what a profile opens on, and it must be marked as open.
+    check(
+        "profile: the Shows section opens on the attended shows",
+        pg.locator(
+            "[data-testid='profile-shows-attended']"
+        ).get_attribute("aria-selected") == "true",
+        pg.locator(
+            "[data-testid='profile-shows-attended']"
+        ).get_attribute("aria-selected")
+        or "unset",
+    )
+
+    # Switching state shows that state's events, and the list reports which
+    # state it is holding so a stale list cannot pass for the right one.
+    for state in ("want-to-go", "maybe", "attended"):
+        pg.locator(f"[data-testid='profile-shows-{state}']").click()
+
+        try:
+            pg.wait_for_function(
+                "state => document.querySelector"
+                "(\"[data-testid='profile-events']\")"
+                "?.getAttribute('data-show-state') === state",
+                arg=state,
+                timeout=15000,
+            )
+        except Exception:
+            pass
+
+        holding = pg.locator(
+            "[data-testid='profile-events']"
+        ).get_attribute("data-show-state")
+
+        expected_titles = {
+            event["title"]
+            for event in api_shows[state]["events"]
+        }
+
+        rendered = pg.eval_on_selector_all(
+            "[data-testid='profile-events'] [data-testid='profile-event-link']",
+            "els => els.map(e => e.innerText.replace(/\\s+/g,' ').trim())",
+        )
+
+        matched = [
+            title
+            for title in expected_titles
+            if any(title[:24] in text for text in rendered)
+        ]
+
+        check(
+            f"profile: the {state} list holds the {state} shows",
+            holding == state and len(matched) == len(expected_titles),
+            f"holding={holding} matched={len(matched)}"
+            f"/{len(expected_titles)} rendered={len(rendered)}",
+        )
+
+        # Every row in every state has to lead to a real event page in the
+        # reader's locale, or the count is advertising something unopenable.
+        # A state with no rows has nothing to check and is not a failure.
+        hrefs = pg.eval_on_selector_all(
+            "[data-testid='profile-events'] a[href]",
+            "els => els.map(e => e.getAttribute('href'))",
+        )
+
+        wrong = [
+            href
+            for href in hrefs
+            if not (href or "").startswith("/en/events/")
+        ]
+
+        check(
+            f"profile: every {state} row links to a real event in the locale",
+            not wrong and (bool(hrefs) or not expected_titles),
+            f"offenders={wrong[:3]} of {len(hrefs)}, "
+            f"state has {len(expected_titles)} rows",
+        )
+
+    # A state nobody has any of still has to render, with its own empty state
+    # rather than another state's rows.
+    empty_states = [
+        state
+        for state in ("attended", "want-to-go", "maybe")
+        if api_shows[state]["total"] == 0
+    ]
+
+    if empty_states:
+        state = empty_states[0]
+
+        pg.locator(f"[data-testid='profile-shows-{state}']").click()
+        pg.wait_for_timeout(1200)
+
+        holding = pg.locator(
+            "[data-testid='profile-events']"
+        ).get_attribute("data-show-state")
+
+        rows = pg.locator(
+            "[data-testid='profile-events'] "
+            "[data-testid='profile-event-link']"
+        )
+
+        empty_shown = pg.locator(
+            "[data-testid='profile-events'] [data-testid='empty-state']"
+        )
+
+        check(
+            f"profile: an empty {state} state shows an empty state, not rows",
+            holding == state
+            and rows.count() == 0
+            and empty_shown.count() == 1,
+            f"holding={holding} rows={rows.count()} "
+            f"empty={empty_shown.count()}",
+        )
+
+    else:
+        check(
+            "profile: every show state has at least one row to show",
+            True,
+            "no empty state to exercise",
+        )
+
+    # Reviews belong to the Reviews section. While the Shows breakdown is open
+    # an unrelated list of reviews must not sit underneath it.
+    stray_reviews = pg.locator(
+        "[data-testid='profile-panel'] "
+        "[data-testid='review-card']"
+    ).count() + pg.locator(
+        "[data-testid='profile-latest-reviews']"
+    ).count()
+
+    check(
+        "profile: reviews are not showing while the Shows section is open",
+        stray_reviews == 0,
+        f"stray review blocks={stray_reviews}",
+    )
+
+    pg.locator("[data-testid='profile-stat-events']").first.click()
+    pg.wait_for_timeout(500)
+
+    check(
+        "profile: the Shows section collapses again",
+        pg.locator("[data-testid='profile-shows-breakdown']").count() == 0,
+    )
 
     # Four labels, in the reader's language.
     stat_labels = {
@@ -1807,8 +2627,16 @@ with sync_playwright() as p:
     }
 
     for locale, expected in stat_labels.items():
-        pg.goto(f"{BASE}/{locale}/profile/{username}", wait_until="networkidle")
-        pg.wait_for_timeout(1200)
+        pg.goto(f"{BASE}/{locale}/profile/{username}", wait_until=NAV_WAIT)
+
+        try:
+            pg.wait_for_selector(
+                "[data-testid='profile-stats']", timeout=30000
+            )
+        except Exception:
+            pass
+
+        pg.wait_for_timeout(500)
 
         labels = [
             pg.locator(f"[data-testid='{test_id}']")
@@ -1826,9 +2654,9 @@ with sync_playwright() as p:
 
     # The edit form only exists for the signed-in owner, so the session is
     # seeded before checking that the form itself is translated.
-    pg.goto(f"{BASE}/pt-BR/profile/{username}", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR/profile/{username}", wait_until=NAV_WAIT)
     store_token(pg, DATA["author_token"], DATA["author"])
-    pg.reload(wait_until="networkidle")
+    pg.reload(wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
     edit = pg.locator("[data-testid='profile-edit']")
 
@@ -1859,7 +2687,7 @@ with sync_playwright() as p:
         )
 
     # An unknown profile is reported as missing rather than as an empty one.
-    pg.goto(f"{BASE}/en/profile/no-such-user-{DATA['stamp']}", wait_until="networkidle")
+    pg.goto(f"{BASE}/en/profile/no-such-user-{DATA['stamp']}", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
     # The navbar carries the signed-in user's own handle, so only the profile
     # body is checked for the requested name.
@@ -1891,13 +2719,13 @@ with sync_playwright() as p:
         pg = ctx.new_page()
         pg.on("pageerror", lambda e: errors.append(str(e)))
 
-        pg.goto(f"{BASE}/en", wait_until="networkidle")
+        pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
         store_token(pg, DATA["author_token"], DATA["author"])
 
         # --- the author's own profile
         pg.goto(
             f"{BASE}/en/profile/{DATA['author']['username']}",
-            wait_until="networkidle",
+            wait_until=NAV_WAIT,
         )
         pg.wait_for_timeout(1500)
         own_text = pg.inner_text("[data-testid='profile-latest-reviews']")
@@ -1911,7 +2739,7 @@ with sync_playwright() as p:
         # --- the fan's public profile, read while signed in as the author
         pg.goto(
             f"{BASE}/en/profile/{DATA['fan']['username']}",
-            wait_until="networkidle",
+            wait_until=NAV_WAIT,
         )
         pg.wait_for_timeout(1500)
         other_text = pg.inner_text("[data-testid='profile-latest-reviews']")
@@ -1944,7 +2772,7 @@ with sync_playwright() as p:
         # reviews held back, which is when the previous profile leaked.
         pg.goto(
             f"{BASE}/en/profile/{DATA['author']['username']}",
-            wait_until="networkidle",
+            wait_until=NAV_WAIT,
         )
         pg.wait_for_timeout(1500)
 
@@ -2010,7 +2838,7 @@ with sync_playwright() as p:
 
         # The route is served normally again, so the profile the reader landed
         # on has to fill in with that person's own reviews.
-        pg.reload(wait_until="networkidle")
+        pg.reload(wait_until=NAV_WAIT)
         pg.wait_for_timeout(2000)
         settled = pg.inner_text("[data-testid='profile-latest-reviews']")
 
@@ -2056,9 +2884,9 @@ with sync_playwright() as p:
         ctx = browser.new_context(viewport={"width": 1280, "height": 900})
         pg = ctx.new_page()
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(f"{BASE}/en/events/{event_id}", wait_until="networkidle")
+        pg.goto(f"{BASE}/en/events/{event_id}", wait_until=NAV_WAIT)
         store_token(pg, DATA["visitor_token"], DATA["visitor"])
-        pg.reload(wait_until="networkidle")
+        pg.reload(wait_until=NAV_WAIT)
         pg.wait_for_timeout(1500)
 
         went = pg.locator("[data-testid='event-mark-went']")
@@ -2209,7 +3037,7 @@ with sync_playwright() as p:
             # same review must be visible there and lead back to the event.
             pg.goto(
                 f"{BASE}/en/profile/{DATA['visitor']['username']}",
-                wait_until="networkidle",
+                wait_until=NAV_WAIT,
             )
             pg.wait_for_timeout(1500)
             latest = pg.locator("[data-testid='profile-latest-reviews']")
@@ -2243,7 +3071,7 @@ with sync_playwright() as p:
 
             # Pressing "I went" again edits the review rather than deleting the
             # record of having been there.
-            pg.goto(f"{BASE}/en/events/{event_id}", wait_until="networkidle")
+            pg.goto(f"{BASE}/en/events/{event_id}", wait_until=NAV_WAIT)
             pg.wait_for_timeout(1500)
             again = pg.locator("[data-testid='event-mark-went']").first
 
@@ -2326,9 +3154,12 @@ with sync_playwright() as p:
         # The artist's event list is the one page that shows finished shows:
         # `/events` is the discovery search, which only ever holds upcoming
         # events and would report zero past cards however correct the card is.
+        #
+        # `PAST_SLUG` is the artist the seed found a finished show on, so this
+        # page is guaranteed to have cards to assert about.
         pg.goto(
-            f"{BASE}/{locale}/artists/{SLUG}/events",
-            wait_until="networkidle",
+            f"{BASE}/{locale}/artists/{PAST_SLUG}/events",
+            wait_until=NAV_WAIT,
         )
         pg.wait_for_selector("[data-testid='event-card']", timeout=60000)
         pg.wait_for_timeout(1500)
@@ -2375,8 +3206,15 @@ with sync_playwright() as p:
                               || e.innerText.includes('Fecha por anunciar'))"""
         )
 
+        # The expectation has to come from the route the page itself reads.
+        #
+        # This used to ask `/events/artist/{slug}`, which returns only what is
+        # still to come, while the page shows the artist's whole history. A
+        # catalogue holding any undated show therefore reported "the API says
+        # there is none" while the page was correctly labelling one. Same set,
+        # same answer.
         stored = httpx.get(
-            f"{API}/events/artist/{SLUG}", timeout=60
+            f"{API}/artists/{PAST_SLUG}/events/all", timeout=90
         ).json()
 
         expected_undated = any(
@@ -2386,8 +3224,8 @@ with sync_playwright() as p:
         check(
             f"event list: the {locale} page labels an undated show rather than guessing",
             undated == expected_undated,
-            f"{cards.count()} cards, api_undated={expected_undated}, "
-            f"label_present={undated}",
+            f"{cards.count()} cards, api_undated={expected_undated} "
+            f"from {len(stored)} events, label_present={undated}",
         )
 
     pg.close()
@@ -2416,7 +3254,7 @@ with sync_playwright() as p:
             ctx = browser.new_context(viewport={"width": 1280, "height": 900})
             pg = ctx.new_page()
             pg.on("pageerror", lambda e: errors.append(str(e)))
-            pg.goto(f"{BASE}/{locale}/events/{event_id}", wait_until="networkidle")
+            pg.goto(f"{BASE}/{locale}/events/{event_id}", wait_until=NAV_WAIT)
             pg.wait_for_timeout(1200)
 
             # Every internal link must keep the locale, or the reader is
@@ -2486,7 +3324,7 @@ with sync_playwright() as p:
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.goto(
                 f"{BASE}/pt-BR/festivals/{festival_event['id']}",
-                wait_until="networkidle",
+                wait_until=NAV_WAIT,
             )
             pg.wait_for_timeout(900)
 
@@ -2536,7 +3374,7 @@ with sync_playwright() as p:
         ctx = browser.new_context(viewport={"width": 1280, "height": 900})
         pg = ctx.new_page()
         response = pg.goto(
-            f"{BASE}/{locale}/no-such-page-here", wait_until="networkidle"
+            f"{BASE}/{locale}/no-such-page-here", wait_until=NAV_WAIT
         )
         pg.wait_for_timeout(900)
 
@@ -2599,9 +3437,9 @@ with sync_playwright() as p:
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
 
-    pg.goto(f"{BASE}/pt-BR", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR", wait_until=NAV_WAIT)
     store_token(pg, DATA["fan_token"], DATA["fan"])
-    pg.goto(f"{BASE}/pt-BR", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR", wait_until=NAV_WAIT)
     pg.wait_for_timeout(800)
 
     burger = pg.locator("button[data-testid='mobile-menu-toggle']")
@@ -2660,7 +3498,7 @@ with sync_playwright() as p:
     mobile_toggle.click()
     pg.wait_for_timeout(300)
 
-    for path in [
+    mobile_paths = [
         "/pt-BR",
         "/pt-BR/artists",
         "/pt-BR/events",
@@ -2670,9 +3508,21 @@ with sync_playwright() as p:
         f"/pt-BR/profile/{DATA['author']['username']}",
         f"/en/profile/{DATA['author']['username']}",
         f"/es/profile/{DATA['author']['username']}",
-    ]:
-        pg.goto(f"{BASE}{path}", wait_until="networkidle")
-        pg.wait_for_timeout(900)
+    ]
+
+    # The festival page carries the densest layout on the site - a wide
+    # editions table and a five-across lineup - so it is the one most likely to
+    # overflow a narrow viewport.
+    mobile_festival = next(iter(_festival_candidates()), None)
+
+    if mobile_festival:
+        mobile_paths.append(
+            f"/pt-BR/festivals/{mobile_festival['id']}"
+        )
+
+    for path in mobile_paths:
+        pg.goto(f"{BASE}{path}", wait_until="domcontentloaded")
+        pg.wait_for_timeout(1200)
         ok = pg.evaluate(
             "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
         )
@@ -2681,7 +3531,7 @@ with sync_playwright() as p:
     # --- the concert profile at a real mobile viewport
     pg.goto(
         f"{BASE}/pt-BR/profile/{DATA['author']['username']}",
-        wait_until="networkidle",
+        wait_until=NAV_WAIT,
     )
     pg.wait_for_timeout(1800)
 
@@ -2713,6 +3563,65 @@ with sync_playwright() as p:
         f"{[box['height'] for box in boxes if box]}",
     )
 
+    # The Shows breakdown is three controls side by side, which is the tightest
+    # layout on the profile: at 390px the labels have to stay on one line each
+    # and the row must not push the page sideways.
+    pg.locator("[data-testid='profile-stat-events']").first.click()
+
+    try:
+        pg.wait_for_selector(
+            "[data-testid='profile-shows-breakdown']", timeout=20000
+        )
+    except Exception:
+        pass
+
+    pg.wait_for_timeout(600)
+
+    show_states = [
+        pg.locator(f"[data-testid='profile-shows-{state}']").bounding_box()
+        for state in ("attended", "want-to-go", "maybe")
+    ]
+
+    check(
+        "mobile: the three show states fit on one row at 390px",
+        all(box is not None for box in show_states)
+        and show_states[0]["y"] == show_states[1]["y"] == show_states[2]["y"]
+        and show_states[2]["x"] + show_states[2]["width"] <= 390,
+        f"{[None if b is None else round(b['x']) for b in show_states]}",
+    )
+
+    check(
+        "mobile: every show state is a comfortable touch target",
+        all(box is not None and box["height"] >= 44 for box in show_states),
+        f"{[None if b is None else round(b['height']) for b in show_states]}",
+    )
+
+    check(
+        "mobile: the Shows breakdown does not overflow the viewport",
+        pg.evaluate(
+            "document.documentElement.scrollWidth <= "
+            "document.documentElement.clientWidth + 1"
+        ),
+    )
+
+    # Switching state has to work at this viewport too, not only on desktop.
+    pg.locator("[data-testid='profile-shows-maybe']").click()
+    pg.wait_for_timeout(1200)
+
+    check(
+        "mobile: a show state can be switched at 390px",
+        pg.locator("[data-testid='profile-events']").get_attribute(
+            "data-show-state"
+        ) == "maybe",
+        pg.locator("[data-testid='profile-events']").get_attribute(
+            "data-show-state"
+        )
+        or "unset",
+    )
+
+    pg.locator("[data-testid='profile-stat-events']").first.click()
+    pg.wait_for_timeout(400)
+
     # Each panel has to fit the viewport, so the lists were not designed for
     # desktop and merely squeezed.
     for key in ("reviews", "events", "artists", "festivals"):
@@ -2738,7 +3647,14 @@ with sync_playwright() as p:
         )
 
         if key == "artists":
-            artist_row = pg.locator("[data-testid='profile-artist-link']").first
+            # An artist row is the whole row, not a link inside it: on a phone
+            # the target has to be the thing the reader aims at.
+            artist_row = pg.locator(
+                "[data-testid='profile-artists-seen'] "
+                "[data-testid='profile-artist-page-link'], "
+                "[data-testid='profile-artists-seen'] "
+                "[data-testid='profile-artist-unresolved']"
+            ).first
             row_box = artist_row.bounding_box() if artist_row.count() else None
             check(
                 "mobile: an artist row is a comfortable touch target",
@@ -2768,9 +3684,9 @@ with sync_playwright() as p:
     # The review dialog has to be usable on a phone: full-width, scrollable and
     # not taller than the screen.
     if past_event:
-        pg.goto(f"{BASE}/pt-BR/events/{past_event['id']}", wait_until="networkidle")
+        pg.goto(f"{BASE}/pt-BR/events/{past_event['id']}", wait_until=NAV_WAIT)
         store_token(pg, DATA["visitor_token"], DATA["visitor"])
-        pg.reload(wait_until="networkidle")
+        pg.reload(wait_until=NAV_WAIT)
         pg.wait_for_timeout(1800)
 
         went = pg.locator("[data-testid='event-mark-went']")
@@ -2832,7 +3748,7 @@ with sync_playwright() as p:
             )
 
     # --- comment UI at a real mobile viewport
-    pg.goto(f"{BASE}/pt-BR/artists/{SLUG}/community", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR/artists/{SLUG}/community", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
 
     # Open a thread that actually has comments in it. The newest post is not
@@ -2960,7 +3876,7 @@ with sync_playwright() as p:
     )
 
     # Mobile notifications and feed.
-    pg.goto(f"{BASE}/pt-BR/feed", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR/feed", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1000)
     feed_items = pg.locator("[data-testid='feed-item']")
     check(
@@ -2983,9 +3899,9 @@ with sync_playwright() as p:
     # A review written on a phone has to read on a phone: the stars stay
     # legible and the text wraps instead of stretching the page.
     if past_event:
-        pg.goto(f"{BASE}/pt-BR/events/{past_event['id']}", wait_until="networkidle")
+        pg.goto(f"{BASE}/pt-BR/events/{past_event['id']}", wait_until=NAV_WAIT)
         store_token(pg, DATA["visitor_token"], DATA["visitor"])
-        pg.reload(wait_until="networkidle")
+        pg.reload(wait_until=NAV_WAIT)
         pg.wait_for_timeout(1800)
 
         existing = pg.locator("[data-testid='review-card']").first
@@ -3022,9 +3938,9 @@ with sync_playwright() as p:
     # The inbox belongs to the account that receives notifications. The fan
     # only ever acted on other people's posts, so their inbox is legitimately
     # empty; the author collects the follow, like, comment and reply.
-    pg.goto(f"{BASE}/pt-BR", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR", wait_until=NAV_WAIT)
     store_token(pg, DATA["author_token"], DATA["author"])
-    pg.goto(f"{BASE}/pt-BR/notifications", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR/notifications", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1200)
     notif_items = pg.locator("[data-testid='notification-item']")
     check(
@@ -3051,7 +3967,7 @@ with sync_playwright() as p:
     shots = Path(tempfile.gettempdir()) / "opencode" / "shots"
     shots.mkdir(parents=True, exist_ok=True)
     pg.screenshot(path=str(shots / "mobile-community.png"), full_page=True)
-    pg.goto(f"{BASE}/pt-BR/notifications", wait_until="networkidle")
+    pg.goto(f"{BASE}/pt-BR/notifications", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1000)
     pg.screenshot(path=str(shots / "mobile-notifications.png"), full_page=True)
     pg.close()
@@ -3132,7 +4048,7 @@ with sync_playwright() as p:
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.goto(
                 f"{BASE}/{locale}/events/{festival_event_id}",
-                wait_until="networkidle",
+                wait_until=NAV_WAIT,
             )
             pg.wait_for_timeout(1200)
 
@@ -3161,7 +4077,7 @@ with sync_playwright() as p:
             # Following it must land on a real festival page, not a 404.
             if href:
                 pg.goto(
-                    f"{BASE}{href}", wait_until="networkidle"
+                    f"{BASE}{href}", wait_until=NAV_WAIT
                 )
                 pg.wait_for_timeout(1200)
 
@@ -3275,7 +4191,7 @@ with sync_playwright() as p:
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(
             f"{BASE}/en/festivals/{festival_event_id}",
-            wait_until="networkidle",
+            wait_until=NAV_WAIT,
         )
         pg.wait_for_timeout(1200)
 
@@ -3346,7 +4262,7 @@ with sync_playwright() as p:
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.goto(
                 f"{BASE}/{locale}/events/{undated}",
-                wait_until="networkidle",
+                wait_until=NAV_WAIT,
             )
             pg.wait_for_timeout(1200)
 
@@ -3399,7 +4315,7 @@ with sync_playwright() as p:
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(
-        f"{BASE}/en/profile/{profile_user}", wait_until="networkidle"
+        f"{BASE}/en/profile/{profile_user}", wait_until=NAV_WAIT
     )
     pg.wait_for_timeout(1500)
 
