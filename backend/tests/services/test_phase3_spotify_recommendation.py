@@ -7,54 +7,275 @@ from app.schemas.artist_import import ArtistImportRequest
 from app.domain.artist import Artist
 
 
-@pytest.mark.asyncio
-async def test_artist_search_uses_spotify_for_discovery():
-    """Artist discovery runs through Spotify so results carry a Spotify image.
+def search_item(
+    provider="songkick",
+    provider_artist_id="976211",
+    name="Marina Sena",
+    image=None,
+):
+    """A provider search result, shaped like the real one."""
 
-    Spotify is a *discovery* source only. Canonical artist identity is
-    still resolved from Songkick on import, which is enforced separately
-    by `test_spotify_import_deprecated`.
+    item = MagicMock()
+
+    item.provider = provider
+    item.provider_artist_id = provider_artist_id
+    item.name = name
+    item.image = image
+    item.genres = []
+    item.popularity = None
+    item.verified = False
+    item.is_imported = False
+
+    return item
+
+
+@pytest.mark.asyncio
+async def test_artist_search_runs_through_songkick():
+    """Discovery is a Songkick question.
+
+    Songkick is what GigCrowd's catalogue is built from: every lineup entry,
+    event and artist row resolves through a Songkick id, so an artist found here
+    can be imported and then given real events. Discovery used to be Spotify-only,
+    which made the whole feature fail whenever Spotify refused to answer - and
+    development-mode access needs a Premium account, so that was not a
+    hypothetical.
     """
+
     mock_provider_manager = MagicMock()
     mock_artist_repo = AsyncMock()
 
-    spotify_image = "https://i.scdn.co/image/ab67616d0000b273"
-
-    mock_result = MagicMock()
-    mock_result.provider = "spotify"
-    mock_result.provider_artist_id = "spotify_id_123"
-    mock_result.name = "Demi Lovato"
-    mock_result.followers = None
-    mock_result.image = spotify_image
-    mock_result.genres = ["pop"]
-    mock_result.popularity = 70
-    mock_result.verified = False
-    mock_result.is_imported = False
-
-    mock_provider_manager.search_artist = AsyncMock(return_value=[mock_result])
+    mock_provider_manager.search_artist = AsyncMock(
+        side_effect=lambda query, provider: {
+            "songkick": [search_item()],
+            "spotify": [],
+        }[provider]
+    )
 
     mock_artist_repo.get_by_external_id = AsyncMock(return_value=None)
 
     service = ArtistSearchService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
     )
 
-    result = await service.search_artist("Demi Lovato")
+    result = await service.search_artist("Marina Sena")
 
-    # Discovery is delegated to Spotify
-    mock_provider_manager.search_artist.assert_called_once_with(
-        "Demi Lovato", provider="spotify"
+    mock_provider_manager.search_artist.assert_any_call(
+        "Marina Sena", provider="songkick"
     )
 
-    # Import status is resolved against the Spotify external id
-    mock_artist_repo.get_by_external_id.assert_called_once_with(
-        "spotify", "spotify_id_123"
+    # Import status is resolved against the Songkick id, which is the identity
+    # the import will actually use.
+    mock_artist_repo.get_by_external_id.assert_any_call(
+        "songkick", "976211"
     )
 
     assert len(result) == 1
-    assert result[0].provider == "spotify"
-    assert result[0].image == spotify_image
+    assert result[0].provider == "songkick"
+    assert result[0].provider_artist_id == "976211"
+
+
+@pytest.mark.asyncio
+async def test_artist_search_works_when_spotify_is_unavailable():
+    """The reported failure: Spotify answers 403 and search still returns rows.
+
+    Development-mode Spotify access needs Premium. When it is refused, discovery
+    has to keep working, because Songkick is the source that matters.
+    """
+
+    mock_provider_manager = MagicMock()
+    mock_artist_repo = AsyncMock()
+
+    async def search(query, provider):
+        if provider == "spotify":
+            raise RuntimeError(
+                "HTTP 403 Forbidden: "
+                "https://api.spotify.com/v1/search?q=marina"
+            )
+
+        return [search_item()]
+
+    mock_provider_manager.search_artist = search
+    mock_artist_repo.get_by_external_id = AsyncMock(return_value=None)
+
+    service = ArtistSearchService(
+        provider_manager=mock_provider_manager,
+        artist_repository=mock_artist_repo,
+    )
+
+    result = await service.search_artist("Marina Sena")
+
+    assert len(result) == 1
+    assert result[0].name == "Marina Sena"
+
+
+@pytest.mark.asyncio
+async def test_spotify_only_artists_are_still_offered():
+    """Spotify keeps contributing rows it alone knows about.
+
+    Being optional must not mean being removed: a Spotify-only act is still
+    worth surfacing, so long as it never displaces the Songkick row a reader can
+    actually import.
+    """
+
+    mock_provider_manager = MagicMock()
+    mock_artist_repo = AsyncMock()
+
+    async def search(query, provider):
+        if provider == "songkick":
+            return [search_item(name="Marina Sena")]
+
+        return [
+            search_item(
+                provider="spotify",
+                provider_artist_id="spotify_only_1",
+                name="Someone Only On Spotify",
+                image="https://i.scdn.co/image/x",
+            )
+        ]
+
+    mock_provider_manager.search_artist = search
+    mock_artist_repo.get_by_external_id = AsyncMock(return_value=None)
+
+    service = ArtistSearchService(
+        provider_manager=mock_provider_manager,
+        artist_repository=mock_artist_repo,
+    )
+
+    result = await service.search_artist("Marina Sena")
+
+    assert [item.provider for item in result] == [
+        "songkick",
+        "spotify",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_artist_songkick_already_answered_is_not_listed_twice():
+    """The same act must not appear as two importable rows."""
+    mock_provider_manager = MagicMock()
+    mock_artist_repo = AsyncMock()
+
+    async def search(query, provider):
+        if provider == "songkick":
+            return [search_item(name="Marina Sena")]
+
+        # Same act, different provider id.
+        return [
+            search_item(
+                provider="spotify",
+                provider_artist_id="spotify_dup_1",
+                name="marina sena",
+            )
+        ]
+
+    mock_provider_manager.search_artist = search
+    mock_artist_repo.get_by_external_id = AsyncMock(return_value=None)
+
+    service = ArtistSearchService(
+        provider_manager=mock_provider_manager,
+        artist_repository=mock_artist_repo,
+    )
+
+    result = await service.search_artist("Marina Sena")
+
+    assert len(result) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_already_imported_artist_is_marked_against_its_songkick_id():
+    mock_provider_manager = MagicMock()
+    mock_artist_repo = AsyncMock()
+
+    imported = MagicMock()
+    imported.id = "artist-1"
+    imported.slug = "marina-sena"
+
+    async def search(query, provider):
+        return [search_item()] if provider == "songkick" else []
+
+    mock_provider_manager.search_artist = search
+    mock_artist_repo.get_by_external_id = AsyncMock(return_value=imported)
+
+    service = ArtistSearchService(
+        provider_manager=mock_provider_manager,
+        artist_repository=mock_artist_repo,
+    )
+
+    result = await service.search_artist("Marina Sena")
+
+    assert result[0].is_imported is True
+    assert result[0].slug == "marina-sena"
+
+
+@pytest.mark.asyncio
+async def test_a_songkick_id_is_never_looked_up_as_a_spotify_id():
+    """Identity is not inferred across providers.
+
+    An artist imported before discovery was Songkick-first may carry only a
+    Spotify id. Matching a Songkick search result to that row would mean
+    comparing names, so there is no second lookup: a Songkick id is not offered
+    to the Spotify index, and a Spotify id is never written into a Songkick
+    result. Such a row is reconciled when the catalogue is expanded by real
+    Songkick id, not by a coincidence of spelling at search time.
+    """
+
+    mock_provider_manager = MagicMock()
+    mock_artist_repo = AsyncMock()
+
+    async def search(query, provider):
+        return [search_item(provider_artist_id="976211")] if (
+            provider == "songkick"
+        ) else []
+
+    async def get_by_external_id(provider_name, external_id):
+        # A Spotify id looks nothing like a Songkick id; returning a match for
+        # one would mean the lookup is fuzzy, which it must never be.
+        if provider_name == "spotify" and external_id == "976211":
+            raise AssertionError(
+                "a Songkick id was looked up as a Spotify id"
+            )
+
+        return None
+
+    mock_provider_manager.search_artist = search
+    mock_artist_repo.get_by_external_id = get_by_external_id
+
+    service = ArtistSearchService(
+        provider_manager=mock_provider_manager,
+        artist_repository=mock_artist_repo,
+    )
+
+    result = await service.search_artist("Marina Sena")
+
+    assert result[0].is_imported is False
+    assert result[0].provider == "songkick"
+
+
+@pytest.mark.asyncio
+async def test_a_songkick_search_failure_is_not_swallowed():
+    """Songkick is the source, so its failure is a real failure.
+
+    Spotify's failures are contained because Spotify is optional. Swallowing a
+    Songkick failure the same way would turn "discovery is broken" into "this
+    artist does not exist", which is a lie a reader would act on.
+    """
+
+    mock_provider_manager = MagicMock()
+    mock_artist_repo = AsyncMock()
+
+    async def search(query, provider):
+        raise RuntimeError("Songkick is unreachable")
+
+    mock_provider_manager.search_artist = search
+
+    service = ArtistSearchService(
+        provider_manager=mock_provider_manager,
+        artist_repository=mock_artist_repo,
+    )
+
+    with pytest.raises(RuntimeError):
+        await service.search_artist("Marina Sena")
 
 
 @pytest.mark.asyncio
