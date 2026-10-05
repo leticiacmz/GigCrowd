@@ -321,14 +321,24 @@ class TestIdempotency:
 
     @pytest.mark.asyncio
     async def test_date_status_is_not_rewritten_with_the_same_value(self):
-        """Rewriting an identical value would make every repeat run a change."""
+        """Rewriting an identical value would make every repeat run a change.
+
+        The first visit also records that the page was read, so the very first
+        run legitimately reports a change; every run after it must report none.
+        """
 
         document = complete_event()
         service, _ = build([document])
 
-        assert (
-            await service.enrich_one(plan_for(service, document))
-        )["outcome"] == "unchanged"
+        first = await service.enrich_one(plan_for(service, document))
+
+        assert first["outcome"] == "updated"
+        assert first["fields"] == ["date_source_checked_at"]
+
+        second = await service.enrich_one(plan_for(service, document))
+
+        assert second["outcome"] == "unchanged"
+        assert second.get("fields") is None
 
     @pytest.mark.asyncio
     async def test_a_full_run_over_enriched_events_reports_no_changes(self):
@@ -644,6 +654,141 @@ class TestPlanning:
 
         assert plan[0].eligible is False
         assert "source" in plan[0].skip_reason
+
+    @pytest.mark.asyncio
+    async def test_a_page_url_stored_on_the_festival_can_be_re_read(self):
+        """Some festival rows keep the provider's URL on the identity.
+
+        It is the same real URL, written down by the importer rather than
+        guessed at, so such a row can be re-read exactly like one whose URL sits
+        on `source`. Without this a recoverable record was being reported as
+        having nothing to re-read.
+        """
+
+        url = (
+            "https://www.songkick.com/festivals/1125073-beyond-"
+            "the-valley/id/43350171-beyond-the-valley-2026"
+        )
+
+        document = undated_event(
+            source={"provider": "songkick", "event_id": "43350171"},
+            festival={"series_id": "1125073", "url": url},
+        )
+
+        service, _ = build([document])
+
+        plan = await service.plan()
+
+        assert plan[0].eligible is True
+        assert plan[0].source_url == url
+
+    @pytest.mark.asyncio
+    async def test_a_source_url_is_preferred_over_the_festival_one(self):
+        document = undated_event(
+            source={"url": "https://www.songkick.com/concerts/1"},
+            festival={"url": "https://www.songkick.com/festivals/2"},
+        )
+
+        service, _ = build([document])
+
+        plan = await service.plan()
+
+        assert plan[0].source_url == (
+            "https://www.songkick.com/concerts/1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_festival_without_any_url_is_still_unreadable(self):
+        # The fallback must not manufacture a URL out of an id. A URL built by
+        # guesswork would be a request to a page that may not be this event.
+        document = undated_event(
+            source={"event_id": "43350171"},
+            festival={"series_id": "1125073"},
+        )
+
+        service, _ = build([document])
+
+        plan = await service.plan()
+
+        assert plan[0].eligible is False
+
+    @pytest.mark.asyncio
+    async def test_a_settled_event_is_not_selected_again(self):
+        """A source read that found no date must not be paid for twice.
+
+        This needs both halves of the claim. `date_status: unavailable` says the
+        source has no date, and `date_source_checked_at` says somebody actually
+        went and looked. Only the pair settles an event, so only the pair is
+        skipped.
+        """
+
+        checked_at = datetime(2026, 1, 1, tzinfo=UTC)
+
+        service, _ = build([
+            undated_event(
+                date_status=DATE_UNAVAILABLE,
+                date_source_checked_at=checked_at,
+            )
+        ])
+
+        assert await service.plan() == []
+
+    @pytest.mark.asyncio
+    async def test_an_unavailable_date_never_checked_is_selected_again(self):
+        """`unavailable` alone does not settle an event.
+
+        The importer writes this status from a gigography listing that simply had
+        no date on it, which is not a claim about the event's own page - and
+        fifty festival dates whose pages carry real dates were sitting behind that
+        assumption. An event must be re-read until a source visit has confirmed
+        it.
+        """
+
+        service, _ = build([
+            undated_event(date_status=DATE_UNAVAILABLE)
+        ])
+
+        plans = await service.plan()
+
+        assert len(plans) == 1
+        assert "starts_at" in plans[0].reasons
+
+    @pytest.mark.asyncio
+    async def test_a_visit_that_finds_no_date_settles_the_event(self):
+        """One visit is enough; the second is not paid for."""
+        document = undated_event()
+
+        # A page that genuinely carries no date.
+        client = FakeClient(
+            source={
+                "url": document["source"]["url"],
+                "lineup": [],
+            }
+        )
+
+        service, database = build([document], client=client)
+
+        await service.enrich_one(plan_for(service, document))
+
+        stored = database.events.documents[0]
+
+        assert stored["date_status"] == DATE_UNAVAILABLE
+        assert stored.get("date_source_checked_at") is not None
+
+        # And the settled row is now left alone.
+        assert await service.plan() == []
+
+    @pytest.mark.asyncio
+    async def test_a_parser_failure_is_selected_again(self):
+        """A parser failure is the opposite: a later pass may understand it."""
+
+        service, _ = build([
+            undated_event(date_status=DATE_PARSER_FAILED)
+        ])
+
+        plans = await service.plan()
+
+        assert len(plans) == 1
 
     @pytest.mark.asyncio
     async def test_a_missing_date_is_a_reason_to_visit(self):

@@ -146,10 +146,21 @@ class SongkickEventMapper:
         )
 
         if not date_status:
+            # A date is a claim about the source, and only a real source read
+            # makes one. An artist's gigography lists festival dates carrying no
+            # date at all, because the listing does not state one - yet each of
+            # those rows has a page of its own that does.
+            #
+            # Calling that `unavailable` asserted something this listing cannot
+            # know, and the enrichment selector took it at face value, so fifty
+            # festival dates whose dates were sitting on Songkick the whole time
+            # were never re-read. An undated listing therefore leaves the status
+            # unset: the date is unknown, which is not the same as the source
+            # having none, and unknown is exactly what enrichment retries.
             date_status = (
                 "source"
                 if (starts_at or ends_at)
-                else "unavailable"
+                else None
             )
 
         # ========================================================

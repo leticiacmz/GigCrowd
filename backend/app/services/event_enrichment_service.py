@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from pymongo.errors import DuplicateKeyError
@@ -168,6 +169,20 @@ class EventEnrichmentService:
         query: dict[str, Any] = {}
 
         if not include_dated:
+            # A `parser_failed` event is a candidate again: the shape that broke
+            # the parser is exactly what a later run is expected to understand.
+            #
+            # An `unavailable` event is skipped only once a source visit has
+            # actually confirmed it.
+            #
+            # `unavailable` used to be trusted on its own, and that was wrong. The
+            # importer stamps it on any listing that arrives without a date, and
+            # an artist's gigography lists festival dates with no date on them
+            # even though each one has a page of its own carrying the real dates.
+            # Taking the marker at face value meant those rows were never re-read,
+            # so fifty recoverable festival dates sat permanently unrecoverable.
+            # Trusting it now requires `date_source_checked_at`, which only a real
+            # source visit writes.
             query["$or"] = [
                 {
                     "$and": [
@@ -179,17 +194,31 @@ class EventEnrichmentService:
                         {
                             "ends_at": {
                                 "$exists": False,
-                            },
+                            }
                         },
                     ]
                 },
                 {"starts_at": None},
                 {"ends_at": None},
                 {
-                    "date_status": DATE_UNAVAILABLE,
-                },
-                {
                     "date_status": DATE_PARSER_FAILED,
+                },
+            ]
+
+            query["$and"] = [
+                {
+                    "$or": [
+                        {
+                            "date_status": {
+                                "$ne": DATE_UNAVAILABLE,
+                            }
+                        },
+                        {
+                            "date_source_checked_at": {
+                                "$exists": False,
+                            }
+                        },
+                    ]
                 },
             ]
 
@@ -199,6 +228,11 @@ class EventEnrichmentService:
                 "title": 1,
                 "event_type": 1,
                 "source.url": 1,
+                # The festival identity is projected because some festival rows
+                # keep the provider's page URL there rather than on `source`.
+                # Without it here the fallback in `_plan_for` would never see a
+                # URL that is genuinely stored on the document.
+                "festival.url": 1,
                 "external_ids.songkick": 1,
                 "starts_at": 1,
                 "ends_at": 1,
@@ -284,6 +318,19 @@ class EventEnrichmentService:
         source = document.get("source") or {}
 
         source_url = source.get("url") or None
+
+        # Some festival rows carry the provider's page URL on the festival
+        # identity instead of on `source`, because that is where the importer
+        # found it. It is the same real URL, written down rather than guessed
+        # at, so a record with one can be re-read exactly like a record with a
+        # `source.url` - and a record with neither is still left alone.
+        if not source_url:
+            festival_url = (
+                document.get("festival") or {}
+            ).get("url")
+
+            if festival_url:
+                source_url = festival_url
 
         plan = EnrichmentPlan(
             event_id=str(document["_id"]),
@@ -381,6 +428,21 @@ class EventEnrichmentService:
             != resolved
         ):
             patch["date_status"] = resolved
+
+        # Record that this event's own page was read.
+        #
+        # This is what makes `unavailable` mean something. The importer also
+        # writes that status, from a listing that merely carried no date, and the
+        # two are not the same claim: "this listing had no date" is not "the
+        # source has no date". Selection now trusts `unavailable` only when this
+        # marker is present, so a genuinely undated event is skipped forever after
+        # one visit while a row that was only ever listed without a date gets the
+        # second chance it was owed.
+        #
+        # Written once and never rewritten, so a repeat run still reports no
+        # change and stays idempotent.
+        if not document.get("date_source_checked_at"):
+            patch["date_source_checked_at"] = datetime.now(UTC)
 
         # --------------------------------------------------------
         # Lineup

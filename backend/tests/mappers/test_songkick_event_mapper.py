@@ -81,6 +81,136 @@ def test_to_domain_missing_dates():
     assert event.ends_at is None
 
 
+class TestAnUndatedListingIsNotAClaimAboutTheSource:
+    """The importer must not assert that a source has no date.
+
+    An artist's gigography lists festival dates with no date on them, because the
+    listing does not state one - yet each of those rows has a page of its own
+    carrying the real dates. Recording `unavailable` here asserted something the
+    listing cannot know, and the enrichment selector trusted it, so fifty festival
+    dates whose dates were sitting on Songkick were never re-read.
+
+    What a listing without a date establishes is that the date is *unknown*, and
+    unknown is what enrichment retries.
+    """
+
+    def test_a_listing_without_a_date_leaves_the_status_unset(self):
+        event, _ = SongkickEventMapper.to_domain(
+            {
+                "id": "39163166",
+                "name": "14 Festival Se Rasgum 2019",
+                "event_type": "Festival",
+            },
+            ["gal-costa"],
+        )
+
+        assert event.starts_at is None
+        assert event.date_status is None
+
+    def test_a_listing_with_a_date_is_still_marked_as_read_from_the_source(self):
+        event, _ = SongkickEventMapper.to_domain(
+            {
+                "id": "39163166",
+                "name": "14 Festival Se Rasgum 2019",
+                "event_type": "Festival",
+                "start_date": "2019-11-01",
+            },
+            ["gal-costa"],
+        )
+
+        assert event.date_status == "source"
+
+    def test_a_source_that_states_unavailable_is_still_honoured(self):
+        # A provider that genuinely reports the source has no date is believed.
+        # Only the mapper's own guess is withdrawn.
+        event, _ = SongkickEventMapper.to_domain(
+            {
+                "id": "39163166",
+                "name": "14 Festival Se Rasgum 2019",
+                "event_type": "Festival",
+                "date_status": "unavailable",
+            },
+            ["gal-costa"],
+        )
+
+        assert event.date_status == "unavailable"
+
+    def test_a_malformed_date_is_not_read_as_the_source_having_none(self):
+        # A value the parser could not read is a parser problem, not evidence
+        # about the source.
+        event, _ = SongkickEventMapper.to_domain(
+            {
+                "id": "39163166",
+                "name": "14 Festival Se Rasgum 2019",
+                "event_type": "Festival",
+                "date": "not-a-date",
+            },
+            ["gal-costa"],
+        )
+
+        assert event.starts_at is None
+        assert event.date_status in (None, "parser_failed")
+
+
+class TestAFestivalEditionOwnsItsOwnDates:
+    """A festival's range belongs to the edition, not to the artist's set.
+
+    A broad range such as 5-13 September describes when the festival runs. It
+    does not say the artist performed on any particular day of it, so the range
+    may only be stored on the edition - never narrowed onto an artist
+    performance.
+    """
+
+    def test_a_festival_range_is_kept_as_the_range_it_is(self):
+        event, _ = SongkickEventMapper.to_domain(
+            {
+                "id": "39163166",
+                "name": "14 Festival Se Rasgum 2019",
+                "event_type": "Festival",
+                "start_date": "2019-11-01",
+                "end_date": "2019-11-03",
+            },
+            ["gal-costa"],
+        )
+
+        assert event.starts_at is not None
+        assert event.ends_at is not None
+        assert event.ends_at >= event.starts_at
+
+    def test_a_range_is_never_narrowed_to_its_first_day(self):
+        event, _ = SongkickEventMapper.to_domain(
+            {
+                "id": "39163166",
+                "name": "14 Festival Se Rasgum 2019",
+                "event_type": "Festival",
+                "start_date": "2019-11-01",
+                "end_date": "2019-11-03",
+            },
+            ["gal-costa"],
+        )
+
+        assert event.ends_at is not None
+
+        # The end is genuinely later than the start, so nothing collapsed it.
+        assert event.ends_at.date() != event.starts_at.date()
+
+    def test_a_concert_keeps_its_own_single_evening(self):
+        event, _ = SongkickEventMapper.to_domain(
+            {
+                "id": "39163167",
+                "name": "Marina Sena at Distrito Anhembi",
+                "event_type": "Concert",
+                "start_date": "2025-09-05",
+            },
+            ["marina-sena"],
+        )
+
+        assert event.starts_at is not None
+
+        # A concert has no range, so none is invented for it.
+        assert event.ends_at is None
+
+
 def test_to_domain_malformed_date():
     """Test mapping with malformed date"""
     songkick_data = {
