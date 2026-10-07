@@ -86,6 +86,16 @@ class ProfileEvent(BaseModel):
 
     festival: Optional[FestivalSummary] = None
 
+    # Whether this show carries the person's own opinion of it, and how highly
+    # they rated it.
+    #
+    # The diary needs this so an attended show they wrote about can be marked as
+    # such without opening every review: a row that has been rated is not the
+    # same as a row they merely remember attending.
+    has_review: bool = False
+
+    rating: Optional[int] = None
+
 
 class ProfileReview(ProfileEvent):
     """A review, which is a show log that carries an opinion.
@@ -142,7 +152,58 @@ class ProfileReviewsResponse(BaseModel):
     total: int = 0
 
 
+class SeenArtist(BaseModel):
+    """An artist this person has actually seen.
+
+    The one number here is the point of the section: how many distinct shows
+    they attended where this artist performed. It is deliberately the only
+    figure, because a community post count or a follower count answers a
+    different question and invites reading this list as popularity.
+    """
+
+    slug: str
+
+    name: str
+
+    image: Optional[str] = None
+
+    shows_count: int = Field(
+        default=0,
+        description=(
+            "Distinct attended events where this artist performed"
+        ),
+    )
+
+    resolved: bool = Field(
+        default=False,
+        description=(
+            "Whether an imported artist page exists for this slug. An "
+            "unresolved artist is still listed, because the person did see "
+            "them, but it has no page to link to."
+        ),
+    )
+
+
+class ProfileArtistsSeenResponse(BaseModel):
+    """Artists I have seen, most seen first."""
+
+    username: str
+
+    artists: list[SeenArtist] = Field(
+        default_factory=list,
+    )
+
+    total: int = 0
+
+
 class ProfileEventsResponse(BaseModel):
+    """One state of a user's shows.
+
+    `events` holds the state that was asked for and `total` is how many rows
+    that state holds. `counts` carries all three states on every response, so
+    the breakdown can be drawn from a single request and a figure can never
+    disagree with the list behind it.
+    """
 
     username: str
 
@@ -151,6 +212,153 @@ class ProfileEventsResponse(BaseModel):
     )
 
     total: int = 0
+
+    status: Optional[str] = Field(
+        default=None,
+        description=(
+            "The attendance state this list holds: `attended`, "
+            "`want-to-go` or `maybe`. Null when the list holds "
+            "every logged show."
+        ),
+    )
+
+    counts: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "How many shows the user has in each of the three "
+            "attendance states, keyed by the same words the "
+            "`status` filter accepts"
+        ),
+    )
+
+    limit: int = 0
+
+    skip: int = 0
+
+
+class ProfileEventCursor(BaseModel):
+    """An opaque position in a user's show history.
+
+    A client passes this back exactly as it was given. It is deliberately not
+    interpreted anywhere in the client: reading a date out of it and recomposing
+    one is how a paging scheme quietly starts skipping rows.
+    """
+
+    date: str = Field(
+        description="ISO timestamp of the last row on the page just read",
+    )
+
+    id: str = Field(
+        description=(
+            "Identity of that row. Needed because several shows "
+            "routinely share one date."
+        ),
+    )
+
+
+class ProfileEventsPageResponse(BaseModel):
+    """One page of a user's show history, read by cursor.
+
+    Same rows and same states as `ProfileEventsResponse`; the difference is only
+    how the next page is addressed, so scrolling to the past does not re-read the
+    pages before it.
+
+    `next_cursor` is null on the last page, which is how a client knows to stop
+    rather than requesting the same rows again.
+    """
+
+    username: str
+
+    events: list[ProfileEvent] = Field(
+        default_factory=list,
+    )
+
+    total: int = 0
+
+    status: Optional[str] = None
+
+    counts: dict[str, int] = Field(
+        default_factory=dict,
+    )
+
+    limit: int = 0
+
+    next_cursor: Optional[ProfileEventCursor] = None
+
+
+class ProfileShowCalendarResponse(BaseModel):
+    """One month of days on which this user went to a show.
+
+    `days` maps an ISO date to how many shows they attended on it, so a day with
+    two festivals in one room can show a small count rather than a single mark.
+
+    Only shows logged as `went` appear. The key is the date in the user's own
+    timezone at the point the log was written, which is what a reader means by
+    "the night of the 14th".
+    """
+
+    username: str
+
+    year: int
+
+    month: int
+
+    days: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "ISO date to the number of shows attended that day, for "
+            "shows logged as `went`"
+        ),
+    )
+
+    total: int = 0
+
+    has_any: bool = Field(
+        default=True,
+        description=(
+            "Whether this profile has any attended show at all, so a "
+            "client can present an empty month without a second request"
+        ),
+    )
+
+
+class ProfileShowYear(BaseModel):
+    """One calendar year and how many shows were attended in it."""
+
+    year: int
+
+    shows: int = 0
+
+
+class ProfileShowYearResponse(BaseModel):
+    """The years this user has attended shows in, newest first.
+
+    Exists so a calendar's year selector can offer the years that actually have
+    something in them. Without it, reaching 2021 from today means sixty clicks of
+    the next-month arrow, which is a calendar that assumes the reader only ever
+    cares about now.
+    """
+
+    username: str
+
+    years: list[ProfileShowYear] = Field(
+        default_factory=list,
+        description=(
+            "Years with attended shows, newest first. The current year is "
+            "always present, with a count of 0 when nothing has been logged "
+            "in it yet."
+        ),
+    )
+
+    current_year: int
+
+    has_any: bool = Field(
+        default=False,
+        description=(
+            "Whether any year carries a show, so a client can tell an "
+            "empty history from an empty month."
+        ),
+    )
 
 
 class ProfileFestivalsResponse(BaseModel):

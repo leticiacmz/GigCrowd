@@ -28,6 +28,15 @@ logger = logging.getLogger(__name__)
 
 # Feed filter -> the activity types that belong to it. Every category maps to
 # real activity types so the filter never returns placeholder content.
+#
+# `follow` is deliberately absent from every category. A follow decides what a
+# reader is eligible to see; it is not something they asked to read, and rendering
+# "Ana followed Bruno" as a card turns the timeline into a list of relationships
+# nobody chose to publish. Follows are still recorded, still notified, and still
+# decide visibility - they are just never content.
+#
+# `attendance` is the name a reader recognises for what used to be called `events`;
+# the old name is kept as an alias so a bookmark or a habit does not break.
 FEED_CATEGORIES: dict[str, tuple[ActivityType, ...]] = {
     "all": (),
     "community": (
@@ -36,9 +45,18 @@ FEED_CATEGORIES: dict[str, tuple[ActivityType, ...]] = {
         ActivityType.LIKE_POST,
     ),
     "reviews": (ActivityType.CREATE_REVIEW,),
+    "attendance": (ActivityType.ATTEND_EVENT,),
     "events": (ActivityType.ATTEND_EVENT,),
-    "social": (ActivityType.FOLLOW,),
 }
+
+# Activity types that may never appear on the timeline, whatever was asked for.
+#
+# Enforced as a subtraction from the query rather than by simply leaving `follow`
+# out of every category above, because a category added later would otherwise
+# reintroduce it without anybody deciding to.
+FEED_EXCLUDED_TYPES: tuple[ActivityType, ...] = (
+    ActivityType.FOLLOW,
+)
 
 # Collection each activity type points at through `target_type`.
 #
@@ -141,18 +159,29 @@ class ActivityService:
         """
         db = get_database()
 
+        # An activity stores its `user_id` as a string, but the caller usually
+        # holds an `ObjectId` because it read the viewer from the users
+        # collection. `object_id_variants` only produces both storage forms
+        # when it is given a string, so the id is normalised here.
+        #
+        # Without this the viewer's own actions never match their own feed: the
+        # timeline silently fell back to the followed-users and
+        # followed-artists clauses, which is how a filter with no reachable
+        # content could look healthy.
+        viewer = str(user_id)
+
         skip = max(0, min(skip, 10_000))
         limit = max(1, min(limit, 100))
 
         followed_user_ids = await ActivityService._get_followed_user_ids(
-            db, user_id
+            db, viewer
         )
         followed_artist_slugs = (
-            await ActivityService._get_followed_artist_slugs(db, user_id)
+            await ActivityService._get_followed_artist_slugs(db, viewer)
         )
 
         visibility: list[dict] = [
-            {"user_id": {"$in": object_id_variants(user_id)}},
+            {"user_id": {"$in": object_id_variants(viewer)}},
         ]
 
         if followed_user_ids:
@@ -176,12 +205,29 @@ class ActivityService:
         query: dict[str, Any] = {"$or": visibility}
 
         activity_types = FEED_CATEGORIES.get(category)
+
         if activity_types is None:
+
             raise ValueError(f"Unknown feed category: {category}")
 
         if activity_types:
             query["activity_type"] = {
-                "$in": [activity_type.value for activity_type in activity_types]
+                "$in": [
+                    activity_type.value
+                    for activity_type in activity_types
+                    if activity_type not in FEED_EXCLUDED_TYPES
+                ]
+            }
+
+        else:
+            # Applied even to the unfiltered timeline. Excluding a type only from
+            # the filter that used to contain it would leave it visible on "all",
+            # which is where most people spend their time.
+            query["activity_type"] = {
+                "$nin": [
+                    activity_type.value
+                    for activity_type in FEED_EXCLUDED_TYPES
+                ]
             }
 
         cursor = (
@@ -597,7 +643,21 @@ class ActivityService:
             post_id = context.get("post_id")
             post = posts.get(str(post_id)) if post_id else None
 
-            if post:
+            if document.get("related_entity_type") == "event" and (
+                document.get("related_entity_id")
+            ):
+                # A prompt about a show links straight to the show, where the
+                # attendance and review controls already are. No separate
+                # destination is invented for it.
+                target = {
+                    "kind": "event",
+                    "id": str(document["related_entity_id"]),
+                    "name": context.get("event_title"),
+                    "artist_slug": context.get("artist_slug"),
+                    "starts_at": context.get("starts_at"),
+                    "excerpt": None,
+                }
+            elif post:
                 target = {
                     "kind": "community_post",
                     "id": str(post["_id"]),

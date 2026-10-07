@@ -2,9 +2,10 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
-    status,
+    Query,
+    status as http_status,
 )
-from typing import Literal
+from typing import Literal, Optional
 
 from app.auth.dependencies import (
     get_current_active_user,
@@ -31,17 +32,27 @@ from app.services.user_stats_service import (
 )
 
 from app.services.user_concert_service import (
+    SHOW_STATUS,
     UserConcertService,
+    resolve_show_status,
 )
 
 from app.repositories.show_log_repository import (
     ShowLogRepository,
 )
 
+from app.repositories.event_repository import (
+    EventRepository,
+)
+
 from app.schemas.user_concert import (
     ProfileArtistsResponse,
+    ProfileArtistsSeenResponse,
+    ProfileEventsPageResponse,
     ProfileEventsResponse,
     ProfileFestivalsResponse,
+    ProfileShowCalendarResponse,
+    ProfileShowYearResponse,
     ProfileReviewsResponse,
 )
 
@@ -87,6 +98,9 @@ def get_user_concert_service():
         user_repository=UserRepository(db),
         show_log_repository=ShowLogRepository(db),
         db=db,
+        # "Artists I have seen" resolves the whole attendance history to
+        # events, which is what lets a festival lineup contribute.
+        event_repository=EventRepository(db),
     )
 
 
@@ -109,7 +123,7 @@ async def _require_profile(
 
         raise HTTPException(
 
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
 
             detail="User not found",
 
@@ -151,7 +165,7 @@ async def get_profile(
 
         raise HTTPException(
 
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
 
             detail="User not found",
         )
@@ -185,7 +199,7 @@ async def get_public_user_stats(
 
         raise HTTPException(
 
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
 
             detail="User not found",
         )
@@ -241,6 +255,11 @@ async def get_profile_events(
 
     limit: int = 12,
 
+    skip: int = 0,
+
+    status: Optional[Literal["went", "attended", "i-went",
+                             "going", "want-to-go", "maybe", "all"]] = None,
+
     service: UserConcertService = Depends(
         get_user_concert_service
     ),
@@ -251,16 +270,242 @@ async def get_profile_events(
 
 ):
 
-    """The shows a user says they attended, most recent first."""
+    """The shows a user logged, in one of the three states a show can be in.
+
+    `status` picks the state: the shows they attended, the ones they want to go
+    to, or the ones they are undecided about. Every response carries the count
+    for all three, so the breakdown on a profile is drawn from the same rows as
+    the list behind it.
+
+    An omitted `status` keeps the behaviour this endpoint has always had and
+    returns the attended shows; `all` returns every logged show.
+
+    Public, because what someone has already seen or already plans to see is
+    exactly what a concert profile is for.
+    """
 
     await _require_profile(profile_service, username)
+
+    if status is None:
+
+        selected = SHOW_STATUS
+
+    else:
+
+        try:
+            selected = resolve_show_status(status)
+
+        except ValueError as exc:
+
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            )
 
     result = await service.get_events(
         username,
         limit=max(1, min(limit, 50)),
+        skip=max(0, skip),
+        status=selected,
     )
 
     return ProfileEventsResponse(**result)
+
+
+@router.get(
+    "/profile/{username}/events/page",
+    response_model=ProfileEventsPageResponse,
+)
+async def get_profile_events_page(
+
+    username: str,
+
+    before: Optional[str] = None,
+
+    before_id: Optional[str] = None,
+
+    limit: int = 40,
+
+    status: Optional[Literal["went", "attended", "i-went",
+                             "going", "want-to-go", "maybe", "all"]] = None,
+
+    service: UserConcertService = Depends(
+        get_user_concert_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    """One page of the scrollable show history, addressed by cursor.
+
+    The same rows and the same states as `/profile/{username}/events`, paged by
+    cursor instead of by position, so the diary can be scrolled to the past without
+    every page re-reading the pages before it.
+
+    `before` and `before_id` are opaque: a client passes back whatever
+    `next_cursor` it was last given, and never has to interpret it.
+    """
+
+    await _require_profile(profile_service, username)
+
+    selected = SHOW_STATUS
+
+    if status is not None:
+
+        try:
+            selected = resolve_show_status(status)
+
+        except ValueError as exc:
+
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            )
+
+    try:
+
+        result = await service.get_events_page(
+            username,
+            status=selected,
+            before_date=before,
+            before_id=before_id,
+            limit=max(1, min(limit, 50)),
+        )
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+
+    if result is None:
+
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        )
+
+    return ProfileEventsPageResponse(**result)
+
+
+@router.get(
+    "/profile/{username}/shows/calendar",
+    response_model=ProfileShowCalendarResponse,
+)
+async def get_profile_show_calendar(
+
+    username: str,
+
+    year: int = Query(
+        ..., ge=1900, le=2999,
+        description="Calendar year to read.",
+    ),
+
+    month: int = Query(
+        ..., ge=1, le=12,
+        description="Calendar month to read, 1-12.",
+    ),
+
+    service: UserConcertService = Depends(
+        get_user_concert_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    """The days in one month on which this user says they went to a show.
+
+    Only `went` marks a day. A `going` or `maybe` log records an intention, and
+    being on a festival bill records that an act was announced - neither means
+    anybody stood in the room, so neither may mark a day on a calendar of shows
+    attended.
+
+    Bounded to the requested month, so the caller pays for one month of history
+    rather than all of it.
+    """
+
+    await _require_profile(profile_service, username)
+
+    try:
+
+        result = await service.get_attended_calendar(
+            username,
+            year=year,
+            month=month,
+        )
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+
+    if result is None:
+
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        )
+
+    return ProfileShowCalendarResponse(**result)
+
+
+@router.get(
+    "/profile/{username}/shows/years",
+    response_model=ProfileShowYearResponse,
+)
+async def get_profile_show_years(
+
+    username: str,
+
+    service: UserConcertService = Depends(
+        get_user_concert_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+    """The years this user says they went to a show, newest first.
+
+    Read-only and aggregated in the database. It exists so the profile calendar
+    can offer the years a reader actually has shows in, instead of making
+    somebody click from this year back to 2021 one month at a time to reach the
+    night they had in mind.
+    """
+
+    await _require_profile(profile_service, username)
+
+    try:
+
+        result = await service.get_attended_years(
+            username,
+        )
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+
+    if result is None:
+
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        )
+
+    return ProfileShowYearResponse(**result)
 
 
 @router.get(
@@ -329,6 +574,50 @@ async def get_profile_artists(
 
 
 @router.get(
+    "/profile/{username}/artists-seen",
+    response_model=ProfileArtistsSeenResponse,
+)
+async def get_profile_artists_seen(
+
+    username: str,
+
+    limit: int = 12,
+
+    skip: int = 0,
+
+    service: UserConcertService = Depends(
+        get_user_concert_service
+    ),
+
+    profile_service: UserProfileService = Depends(
+        get_profile_service
+    ),
+
+):
+
+    """The artists this user has actually seen, and how often.
+
+    Attendance is the only source: a `went` show log, the event's own artist
+    reference for a concert, and the event's lineup for a festival date. An
+    artist the user merely follows does not appear unless they have been to a
+    show, and only the lineup of the concrete event they attended counts - not
+    every edition of the festival it belongs to.
+
+    Public, because what someone has seen is what a concert profile is for.
+    """
+
+    await _require_profile(profile_service, username)
+
+    result = await service.get_artists_seen(
+        username,
+        limit=max(1, min(limit, 200)),
+        skip=max(0, skip),
+    )
+
+    return ProfileArtistsSeenResponse(**result)
+
+
+@router.get(
     "/profile/{username}/connections",
 )
 async def get_connections(
@@ -362,7 +651,7 @@ async def get_connections(
 
         raise HTTPException(
 
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
 
             detail="User not found",
 
@@ -415,7 +704,7 @@ async def get_my_stats(
 
         raise HTTPException(
 
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
 
             detail="User not found",
         )

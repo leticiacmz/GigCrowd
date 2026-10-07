@@ -12,9 +12,12 @@ five hundred.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
+from app.domain.event_artists import (
+    count_attended_shows_per_artist,
+)
 from app.domain.festival import (
     festival_date,
     festival_image,
@@ -27,12 +30,122 @@ from app.schemas.user_concert import (
     ProfileArtist,
     ProfileEvent,
     ProfileReview,
+    SeenArtist,
 )
 from app.utils.ids import object_id_variants
 
 # The profile shows the newest few of each list; the full list stays behind the
 # count the profile links to.
 DEFAULT_LIMIT = 12
+
+# How many rows one page of the scrollable diary carries.
+#
+# Bounded on purpose. The diary is read by scrolling to the past, so a page that
+# is too small makes many round trips for a reader with a long history, and one
+# that is too large makes the first scroll wait for shows nobody will reach.
+DEFAULT_PAGE_SIZE = 40
+
+# The three states a show can be in on someone's profile.
+#
+# These are the values `AttendanceStatus` already persists, so the breakdown
+# reads one collection that was always being written and never invents a second
+# attendance system. A single log exists per user and event, so the three
+# counts always add up to the number of shows a person has logged.
+SHOW_STATUS = AttendanceStatus.WENT
+PLAN_STATUS = AttendanceStatus.GOING
+MAYBE_STATUS = AttendanceStatus.MAYBE
+
+# The order the breakdown is presented in, which is also the order a person
+# reads their own history in: what already happened, what is planned, what is
+# undecided.
+SHOW_STATUS_ORDER = (
+    SHOW_STATUS,
+    PLAN_STATUS,
+    MAYBE_STATUS,
+)
+
+# What each stored state is called in the product.
+#
+# Storage spelling and interface spelling are different jobs. The wire uses the
+# product's words, so a client that asks for `want-to-go` reads back
+# `want-to-go` and never has to know that the database says `going`.
+SHOW_STATUS_LABELS: dict[AttendanceStatus, str] = {
+    SHOW_STATUS: "attended",
+    PLAN_STATUS: "want-to-go",
+    MAYBE_STATUS: "maybe",
+}
+
+
+def show_status_label(
+    status: Optional[AttendanceStatus],
+) -> Optional[str]:
+    """The wire name for an attendance state."""
+
+    if status is None:
+        return None
+
+    return SHOW_STATUS_LABELS[status]
+
+
+def show_status_counts(counts: dict) -> dict[str, int]:
+    """The three breakdown figures, always all three present.
+
+    A status with no rows reports zero rather than going missing, so the
+    frontend never has to decide whether an absent key means "nobody has any of
+    these" or "this was not measured".
+    """
+
+    return {
+        SHOW_STATUS_LABELS[status]: int(
+            counts.get(status.value) or 0
+        )
+        for status in SHOW_STATUS_ORDER
+    }
+
+
+# What a client may ask for, in the words the product uses.
+#
+# The stored values are the terse ones (`went`, `going`), because that is what
+# `AttendanceStatus` has always persisted. The wire accepts both, so a caller can
+# use the product wording that appears in the interface and does not have to
+# know how the database happens to spell it.
+SHOW_STATUS_ALIASES: dict[str, AttendanceStatus] = {
+    "went": SHOW_STATUS,
+    "attended": SHOW_STATUS,
+    "i-went": SHOW_STATUS,
+    "going": PLAN_STATUS,
+    "want-to-go": PLAN_STATUS,
+    "want_to_go": PLAN_STATUS,
+    "maybe": MAYBE_STATUS,
+}
+
+
+def resolve_show_status(
+    value: Optional[str],
+) -> Optional[AttendanceStatus]:
+    """Turn a requested breakdown state into the status that selects it.
+
+    Returns `None` for `all` and for an absent value, which both mean "every
+    logged show". An unrecognised value raises rather than being silently
+    treated as one of the three, because quietly answering a different question
+    than the one that was asked is worse than refusing it.
+    """
+
+    if value is None:
+        return None
+
+    key = str(value).strip().lower()
+
+    if key in {"", "all"}:
+        return None
+
+    if key not in SHOW_STATUS_ALIASES:
+        raise ValueError(
+            f"Unknown show status {value!r}. Expected one of: "
+            + ", ".join(SHOW_STATUS_ALIASES)
+        )
+
+    return SHOW_STATUS_ALIASES[key]
 
 
 class UserConcertService:
@@ -42,11 +155,17 @@ class UserConcertService:
         user_repository,
         show_log_repository,
         db,
+        event_repository=None,
     ):
 
         self.user_repository = user_repository
         self.show_log_repository = show_log_repository
         self.db = db
+
+        # Resolving a whole attendance history needs the events behind it.
+        # Optional so that callers who only read reviews or artists followed do
+        # not have to build one.
+        self.event_repository = event_repository
 
 
     # ============================================================
@@ -259,6 +378,10 @@ class UserConcertService:
             ],
             status=log.get("status"),
             festival=festival,
+            # A show log becomes a review by carrying an opinion, so the two are
+            # the same row read two ways rather than two collections.
+            has_review=bool(log.get("review")),
+            rating=log.get("rating"),
         )
 
 
@@ -284,6 +407,158 @@ class UserConcertService:
             image_url=festival_image(event),
         )
 
+
+    # ============================================================
+    # ARTISTS I HAVE SEEN
+    # ============================================================
+
+    async def get_artists_seen(
+        self,
+        identifier: str,
+        limit: Optional[int] = None,
+        skip: int = 0,
+    ) -> Optional[dict]:
+        """The artists this person has actually stood in front of.
+
+        Followed artists are deliberately not this list. "Artists" on a
+        profile used to mean the people someone had pressed Follow on, which is
+        a list of intentions; this one is a list of things that happened.
+
+        The chain is deliberately short and costs a fixed number of queries
+        however long the attendance history is:
+
+            attended show logs  ->  those events, in one query
+                               ->  artists per event, read from the documents
+                               ->  imported artists, in one query
+
+        Counting happens per distinct event rather than per lineup row, so an
+        act listed twice on one bill is one show and two concrete days of the
+        same festival are two.
+        """
+
+        user = await self._resolve_user(
+            identifier
+        )
+
+        if not user:
+            return None
+
+        logs = await self.show_log_repository.get_user_logs(
+            str(user["_id"]),
+            status=SHOW_STATUS,
+            limit=None,
+        )
+
+        if not logs:
+            return {
+                "username": user.get("username"),
+                "artists": [],
+                "total": 0,
+            }
+
+        documents = await self._attended_event_documents(logs)
+
+        if not documents:
+            return {
+                "username": user.get("username"),
+                "artists": [],
+                "total": 0,
+            }
+
+        counts = count_attended_shows_per_artist(documents)
+
+        artists = await self._seen_artist_rows(counts)
+
+        return {
+            "username": user.get("username"),
+            "artists": (
+                artists[skip: skip + limit]
+                if limit is not None
+                else artists[skip:]
+            ),
+            # The whole history, not the page. A caller paging through needs to
+            # know how many there are, and a total that shrank with the page
+            # would make the last page unreachable.
+            "total": len(artists),
+        }
+
+    async def _attended_event_documents(
+        self,
+        logs: list[dict],
+    ) -> list[dict]:
+        """The events behind these show logs, in one query.
+
+        A log whose event has since been deleted is skipped rather than
+        contributing a phantom show to a count.
+        """
+
+        return await self.event_repository.get_documents_by_ids(
+            [log.get("event_id") for log in logs]
+        )
+
+    async def _seen_artist_rows(
+        self,
+        counts: dict[str, int],
+    ) -> list[SeenArtist]:
+        """Label and order the counted artists.
+
+        Imported artists are read in one query, so a name and an image are
+        never fetched per artist.
+
+        The name comes only from an imported artist record. A lineup entry is
+        deliberately not consulted: the list is built from direct attendance, so
+        borrowing a name from a festival bill would put an act on someone's
+        history that nothing else in the list agrees with. An artist with no
+        page shows its slug and reports itself unresolved, so the client does not
+        build a link to a page that does not exist.
+        """
+
+        slugs = list(counts)
+
+        documents = await self.db.artists.find(
+            {"slug": {"$in": slugs}},
+            {
+                "slug": 1,
+                "name": 1,
+                "image": 1,
+            },
+        ).to_list(length=len(slugs))
+
+        by_slug = {
+            document["slug"]: document
+            for document in documents
+            if document.get("slug")
+        }
+
+        rows: list[SeenArtist] = []
+
+        for slug, shows in counts.items():
+
+            document = by_slug.get(slug)
+
+            rows.append(
+                SeenArtist(
+                    slug=slug,
+                    # With no imported record there is no name to show, and the
+                    # slug is shown rather than one invented from an event
+                    # title.
+                    name=(document or {}).get("name") or slug,
+                    image=(document or {}).get("image"),
+                    shows_count=shows,
+                    resolved=document is not None,
+                )
+            )
+
+        # Most seen first, then alphabetically so two equal counts have a stable
+        # order rather than depending on dictionary order.
+        rows.sort(
+            key=lambda artist: (
+                -artist.shows_count,
+                artist.name.casefold(),
+            )
+        )
+
+        return rows
 
     # ============================================================
     # PUBLIC API
@@ -335,7 +610,12 @@ class UserConcertService:
 
             reviews.append(
                 ProfileReview(
-                    **base.model_dump(),
+                    **base.model_dump(
+                        # `rating` is stated below, because a review's rating is
+                        # required while a plain show's is not. Passing the base
+                    # value as well would set it twice.
+                        exclude={"rating"},
+                    ),
                     rating=int(
                         log.get("rating") or 0
                     ),
@@ -360,8 +640,20 @@ class UserConcertService:
         self,
         identifier: str,
         limit: int = DEFAULT_LIMIT,
+        skip: int = 0,
+        status: Optional[AttendanceStatus] = SHOW_STATUS,
     ) -> Optional[dict]:
-        """The events a user attended, most recent first."""
+        """One state of a user's shows, most recent first.
+
+        `status` narrows the list to one of the three states a show can be in.
+        It defaults to the shows someone actually attended, which is what the
+        profile has always shown, and passing `None` returns every logged show
+        across all three.
+
+        The three counts travel with every response and are counted from the same
+        query the list is drawn from, so a figure on the profile can never
+        disagree with the rows behind it.
+        """
 
         user = await self._resolve_user(
             identifier
@@ -370,9 +662,12 @@ class UserConcertService:
         if not user:
             return None
 
+        user_id = str(user["_id"])
+
         logs = await self.show_log_repository.get_user_logs(
-            str(user["_id"]),
-            status=AttendanceStatus.WENT,
+            user_id,
+            status=status,
+            skip=skip,
             limit=limit,
         )
 
@@ -384,6 +679,20 @@ class UserConcertService:
             self._slugs_of(events.values())
         )
 
+        counts = show_status_counts(
+            await self.show_log_repository.count_user_logs_by_status(
+                user_id
+            )
+        )
+
+        # `total` is the size of the list that was asked for, so a client paging
+        # through one state knows how many rows that state holds without having
+        # to add up the counts.
+        if status is None:
+            total = sum(counts.values())
+        else:
+            total = counts.get(SHOW_STATUS_LABELS[status], 0)
+
         return {
             "username": user.get("username"),
             "events": await self._events_from_logs(
@@ -391,12 +700,233 @@ class UserConcertService:
                 events,
                 artist_names,
             ),
-            "total": await self.show_log_repository.count_user_logs(
-                str(user["_id"]),
-                status=AttendanceStatus.WENT,
+            "total": total,
+            "status": show_status_label(status),
+            "counts": counts,
+            "limit": limit,
+            "skip": max(0, skip),
+        }
+
+
+    async def get_attended_calendar(
+        self,
+        identifier: str,
+        *,
+        year: int,
+        month: int,
+    ) -> Optional[dict]:
+        """The shows attended in one calendar month.
+
+        Only logs marked `went` mark a day. A `going` or `maybe` log is an
+        intention and a festival lineup is a bill, so neither may appear here - a
+        calendar that showed a day as attended because somebody once clicked
+        "going" would be telling a reader something untrue about their own life.
+
+        The query is bounded to the month, so opening the calendar costs one month
+        of logs rather than the whole history, and a profile with years of shows
+        behind it renders exactly as fast as one with a handful.
+        """
+
+        user = await self._resolve_user(identifier)
+
+        if not user:
+            return None
+
+        if not 1 <= int(month) <= 12:
+
+            raise ValueError(
+                f"month must be between 1 and 12, got {month!r}"
+            )
+
+        start = datetime(
+            int(year),
+            int(month),
+            1,
+            tzinfo=UTC,
+        )
+
+        end = (
+            datetime(int(year) + 1, 1, 1, tzinfo=UTC)
+            if int(month) == 12
+            else datetime(
+                int(year),
+                int(month) + 1,
+                1,
+                tzinfo=UTC,
+            )
+        )
+
+        counts = await self.show_log_repository.attended_dates_between(
+            str(user["_id"]),
+            start,
+            end,
+        )
+
+        return {
+            "username": user.get("username"),
+            "year": int(year),
+            "month": int(month),
+            "days": counts,
+            "total": sum(counts.values()),
+            # Whether this month or the one before it has anything at all, so the
+            # client can grey out a previous-month control without a second request.
+            "has_any": True,
+        }
+
+    async def get_attended_years(
+        self,
+        identifier: str,
+        *,
+        limit: int = 50,
+    ) -> Optional[dict]:
+        """The years this user has shows in, newest first.
+
+        A calendar that can only be moved a month at a time makes somebody with
+        five years of shows click sixty times to reach the one they mean. This
+        is what lets the year selector offer the years that actually have
+        something in them, and it is aggregated in the database so the cost does
+        not grow with the length of the history.
+
+        The current year is always included, even with nothing logged in it,
+        because it is the year somebody opens a calendar in and an empty option
+        there reads as a broken selector.
+        """
+
+        user = await self._resolve_user(identifier)
+
+        if not user:
+            return None
+
+        rows = await self.show_log_repository.attended_years(
+            str(user["_id"]),
+            limit=limit,
+        )
+
+        this_year = datetime.now(UTC).year
+
+        years = sorted(
+            {int(row["year"]) for row in rows}
+            | {this_year},
+            reverse=True,
+        )
+
+        counts = {int(row["year"]): int(row["shows"]) for row in rows}
+
+        return {
+            "username": user.get("username"),
+            "years": [
+                {"year": year, "shows": counts.get(year, 0)}
+                for year in years
+            ],
+            "current_year": this_year,
+            "has_any": any(
+                row["shows"] for row in rows
             ),
         }
 
+    async def get_events_page(
+        self,
+        identifier: str,
+        *,
+        status: Optional[AttendanceStatus] = SHOW_STATUS,
+        before_date: Optional[str] = None,
+        before_id: Optional[str] = None,
+        limit: int = DEFAULT_PAGE_SIZE,
+    ) -> Optional[dict]:
+        """One page of a user's shows, newest first, addressed by cursor.
+
+        The cursor is opaque to the client: it passes back whatever `next_cursor`
+        it was given. Paging by position would mean page 40 walking past every row
+        before it, which for a long-running diary is the difference between an
+        instant and a stall.
+        """
+
+        user = await self._resolve_user(identifier)
+
+        if not user:
+            return None
+
+        user_id = str(user["_id"])
+
+        parsed_date = None
+
+        if before_date:
+
+            try:
+                parsed_date = datetime.fromisoformat(
+                    before_date
+                )
+
+            except ValueError as error:
+
+                raise ValueError(
+                    f"before_date must be an ISO date, got "
+                    f"{before_date!r}"
+                ) from error
+
+            if parsed_date.tzinfo is None:
+                parsed_date = parsed_date.replace(tzinfo=UTC)
+
+        logs = await self.show_log_repository.get_user_logs_page(
+            user_id,
+            status=status,
+            before_date=parsed_date,
+            before_id=before_id,
+            limit=limit,
+        )
+
+        events = await self._load_events(
+            [log.get("event_id") for log in logs],
+        )
+
+        artist_names = await self._load_artist_names(
+            self._slugs_of(events.values())
+        )
+
+        counts = show_status_counts(
+            await self.show_log_repository.count_user_logs_by_status(
+                user_id
+            )
+        )
+
+        if status is None:
+            total = sum(counts.values())
+        else:
+            total = counts.get(SHOW_STATUS_LABELS[status], 0)
+
+        rows = await self._events_from_logs(
+            logs,
+            events,
+            artist_names,
+        )
+
+        # A next cursor is only offered when the page came back full. An empty or
+        # short page means the end was reached, and inviting a further request
+        # would just repeat the last page for ever.
+        next_cursor = None
+
+        if len(logs) >= limit and logs:
+
+            last = logs[-1]
+
+            moment = last.get("date")
+
+            if isinstance(moment, datetime):
+
+                next_cursor = {
+                    "date": moment.isoformat(),
+                    "id": str(last.get("_id")),
+                }
+
+        return {
+            "username": user.get("username"),
+            "events": rows,
+            "total": total,
+            "status": show_status_label(status),
+            "counts": counts,
+            "limit": limit,
+            "next_cursor": next_cursor,
+        }
 
     async def get_festivals(
         self,

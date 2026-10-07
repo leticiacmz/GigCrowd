@@ -52,6 +52,70 @@ def now():
 
 
 @pytest.fixture
+def attendance_db(now):
+    """Three artists, one per attendance state.
+
+    Each artist sits on exactly one of Alice's three logged shows, so the
+    "artists seen" figure can only be 1 if attendance is what is read.
+    """
+    return FakeDatabase(
+        {
+            "users": [
+                make_user(ALICE, "alice"),
+            ],
+            "follows": [],
+            "community_posts": [],
+            "show_logs": [
+                {
+                    "_id": "log-went",
+                    "user_id": ALICE,
+                    "event_id": "event-went",
+                    "status": "went",
+                },
+                {
+                    "_id": "log-going",
+                    "user_id": ALICE,
+                    "event_id": "event-going",
+                    "status": "going",
+                },
+                {
+                    "_id": "log-maybe",
+                    "user_id": ALICE,
+                    "event_id": "event-maybe",
+                    "status": "maybe",
+                },
+            ],
+            "events": [
+                {
+                    "_id": "event-went",
+                    "title": "Nova at Warehouse",
+                    "artist_slug": NOVA,
+                    "starts_at": now - timedelta(days=10),
+                },
+                {
+                    "_id": "event-going",
+                    "title": "Static Hearts tour",
+                    "artist_slug": STATIC,
+                    "starts_at": now + timedelta(days=5),
+                },
+                {
+                    "_id": "event-maybe",
+                    "title": "Marina Sena festival set",
+                    "lineup": [
+                        {
+                            "name": "Marina Sena",
+                            "slug": "marina-sena",
+                            "songkick_id": "3090429",
+                        },
+                    ],
+                    "starts_at": now + timedelta(days=9),
+                },
+            ],
+        }
+    )
+
+
+@pytest.fixture
 def db(now):
     """A database where every statistic has a real row behind it."""
     return FakeDatabase(
@@ -143,11 +207,38 @@ class TestRealStatistics:
         assert stats["following_count"] == 0
 
     @pytest.mark.asyncio
-    async def test_artists_seen_counts_distinct_artist_slugs(self, db):
-        """Both the single slug and the array form are counted, once each."""
+    async def test_both_slug_forms_of_one_artist_count_once(self, db):
+        """The headline slug and the whole bill are both read.
+
+        `event-past` carries Nova in `artist_slug` and again in `artist_slugs`,
+        and both are read, so he is seen once rather than not at all or twice.
+        """
         stats = await build_service(db).get_user_stats("alice")
 
-        assert stats["artists_seen"] == 2
+        # Nova is the only artist of the one show Alice attended.
+        assert stats["artists_seen"] == 1
+
+    @pytest.mark.asyncio
+    async def test_an_artist_of_an_unattended_show_is_not_counted(
+        self,
+        attendance_db,
+    ):
+        """"Artists seen" means seen, not present in the diary.
+
+        Nova is on an attended show, Static Hearts only on a show that is going
+        to, and Marina Sena only on one that is maybe. Only Nova has been stood
+        in front of, so he is the only one counted - even though all three are
+        reachable through this person's show logs. This is the same figure the
+        profile's Artists list is built from, and the two must not drift apart.
+        """
+        stats = await build_service(attendance_db).get_user_stats("alice")
+
+        assert stats["shows_attended"] == 1
+        assert stats["shows_going"] == 1
+        assert stats["shows_maybe"] == 1
+
+        # All three are on her calendar; only one was seen.
+        assert stats["artists_seen"] == 1
 
     @pytest.mark.asyncio
     async def test_upcoming_counts_only_events_still_to_come(self, db):
@@ -281,7 +372,9 @@ class TestMixedStorageForms:
                         "_id": "log-object-id",
                         "user_id": ObjectId(ALICE),
                         "event_id": ObjectId("ddddddddddddddddddddddd4"),
-                        "status": "going",
+                        # Attended, so the event behind an ObjectId log is one
+                        # that has to be resolved for its artist to be counted.
+                        "status": "went",
                     },
                 ],
                 "events": [
@@ -316,13 +409,14 @@ class TestMixedStorageForms:
     async def test_both_show_log_rows_are_counted(self, mixed_db):
         stats = await build_service(mixed_db).get_user_stats("alice")
 
-        assert stats["shows_attended"] == 1
-        assert stats["shows_going"] == 1
+        assert stats["shows_attended"] == 2
 
     @pytest.mark.asyncio
     async def test_both_event_rows_are_resolved(self, mixed_db):
         stats = await build_service(mixed_db).get_user_stats("alice")
 
+        # Nova's event is stored under a string id and Static Hearts' under an
+        # ObjectId; both had to be resolved for their artists to be counted.
         assert stats["artists_seen"] == 2
 
     @pytest.mark.asyncio

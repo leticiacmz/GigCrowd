@@ -1,9 +1,11 @@
 """Notification behaviour.
 
 Notifications are a real, recipient-scoped backend feature, separate from the
-feed. These tests cover the four types the product defines, the unread/read
-lifecycle, mark-all-as-read, and the isolation that stops one user from
-reading or mutating another user's notifications.
+feed. These tests cover every type the product defines - the four caused by one
+person acting on another's content, and the two GigCrowd asks for itself once a
+show has finished - along with the unread/read lifecycle, mark-all-as-read, and
+the isolation that stops one user from reading or mutating another user's
+notifications.
 """
 from __future__ import annotations
 
@@ -82,13 +84,21 @@ class TestNotificationTypes:
         assert isinstance(created["created_at"], datetime)
 
     @pytest.mark.asyncio
-    async def test_exactly_four_types_exist(self):
-        """The product defines Follow, Like, Comment and Reply, and nothing else."""
+    async def test_exactly_the_six_types_exist(self):
+        """Every notification the product can send, and nothing else.
+
+        Four are caused by one person acting on another's content. Two are asked
+        by GigCrowd itself once a show has finished. A third new provider is not
+        being added in this iteration, so this set is deliberately closed: a type
+        appearing here means somebody wired one up without deciding it belongs.
+        """
         assert {member.value for member in NotificationType} == {
             "follow",
             "like",
             "comment",
             "reply",
+            "event_attendance_check",
+            "event_review_prompt",
         }
 
     @pytest.mark.asyncio

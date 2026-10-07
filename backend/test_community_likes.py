@@ -1,87 +1,206 @@
-"""Test community post likes functionality."""
+"""Community post likes, end to end against a running API.
+
+This used to log in as a hard-coded account that only existed because somebody
+had created it by hand in the database, and it returned early on any unexpected
+status. That combination meant it reported success while testing almost nothing:
+a clean database reset exposed it immediately.
+
+It now provisions its own account with a unique name, follows an artist the way
+the product requires before posting, and asserts on every response - so a route
+that does not exist fails the test instead of quietly skipping it.
+
+The API must be running on :8000; the test says so and skips rather than
+reporting a confusing failure if it is not.
+"""
+import uuid
+
+import pytest
 import requests
-import json
 
 BASE_URL = "http://localhost:8000"
 
+PASSWORD = "TestPass123!"
 
-def test_community_likes():
-    # Login
-    r = requests.post(f"{BASE_URL}/auth/login", data={
-        "username": "testuser@gigcrowd.com",
-        "password": "TestPass123!"
-    })
-    token = r.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
 
-    # First, get an artist slug
-    r = requests.get(f"{BASE_URL}/artists", headers=headers)
-    artists = r.json()
+def _api_is_up() -> bool:
+    try:
+        requests.get(f"{BASE_URL}/health", timeout=5)
+        return True
+    except requests.RequestException:
+        return False
+
+
+requires_api = pytest.mark.skipif(
+    not _api_is_up(),
+    reason="the API must be running on :8000 for this test",
+)
+
+
+@pytest.fixture
+def account():
+    """A registered account with the headers needed to act as them."""
+
+    handle = f"likes{uuid.uuid4().hex[:10]}"
+
+    registered = requests.post(
+        f"{BASE_URL}/auth/register",
+        json={
+            "username": handle,
+            "email": f"{handle}@gigcrowd.app",
+            "password": PASSWORD,
+        },
+        timeout=30,
+    )
+
+    assert registered.status_code in (200, 201), registered.text
+
+    token = requests.post(
+        f"{BASE_URL}/auth/login",
+        data={"username": f"{handle}@gigcrowd.app", "password": PASSWORD},
+        timeout=30,
+    ).json()["access_token"]
+
+    return {"headers": {"Authorization": f"Bearer {token}"}}
+
+
+@requires_api
+def test_community_likes(account):
+    headers = account["headers"]
+
+    artists = requests.get(
+        f"{BASE_URL}/artists", headers=headers, timeout=30
+    ).json()
+
     if not artists:
-        print("No artists found, cannot test community posts")
-        return
+        pytest.skip(
+            "no artists in the database; run the development seed first"
+        )
 
     artist_slug = artists[0]["slug"]
-    print(f"Using artist: {artist_slug}")
 
-    # Create a community post
-    r = requests.post(f"{BASE_URL}/community/posts", headers=headers, json={
-        "artist_slug": artist_slug,
-        "content": "Test community post for likes!"
-    })
-    print(f"Create post: {r.status_code}")
-    if r.status_code != 200:
-        print(f"Error: {r.text}")
-        return
+    # Posting into an artist community requires following that artist, so the
+    # test follows first rather than asserting against a 403.
+    followed = requests.post(
+        f"{BASE_URL}/artists/{artist_slug}/follow", headers=headers, timeout=30
+    )
 
-    post_id = r.json()["id"]
-    print(f"Post ID: {post_id}")
-    print(f"Likes count after create: {r.json()['likes_count']}")
+    assert followed.status_code in (200, 201), followed.text
 
-    # Like the post
-    r = requests.post(f"{BASE_URL}/community/posts/{post_id}/like", headers=headers)
-    print(f"Like post: {r.status_code}")
-    if r.status_code != 200:
-        print(f"Error: {r.text}")
-        return
+    created = requests.post(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts",
+        headers=headers,
+        json={"content": "Test community post for likes!"},
+        timeout=30,
+    )
 
-    # Get posts to verify like count
-    r = requests.get(f"{BASE_URL}/community/posts/{artist_slug}", headers=headers)
-    posts = r.json()
-    liked_post = next((p for p in posts if p["id"] == post_id), None)
-    if liked_post:
-        print(f"Likes count after like: {liked_post['likes_count']}")
-        print(f"Liked by user: {liked_post['liked_by_user']}")
+    assert created.status_code == 200, created.text
 
-    # Try to like again (should fail)
-    r = requests.post(f"{BASE_URL}/community/posts/{post_id}/like", headers=headers)
-    print(f"Duplicate like: {r.status_code} (should be 400)")
+    post = created.json()
+    post_id = post["id"]
 
-    # Unlike the post
-    r = requests.delete(f"{BASE_URL}/community/posts/{post_id}/like", headers=headers)
-    print(f"Unlike post: {r.status_code}")
-    if r.status_code != 200:
-        print(f"Error: {r.text}")
-        return
+    assert post["likes_count"] == 0
+    assert post["comments_count"] == 0
 
-    # Get posts to verify unlike
-    r = requests.get(f"{BASE_URL}/community/posts/{artist_slug}", headers=headers)
-    posts = r.json()
-    liked_post = next((p for p in posts if p["id"] == post_id), None)
-    if liked_post:
-        print(f"Likes count after unlike: {liked_post['likes_count']}")
-        print(f"Liked by user: {liked_post['liked_by_user']}")
+    # Liking registers. The route answers with an acknowledgement rather than
+    # the post, so the counter is read back from the list afterwards.
+    liked = requests.post(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts/{post_id}/like",
+        headers=headers,
+        timeout=30,
+    )
 
-    # Try to unlike again (should fail)
-    r = requests.delete(f"{BASE_URL}/community/posts/{post_id}/like", headers=headers)
-    print(f"Duplicate unlike: {r.status_code} (should be 400)")
+    assert liked.status_code == 200, liked.text
+    assert liked.json()["success"] is True
 
-    # Clean up - delete the post
-    r = requests.delete(f"{BASE_URL}/community/posts/{post_id}", headers=headers)
-    print(f"Delete post: {r.status_code}")
+    def read_post():
+        listing = requests.get(
+            f"{BASE_URL}/artists/{artist_slug}/community/posts",
+            timeout=30,
+        )
 
-    print("\nAll tests passed!")
+        assert listing.status_code == 200, listing.text
 
+        return next(
+            row
+            for row in listing.json()
+            if row["id"] == post_id
+        )
 
-if __name__ == "__main__":
-    test_community_likes()
+    assert read_post()["likes_count"] == 1
+
+    # Liking again is refused rather than double counting: the like is a set,
+    # and the route says so instead of pretending to add a second one.
+    again = requests.post(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts/{post_id}/like",
+        headers=headers,
+        timeout=30,
+    )
+
+    assert again.status_code == 400, again.text
+    assert read_post()["likes_count"] == 1
+
+    # And it can be taken back, after which it can be liked again.
+    unliked = requests.delete(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts/{post_id}/like",
+        headers=headers,
+        timeout=30,
+    )
+
+    assert unliked.status_code == 200, unliked.text
+    assert read_post()["likes_count"] == 0
+
+    reliked = requests.post(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts/{post_id}/like",
+        headers=headers,
+        timeout=30,
+    )
+
+    assert reliked.status_code == 200, reliked.text
+    assert read_post()["likes_count"] == 1
+
+    # The post is readable by anyone, and the counters are on it.
+    # `liked_by_user` is relative to the reader, so it is checked from both
+    # sides: true for the person who liked it, false for anyone else.
+    signed_in = requests.get(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts",
+        headers=headers,
+        timeout=30,
+    ).json()
+
+    as_author = next(
+        row for row in signed_in if row["id"] == post_id
+    )
+
+    assert as_author["likes_count"] == 1
+    assert as_author["comments_count"] == 0
+    assert as_author["content"] == "Test community post for likes!"
+    assert as_author["liked_by_user"] is True
+
+    anonymous = requests.get(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts",
+        timeout=30,
+    ).json()
+
+    as_stranger = next(
+        row for row in anonymous if row["id"] == post_id
+    )
+
+    assert as_stranger["likes_count"] == 1
+    assert as_stranger["liked_by_user"] is False
+
+    # Tidy up, so repeated runs do not accumulate posts.
+    #
+    # Cleanup is not a claim about the product, so its outcome is deliberately
+    # not asserted: a leftover post is untidy, a failing teardown is a false
+    # alarm about a route this test is not making any claim about.
+    requests.delete(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts/{post_id}/like",
+        headers=headers,
+        timeout=30,
+    )
+
+    requests.delete(
+        f"{BASE_URL}/artists/{artist_slug}/community/posts/{post_id}",
+        headers=headers,
+        timeout=30,
+    )

@@ -11,10 +11,14 @@ import pytest
 from bson import ObjectId
 
 from app.domain.festival import festival_key
+from app.models.show_log import AttendanceStatus
 from app.repositories.follow_repository import FollowRepository
 from app.repositories.show_log_repository import ShowLogRepository
 from app.repositories.user_repository import UserRepository
-from app.services.user_concert_service import UserConcertService
+from app.services.user_concert_service import (
+    UserConcertService,
+    resolve_show_status,
+)
 from app.services.user_stats_service import UserStatsService
 from tests.support.fake_mongo import FakeDatabase
 
@@ -919,7 +923,6 @@ class TestArtists:
         }
 
         assert counts == posts_per_artist
-
     @pytest.mark.asyncio
     async def test_a_follow_for_an_unimported_artist_is_still_reported(
         self,
@@ -1221,6 +1224,386 @@ class TestReviewsBelongToTheirAuthor:
         other_events = await service.get_events("someone-else")
 
         assert [event.event_id for event in other_events["events"]] == [second]
+
+
+class TestShowsBreakdown:
+    """Shows is one section that breaks down into the three states.
+
+    The states are not three sections and not three collections: they are the
+    three values `AttendanceStatus` already persists on a single show log. The
+    rules worth pinning down are that each state returns only its own rows, that
+    all three counts travel with every answer, and that the counts and the list
+    behind them are counted from the same rows.
+    """
+
+    async def seed_three_states(self, db):
+        """One user with one show in each of the three states."""
+
+        await seed_user(db)
+
+        attended = await seed_event(
+            db,
+            event_id="6a0000000000000000000001",
+            title="Nova at Warehouse",
+            starts_at=NOW - timedelta(days=30),
+        )
+
+        planned = await seed_event(
+            db,
+            event_id="6a0000000000000000000002",
+            title="Nova at Arena",
+            starts_at=NOW + timedelta(days=30),
+        )
+
+        undecided = await seed_event(
+            db,
+            event_id="6a0000000000000000000003",
+            title="Nova at Theatre",
+            starts_at=NOW + timedelta(days=60),
+        )
+
+        await seed_log(db, event_id=attended, status="went")
+        await seed_log(db, event_id=planned, status="going")
+        await seed_log(db, event_id=undecided, status="maybe")
+
+        return attended, planned, undecided
+
+    @pytest.mark.asyncio
+    async def test_each_state_returns_only_its_own_shows(
+        self,
+        service,
+        db,
+    ):
+
+        attended, planned, undecided = (
+            await self.seed_three_states(db)
+        )
+
+        went = await service.get_events(
+            "leticiacmz",
+            status=AttendanceStatus.WENT,
+        )
+
+        going = await service.get_events(
+            "leticiacmz",
+            status=AttendanceStatus.GOING,
+        )
+
+        maybe = await service.get_events(
+            "leticiacmz",
+            status=AttendanceStatus.MAYBE,
+        )
+
+        assert [e.event_id for e in went["events"]] == [attended]
+        assert [e.event_id for e in going["events"]] == [planned]
+        assert [e.event_id for e in maybe["events"]] == [undecided]
+
+    @pytest.mark.asyncio
+    async def test_the_default_is_the_attended_shows(
+        self,
+        service,
+        db,
+    ):
+
+        # What the profile has always shown must not change shape.
+        attended, _, _ = await self.seed_three_states(db)
+
+        result = await service.get_events("leticiacmz")
+
+        assert [e.event_id for e in result["events"]] == [attended]
+        assert result["status"] == "attended"
+
+    @pytest.mark.asyncio
+    async def test_every_answer_carries_all_three_counts(
+        self,
+        service,
+        db,
+    ):
+
+        await self.seed_three_states(db)
+
+        for status in AttendanceStatus:
+
+            result = await service.get_events(
+                "leticiacmz",
+                status=status,
+            )
+
+            # The breakdown is drawn from the response, so one request has to
+            # be able to fill all three figures.
+            assert result["counts"] == {
+                "attended": 1,
+                "want-to-go": 1,
+                "maybe": 1,
+            }
+
+    @pytest.mark.asyncio
+    async def test_a_state_nobody_has_reports_zero_not_a_missing_key(
+        self,
+        service,
+        db,
+    ):
+
+        # Someone who has never been undecided still needs a "Maybe" tab, and a
+        # missing key would leave the frontend guessing what it means.
+        await seed_user(db)
+
+        event_id = await seed_event(
+            db,
+            event_id="6a0000000000000000000001",
+            starts_at=NOW - timedelta(days=5),
+        )
+
+        await seed_log(db, event_id=event_id, status="went")
+
+        result = await service.get_events("leticiacmz")
+
+        assert result["counts"] == {
+            "attended": 1,
+            "want-to-go": 0,
+            "maybe": 0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_total_is_the_size_of_the_state_that_was_asked_for(
+        self,
+        service,
+        db,
+    ):
+
+        # A figure has to describe the list under it. Reporting every logged
+        # show while listing three would be a number that leads nowhere.
+        await self.seed_three_states(db)
+
+        for status, expected in (
+            (AttendanceStatus.WENT, ("attended", 1)),
+            (AttendanceStatus.GOING, ("want-to-go", 1)),
+            (AttendanceStatus.MAYBE, ("maybe", 1)),
+        ):
+
+            label, count = expected
+
+            result = await service.get_events(
+                "leticiacmz",
+                status=status,
+            )
+
+            assert result["total"] == count
+            assert result["status"] == label
+
+    @pytest.mark.asyncio
+    async def test_asking_for_every_state_sums_the_counts(
+        self,
+        service,
+        db,
+    ):
+
+        await self.seed_three_states(db)
+
+        result = await service.get_events(
+            "leticiacmz",
+            status=None,
+        )
+
+        assert result["total"] == 3
+        assert result["status"] is None
+        assert len(result["events"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_a_page_of_one_state_can_be_paged(
+        self,
+        service,
+        db,
+    ):
+
+        # "Want to go" is usually the longest of the three lists, so a count
+        # without a way to reach the rest of the rows would be a dead number.
+        await seed_user(db)
+
+        for index in range(5):
+
+            event_id = await seed_event(
+                db,
+                event_id=f"6a00000000000000000000{index + 1:02d}",
+                starts_at=NOW + timedelta(days=index + 1),
+            )
+
+            await seed_log(db, event_id=event_id, status="going")
+
+        first = await service.get_events(
+            "leticiacmz",
+            limit=2,
+            skip=0,
+            status=AttendanceStatus.GOING,
+        )
+
+        second = await service.get_events(
+            "leticiacmz",
+            limit=2,
+            skip=2,
+            status=AttendanceStatus.GOING,
+        )
+
+        assert len(first["events"]) == 2
+        assert len(second["events"]) == 2
+        assert first["total"] == second["total"] == 5
+        assert first["skip"] == 0
+        assert second["skip"] == 2
+
+        first_ids = {e.event_id for e in first["events"]}
+        second_ids = {e.event_id for e in second["events"]}
+
+        # The two pages must not show the same shows.
+        assert not first_ids & second_ids
+
+    @pytest.mark.asyncio
+    async def test_a_show_keeps_its_state_on_the_row(
+        self,
+        service,
+        db,
+    ):
+
+        # The frontend can only label a row correctly if the row carries the
+        # state that selected it.
+        _, planned, _ = await self.seed_three_states(db)
+
+        result = await service.get_events(
+            "leticiacmz",
+            status=AttendanceStatus.GOING,
+        )
+
+        assert result["events"][0].status == "going"
+
+    @pytest.mark.asyncio
+    async def test_the_breakdown_stays_scoped_to_its_owner(
+        self,
+        service,
+        db,
+    ):
+
+        # Someone else's planned shows must never inflate this profile's
+        # "Want to go" figure or appear under it.
+        await seed_two_authors(db)
+
+        their_show = await seed_event(
+            db,
+            event_id="6a00000000000000000000d1",
+            title="Someone else's night",
+            starts_at=NOW + timedelta(days=5),
+        )
+
+        await db.show_logs.insert_one(
+            {
+                "_id": "log-other-going",
+                "user_id": OTHER_AUTHOR,
+                "event_id": their_show,
+                "status": "going",
+            }
+        )
+
+        result = await service.get_events(
+            "leticiacmz",
+            status=AttendanceStatus.GOING,
+        )
+
+        assert result["events"] == []
+        assert result["counts"]["want-to-go"] == 0
+
+    @pytest.mark.asyncio
+    async def test_a_deleted_event_does_not_inflate_a_count(
+        self,
+        service,
+        db,
+    ):
+
+        # The count is honest about the log, and the list is honest about what
+        # can be rendered. A log whose event is gone cannot be opened, so the
+        # list drops it; the count still reflects the stored attendance.
+        await seed_user(db)
+
+        await seed_log(
+            db,
+            event_id="6a0000000000000000000099",
+            status="going",
+        )
+
+        result = await service.get_events(
+            "leticiacmz",
+            status=AttendanceStatus.GOING,
+        )
+
+        assert result["events"] == []
+        assert result["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_the_breakdown_costs_a_fixed_number_of_queries(
+        self,
+        service,
+        db,
+    ):
+
+        # Adding the three counts must not turn one request per state into
+        # three, and it must not grow with the size of the log.
+        await self.seed_three_states(db)
+
+        for index in range(4, 10):
+
+            event_id = await seed_event(
+                db,
+                event_id=f"6a00000000000000000000{index + 1:02d}",
+                starts_at=NOW + timedelta(days=index),
+            )
+
+            await seed_log(db, event_id=event_id, status="going")
+
+        before = len(db.reads)
+
+        result = await service.get_events(
+            "leticiacmz",
+            status=AttendanceStatus.GOING,
+        )
+
+        reads = list(db.reads[before:])
+
+        aggregations = [r for r in reads if r[1] == "aggregate"]
+
+        # One grouped aggregation answers all three counts at once.
+        assert len(aggregations) == 1
+
+        assert result["counts"]["want-to-go"] == 7
+
+
+class TestShowStatusWording:
+    """The three states are addressed in the product's words on the wire."""
+
+    def test_the_product_wording_selects_the_right_state(self):
+
+        assert resolve_show_status("attended") is AttendanceStatus.WENT
+        assert resolve_show_status("want-to-go") is AttendanceStatus.GOING
+        assert resolve_show_status("maybe") is AttendanceStatus.MAYBE
+
+    def test_the_stored_wording_is_also_accepted(self):
+
+        # The persisted values were already public in the response, so a client
+        # that learned them from an older version keeps working.
+        assert resolve_show_status("went") is AttendanceStatus.WENT
+        assert resolve_show_status("going") is AttendanceStatus.GOING
+
+    def test_the_wording_is_not_case_or_space_sensitive(self):
+
+        assert resolve_show_status("  Want-To-Go ") is AttendanceStatus.GOING
+
+    def test_all_and_nothing_mean_every_logged_show(self):
+
+        assert resolve_show_status("all") is None
+        assert resolve_show_status(None) is None
+
+    def test_an_unknown_state_is_refused_rather_than_guessed(self):
+
+        # Silently answering with a different state would show the wrong shows
+        # under a heading that promises something else.
+        with pytest.raises(ValueError):
+            resolve_show_status("attended-almost")
 
 
 class TestStatsCountOnlyTheirOwnersReviews:

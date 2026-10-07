@@ -79,8 +79,11 @@ async def get_community_posts(
             user_id=str(post["user_id"]),
             content=post["content"],
             image_url=post.get("image_url"),
-            likes_count=post["likes_count"],
-            comments_count=post["comments_count"],
+            # These are denormalised counters maintained as likes and comments
+            # arrive. A document that predates them - or one written by a seed
+            # or an import - simply has none, which means zero, not a crash.
+            likes_count=post.get("likes_count") or 0,
+            comments_count=post.get("comments_count") or 0,
             created_at=post["created_at"],
             updated_at=post.get("updated_at"),
             username=user.get("username") if user else None,
@@ -138,8 +141,10 @@ async def create_community_post(
         user_id=str(result["user_id"]),
         content=result["content"],
         image_url=result.get("image_url"),
-        likes_count=result["likes_count"],
-        comments_count=result["comments_count"],
+        # Read defensively for the same reason as the read route: these are
+        # denormalised counters, and a row without them means zero.
+        likes_count=result.get("likes_count") or 0,
+        comments_count=result.get("comments_count") or 0,
         created_at=result["created_at"],
         updated_at=result.get("updated_at"),
         username=current_user.get("username"),

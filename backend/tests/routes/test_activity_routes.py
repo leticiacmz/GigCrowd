@@ -104,7 +104,8 @@ class TestFeedEndpoint:
             assert client.get("/feed").status_code == 401
 
     @pytest.mark.parametrize(
-        "category", ["all", "community", "reviews", "events", "social"]
+        "category",
+        ["all", "community", "reviews", "attendance", "events"],
     )
     def test_every_advertised_category_is_accepted(self, app, db, category):
         with TestClient(app) as client:
@@ -114,6 +115,21 @@ class TestFeedEndpoint:
 
         assert response.status_code == 200
         assert response.json()["category"] == category
+
+    def test_the_social_category_is_not_offered(self, app, db):
+        """Follows are not content, so there is nothing for such a filter to hold.
+
+        Rejected rather than answered as an empty timeline: an empty list would
+        look like a reader who has done nothing, when in fact the answer is that
+        the question is not one the feed answers.
+        """
+        with TestClient(app) as client:
+            _sign_in_as(client, app, ALICE)
+
+            response = client.get("/feed", params={"category": "social"})
+
+        assert response.status_code == 422
+        assert "Unknown feed category" in response.json()["detail"]
 
     def test_unknown_category_is_rejected(self, app, db):
         with TestClient(app) as client:

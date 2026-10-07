@@ -7,6 +7,7 @@ has, because the events behind the show logs are resolved in one batch.
 """
 from datetime import UTC, datetime
 
+from app.domain.event_artists import personal_artist_slugs
 from app.domain.event_schedule import is_upcoming
 from app.domain.festival import festival_key
 from app.utils.ids import id_matches, object_id_variants
@@ -77,6 +78,9 @@ class UserStatsService:
             {
                 "artist_slug": 1,
                 "artist_slugs": 1,
+                # Needed so a festival date's performers count towards the
+                # artists this person has actually seen.
+                "lineup": 1,
                 "starts_at": 1,
                 "ends_at": 1,
                 "title": 1,
@@ -202,14 +206,17 @@ class UserStatsService:
 
         for event in events:
 
-            artists.update(
-                self._artist_slugs(event)
-            )
-
             festival = festival_key(event)
 
             if festival and str(event.get("_id")) in attended_event_ids:
                 festivals.add(festival)
+
+            if str(event.get("_id")) in attended_event_ids:
+                # Only the event's own direct artist reference. A festival date
+                # has no headline artist, so attending one adds nobody to this
+                # set - which is the point: a lineup is not a record of what
+                # someone watched.
+                artists |= personal_artist_slugs(event)
 
             # Whether the show is still ahead is the shared schedule rule, so
             # the count on the profile cannot disagree with the badge on the
@@ -242,6 +249,10 @@ class UserStatsService:
 
             "shows_maybe": counts["maybe"],
 
+            # The figure the profile header shows under "Artists". It is the
+            # number of distinct artists this person has been to a show of, and
+            # it is deliberately not the number they follow: following an artist
+            # is an intention, and this section is a history.
             "artists_seen": len(
                 artists
             ),
