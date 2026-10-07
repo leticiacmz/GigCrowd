@@ -1,5 +1,11 @@
 from app.core.logger import get_logger
 
+from typing import Optional
+
+from app.domain.songkick_identity import (
+    normalize_songkick_artist_id,
+)
+
 from app.mappers.songkick_event_mapper import SongkickEventMapper
 
 from app.repositories.event_repository import (
@@ -18,7 +24,13 @@ from app.services.provider_manager import (
     ProviderManager,
 )
 
+from app.services.event_enrichment_service import (
+    EventEnrichmentService,
+)
+
 from app.domain.artist import Artist
+
+import asyncio
 
 import time
 
@@ -26,6 +38,16 @@ import time
 logger = get_logger(
     "songkick_event_import"
 )
+
+# How many source failures in a row end an import's enrichment pass.
+#
+# A failure is not cheap - the client retries a dead source rather than
+# give up on the first timeout - so a pass over an unreachable Songkick
+# would otherwise burn the whole bound one timeout at a time. Five in a
+# row is a source that is down, not five events that are unlucky: the rest
+# of the batch is deferred to the scheduler, which is what the safety net
+# is for, and the import finishes with the events it already has.
+_SOURCE_FAILURE_STREAK_LIMIT = 5
 
 
 class SongkickEventImportService:
@@ -36,6 +58,14 @@ class SongkickEventImportService:
         event_repository: EventRepository,
         venue_repository: VenueRepository,
         artist_repository: ArtistRepository,
+        enrichment_service: Optional[
+            EventEnrichmentService
+        ] = None,
+        enrich_fields: Optional[list[str]] = None,
+        enrich_limit: int = 60,
+        enrich_delay_seconds: float = 1.5,
+        lineup_importer=None,
+        lineup_artist_limit: int = 100,
     ):
 
         self.provider_manager = provider_manager
@@ -50,6 +80,31 @@ class SongkickEventImportService:
 
         self.artist_repository = (
             artist_repository
+        )
+
+        # Enrichment is a collaborator, not a hard dependency. Without one the
+        # importer still writes events; they simply arrive incomplete and the
+        # scheduler picks them up later. That is the degraded path, not the
+        # normal one.
+        self.enrichment_service = enrichment_service
+
+        self.enrich_fields = enrich_fields
+
+        self.enrich_limit = max(
+            0,
+            enrich_limit,
+        )
+
+        self.enrich_delay_seconds = enrich_delay_seconds
+
+        # Turns announced performers into artists, by Songkick id. Off by being
+        # absent, and it never fetches an artist's gigography - see
+        # `LineupArtistImporter`.
+        self.lineup_importer = lineup_importer
+
+        self.lineup_artist_limit = max(
+            0,
+            lineup_artist_limit,
         )
 
     async def sync_artist_events(
@@ -70,6 +125,14 @@ class SongkickEventImportService:
             SongkickEventMapper
                 ↓
             Venue + Event repositories
+                ↓
+            EventEnrichmentService, for anything still incomplete
+
+        The last arrow is the part that makes an imported event trustworthy
+        without a human. A listing that carries no date is not evidence that
+        the event has none - the concrete event page nearly always does - so an
+        event that arrives incomplete is read again from its own page straight
+        away, through the same enrichment service the scheduler uses.
         """
 
         started_at = time.perf_counter()
@@ -78,6 +141,61 @@ class SongkickEventImportService:
             f"🎤 Synchronizing Songkick events for: "
             f"'{artist.name}'"
         )
+
+        # --------------------------------------------------
+        # IDENTITY
+        # --------------------------------------------------
+        #
+        # Which Songkick artist this is has to be decided by the artist's own
+        # Songkick ID when one is stored, not by its name. Songkick search
+        # routinely returns several acts under one name, and a name-led lookup
+        # imports the wrong act's gigography without anything looking wrong: the
+        # events are real, they just belong to somebody else.
+        #
+        # Only the `songkick` key is read. A Spotify ID is never used here - the
+        # two ID spaces are unrelated and borrowing across them silently addresses
+        # a different artist.
+        #
+        # When no ID is stored, the scrape falls back to an exact name match, and
+        # says so in the log rather than pretending it was certain.
+        # --------------------------------------------------
+
+        trusted_songkick_id = normalize_songkick_artist_id(
+            (artist.external_ids or {}).get(
+                "songkick"
+            )
+        )
+
+        stored_songkick_id = (
+            artist.external_ids or {}
+        ).get("songkick")
+
+        if trusted_songkick_id:
+
+            logger.info(
+                f"Syncing '{artist.name}' by Songkick ID "
+                f"{trusted_songkick_id}"
+            )
+
+        elif stored_songkick_id:
+
+            # Something was stored that is not a Songkick artist ID. Refusing it
+            # is the point; using it would mean asking Songkick for a page named
+            # after an identifier from a different provider.
+            logger.warning(
+                f"'{artist.name}' stores "
+                f"{stored_songkick_id!r} as its Songkick ID, which is "
+                f"not a Songkick artist ID. Falling back to an "
+                f"exact name match. The stored ID should be corrected."
+            )
+
+        else:
+
+            logger.warning(
+                f"'{artist.name}' has no Songkick ID stored. "
+                f"Falling back to an exact name match, which can be "
+                f"wrong when several acts share a name."
+            )
 
         # --------------------------------------------------
         # Provider
@@ -93,9 +211,23 @@ class SongkickEventImportService:
         # Fetch events
         # --------------------------------------------------
 
-        result = await songkick_provider.get_artist_events(
-            artist.name
+        provider_result = (
+            await songkick_provider.get_artist_events(
+                artist.name,
+                artist_id=trusted_songkick_id,
+            )
         )
+
+        # What the provider read about the artist, as distinct from the events it
+        # read for them. Held under its own name because `result` is reassigned
+        # further down this method, and a value the return statement depends on
+        # must not share a name with a loop variable - the last one to be written
+        # wins silently, and the artist arrives with nothing the provider said.
+        artist_page_facts = (
+            provider_result.get("artist") or {}
+        )
+
+        result = provider_result
 
         if not isinstance(
             result,
@@ -267,6 +399,16 @@ class SongkickEventImportService:
         events_created = 0
         events_existing = 0
         events_skipped = 0
+
+        # Events this run wrote that still need their concrete source read.
+        # Collected here and enriched after the mapping loop, so the pacing
+        # toward Songkick is in one place instead of interleaved with mapping.
+        incomplete: list[str] = []
+
+        # Lineups this run brought in. Turned into artists after enrichment, so
+        # the lineup a concrete festival page just recovered is included, not
+        # only the one the listing happened to carry.
+        announced: dict[str, dict] = {}
 
         # --------------------------------------------------
         # Process events
@@ -500,6 +642,85 @@ class SongkickEventImportService:
 
                     events_existing += 1
 
+                # --------------------------------------------------
+                # Incomplete?
+                # --------------------------------------------------
+                #
+                # Decided here, from the event that was just mapped, so it costs
+                # no extra query. The rule is the enrichment service's, called
+                # here on purpose: the importer and the scheduler must agree on
+                # what "incomplete" means, and one definition cannot disagree
+                # with itself.
+                #
+                # An event is only a candidate if it also has a concrete source
+                # to read. A listing that gave nothing to re-read cannot be
+                # improved by asking it again.
+                # --------------------------------------------------
+
+                source_url = (event.source or {}).get(
+                    "url"
+                ) or (event.festival or {}).get("url")
+
+                if source_url and EventEnrichmentService.is_incomplete(
+                    event,
+                    self.enrich_fields,
+                ):
+
+                    incomplete.append(
+                        str(event.external_ids["songkick"])
+                    )
+
+                # --------------------------------------------------
+                # Announced performers
+                # --------------------------------------------------
+                #
+                # A lineup is a list of real artists, and each entry carries
+                # the Songkick id that decides who they are. Collecting them
+                # here and creating the artists after enrichment means the
+                # lineup a concrete festival page is about to recover is
+                # included too, not only the one this listing happened to
+                # carry.
+                #
+                # Keyed by Songkick id, because that is the identity. Two
+                # spellings of one act across a bill collapse to one artist.
+                # --------------------------------------------------
+
+                for entry in event.lineup or []:
+
+                    songkick_id = getattr(
+                        entry,
+                        "songkick_id",
+                        None,
+                    )
+
+                    if not songkick_id:
+                        continue
+
+                    announced.setdefault(
+                        str(songkick_id),
+                        {
+                            "songkick_id": str(songkick_id),
+                            "name": getattr(
+                                entry,
+                                "name",
+                                "",
+                            ),
+                            "image": getattr(
+                                entry,
+                                "image",
+                                None,
+                            ),
+                            "genres": list(
+                                getattr(
+                                    entry,
+                                    "genres",
+                                    [],
+                                )
+                                or []
+                            ),
+                        },
+                    )
+
             except ValueError as exc:
 
                 logger.warning(
@@ -517,6 +738,230 @@ class SongkickEventImportService:
                 )
 
                 events_skipped += 1
+
+        # --------------------------------------------------
+        # ENRICH WHAT IS STILL INCOMPLETE
+        # --------------------------------------------------
+        #
+        # An imported event that arrived without a date is not finished. The
+        # concrete Songkick page for that event very nearly always states the
+        # real date, so the import reads it now rather than leaving the record
+        # for a human to notice or for a scheduled run to reach much later.
+        #
+        # This is not a second enrichment implementation. Every event here goes
+        # through `EventEnrichmentService.enrich_event`, which plans, fetches,
+        # parses and writes exactly as the scheduler does. The scheduler remains
+        # the safety net for whatever this pass defers or fails on.
+        # --------------------------------------------------
+
+        events_enriched = 0
+        events_enrichment_failed = 0
+        events_enrichment_deferred = 0
+
+        if incomplete and not self.enrichment_service:
+
+            # Enrichment is switched off. The scheduler will pick these up; say
+            # so rather than letting an incomplete import look like a complete
+            # one.
+            events_enrichment_deferred = len(incomplete)
+
+            logger.info(
+                f"[EVENT IMPORT] Enrichment is not configured; "
+                f"{len(incomplete)} incomplete event(s) were "
+                f"written for the scheduler to recover"
+            )
+
+        elif incomplete:
+
+            batch = incomplete[: self.enrich_limit]
+
+            events_enrichment_deferred = (
+                len(incomplete) - len(batch)
+            )
+
+            logger.info(
+                f"[EVENT IMPORT] Reading the concrete source for "
+                f"{len(batch)} incomplete event(s); "
+                f"{events_enrichment_deferred} deferred to the "
+                f"scheduler"
+            )
+
+            consecutive_failures = 0
+
+            for index, songkick_event_id in enumerate(batch):
+
+                if consecutive_failures >= (
+                    _SOURCE_FAILURE_STREAK_LIMIT
+                ):
+
+                    # Accounted rather than dropped: these events are
+                    # exactly what the scheduler exists for, and the
+                    # report has to say how many were handed over.
+                    deferred_here = len(batch) - index
+
+                    events_enrichment_deferred += deferred_here
+
+                    logger.warning(
+                        f"[EVENT IMPORT] enrichment stopped after "
+                        f"{consecutive_failures} consecutive "
+                        f"failures; {deferred_here} event(s) "
+                        f"deferred to the scheduler"
+                    )
+
+                    break
+
+                try:
+
+                    stored_event_id = (
+                        await self.event_repository
+                        .get_id_by_external_id(
+                            "songkick",
+                            songkick_event_id,
+                        )
+                    )
+
+                except Exception as exc:
+
+                    logger.warning(
+                        f"[EVENT IMPORT] could not resolve the "
+                        f"stored id for Songkick event "
+                        f"{songkick_event_id}: {exc}"
+                    )
+
+                    events_enrichment_failed += 1
+
+                    consecutive_failures += 1
+
+                    continue
+
+                if not stored_event_id:
+
+                    events_enrichment_failed += 1
+
+                    consecutive_failures += 1
+
+                    continue
+
+                try:
+
+                    # Named for what it is rather than reusing `result`.
+                    #
+                    # `result` is the provider's answer for this artist, and this
+                    # loop runs over every event that came back. Assigning the
+                    # enrichment outcome to the same name meant that by the end of
+                    # the loop `result` no longer described the artist at all -
+                    # and the return statement below reads from it. Nothing
+                    # crashed; the artist simply arrived with nothing the
+                    # provider had said about them.
+                    enrichment = await (
+                        self.enrichment_service.enrich_event(
+                            stored_event_id,
+                            fields=self.enrich_fields,
+                        )
+                    )
+
+                except Exception as exc:
+
+                    # One unreachable page must not end an import. The record
+                    # stays incomplete and the scheduler retries it.
+                    logger.warning(
+                        f"[EVENT IMPORT] enrichment raised for "
+                        f"{songkick_event_id}: {exc}"
+                    )
+
+                    events_enrichment_failed += 1
+
+                    consecutive_failures += 1
+
+                    if index and self.enrich_delay_seconds and (
+                        index + 1 < len(batch)
+                    ):
+                        await asyncio.sleep(
+                            self.enrich_delay_seconds
+                        )
+
+                    continue
+
+                outcome = enrichment.get("outcome")
+
+                if outcome in (
+                    "updated",
+                    "unchanged",
+                    "complete",
+                    "skipped",
+                ):
+
+                    events_enriched += 1
+
+                    consecutive_failures = 0
+
+                else:
+
+                    events_enrichment_failed += 1
+
+                    consecutive_failures += 1
+
+                    logger.info(
+                        f"[EVENT IMPORT] enrichment for "
+                        f"{songkick_event_id} did not resolve: "
+                        f"{outcome}"
+                    )
+
+                if (
+                    index
+                    and self.enrich_delay_seconds
+                    and index + 1 < len(batch)
+                ):
+                    await asyncio.sleep(
+                        self.enrich_delay_seconds
+                    )
+
+        # --------------------------------------------------
+        # MAKE THE ANNOUNCED ARTISTS EXIST
+        # --------------------------------------------------
+        #
+        # A festival names far more artists than the catalogue has, and an
+        # unlinked name is not a usable one. This turns each announced
+        # performer into an artist so the lineup can be pressed.
+        #
+        # What it deliberately does not do is import them. A created artist is
+        # a stub with a name, a Songkick id and a slug; no gigography is
+        # fetched, and no `last_synced_at` is written, so the artist sync job
+        # remains free to decide that for itself. Folding a fetch in here would
+        # recreate the old bug where looking at a page changed the database.
+        # --------------------------------------------------
+
+        lineup_report = None
+
+        if announced and self.lineup_importer:
+
+            batch = list(announced.values())[
+                : self.lineup_artist_limit
+            ]
+
+            try:
+
+                lineup_report = await (
+                    self.lineup_importer.ensure_for_entries(
+                        batch
+                    )
+                )
+
+            except Exception as exc:
+                # An artist-creation problem must never cost us the events that
+                # were imported successfully above.
+                logger.warning(
+                    f"[EVENT IMPORT] lineup artists could not "
+                    f"be imported: {exc}"
+                )
+
+        elif announced and not self.lineup_importer:
+
+            logger.info(
+                f"[EVENT IMPORT] {len(announced)} announced "
+                f"performer(s) were imported without becoming "
+                f"artists; lineup linking is switched off"
+            )
 
         # --------------------------------------------------
         # Summary
@@ -567,6 +1012,27 @@ class SongkickEventImportService:
         )
 
         logger.info(
+            f"🔎 Events read at source during import: "
+            f"{events_enriched}"
+        )
+
+        logger.info(
+            f"⚠️ Enrichment failures (scheduler will retry): "
+            f"{events_enrichment_failed}"
+        )
+
+        logger.info(
+            f"⏳ Deferred to the scheduler: "
+            f"{events_enrichment_deferred}"
+        )
+
+        if lineup_report is not None:
+            logger.info(
+                f"🎪 Lineup artists: "
+                f"{lineup_report.summary()}"
+            )
+
+        logger.info(
             f"🏟️ New venues: {venues_created}"
         )
 
@@ -584,10 +1050,36 @@ class SongkickEventImportService:
 
         return {
             "artist": artist.name,
+
+            # What the provider read about the artist itself, as distinct from
+            # the events it read for them. Carried separately rather than folded
+            # into `artist`, which is this artist's *name* and has been for
+            # longer than this return value has existed.
+            #
+            # It is here so the caller can finish the job the fetch started: the
+            # artist's own page states a photograph, and an artist whose record
+            # came from a festival lineup has none until somebody reads it.
+            "artist_facts": artist_page_facts,
+
             "events_received": len(payloads),
             "events_created": events_created,
             "events_existing": events_existing,
             "events_skipped": events_skipped,
+            # How many of the events this run wrote were still missing something
+            # afterwards. `events_incomplete_found` is the count the import
+            # decided needed a source read; the difference between it and
+            # `events_enriched` is what the scheduler still owes.
+            "events_incomplete_found": len(incomplete),
+            "events_enriched": events_enriched,
+            "events_enrichment_failed": events_enrichment_failed,
+            "events_enrichment_deferred": (
+                events_enrichment_deferred
+            ),
+            "lineup_artists": (
+                lineup_report.as_dict()
+                if lineup_report is not None
+                else None
+            ),
             "venues_created": venues_created,
             "venues_existing": venues_existing,
             "elapsed_seconds": round(

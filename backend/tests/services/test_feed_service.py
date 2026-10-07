@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from bson import ObjectId
 
 from app.models.activity import ActivityType
 from app.services import activity_service as activity_module
@@ -116,6 +117,17 @@ def db(monkeypatch):
                     "metadata": {"artist_slug": ARTIST_A},
                     "created_at": now - timedelta(minutes=1),
                 },
+                {
+                    # Alice's own follow, stored the way `create_activity`
+                    # stores it: as a string.
+                    "_id": "act-alice-follow",
+                    "user_id": ALICE,
+                    "activity_type": ActivityType.FOLLOW.value,
+                    "target_id": BOB,
+                    "target_type": "user",
+                    "metadata": {},
+                    "created_at": now - timedelta(minutes=1, seconds=30),
+                },
                 # Bob, whom Alice follows.
                 {
                     "_id": "act-bob-comment",
@@ -187,7 +199,12 @@ class TestObjectIdVariants:
 class TestUnifiedTimeline:
     @pytest.mark.asyncio
     async def test_all_category_returns_every_relevant_activity(self, db):
-        """One timeline, mixing community, reviews, comments and social."""
+        """One timeline, mixing community, reviews, comments and attendance.
+
+        A follow is not in it. Follows decide what a reader is eligible to see;
+        rendering one as a card would fill the timeline with relationships nobody
+        chose to publish.
+        """
         found = await _feed()
 
         assert found == {
@@ -195,6 +212,17 @@ class TestUnifiedTimeline:
             "act-own-review",
             "act-bob-comment",
         }
+
+    @pytest.mark.asyncio
+    async def test_a_follow_is_never_shown_as_content(self, db):
+        """Not on the unfiltered timeline, and not on any filter."""
+        assert "act-alice-follow" not in await _feed()
+
+        for category in FEED_CATEGORIES:
+
+            assert "act-alice-follow" not in await _feed(
+                category=category
+            ), category
 
     @pytest.mark.asyncio
     async def test_timeline_is_ordered_newest_first(self, db):
@@ -217,19 +245,36 @@ class TestUnifiedTimeline:
 
     @pytest.mark.asyncio
     async def test_pagination_slices_the_same_timeline(self, db):
-        """Skip/limit paginate the unified stream, they do not replace it."""
-        page_one = await ActivityService.get_feed_activities(
-            ALICE, skip=0, limit=2
-        )
-        page_two = await ActivityService.get_feed_activities(
-            ALICE, skip=2, limit=2
+        """Skip/limit paginate the unified stream, they do not replace it.
+
+        Checked by walking the whole timeline a page at a time and comparing it to
+        the unpaged answer, rather than by asserting a page size: the number of rows
+        is a fixture detail, and hard-coding it made this test fail for the right
+        reason whenever the timeline legitimately changed shape.
+        """
+        everything = await ActivityService.get_feed_activities(
+            ALICE, skip=0, limit=100
         )
 
-        assert len(page_one) == 2
-        assert len(page_two) == 1
-        assert not ({item["id"] for item in page_one} & {
-            item["id"] for item in page_two
-        })
+        walked: list[str] = []
+
+        skip = 0
+
+        while True:
+
+            page = await ActivityService.get_feed_activities(
+                ALICE, skip=skip, limit=2
+            )
+
+            if not page:
+                break
+
+            walked.extend(item["id"] for item in page)
+
+            skip += len(page)
+
+        assert walked == [item["id"] for item in everything]
+        assert len(walked) == len(set(walked))
 
 
 class TestCategories:
@@ -247,17 +292,73 @@ class TestCategories:
 
     @pytest.mark.asyncio
     async def test_social_filter_returns_follows_only(self, db):
-        """No followed follow is visible, so the filter is legitimately empty
-        rather than filled with placeholder rows."""
-        found = await _feed(category="social")
+        """There is no Social filter, and no follow on the timeline.
+
+        A follow decides who may see what; it is not something a reader asked to
+        read. Offering it as a card - whether on its own filter or mixed into the
+        unfiltered timeline - turns the feed into a directory of relationships.
+        """
+        assert "social" not in FEED_CATEGORIES
+
+        with pytest.raises(ValueError):
+
+            await ActivityService.get_feed_activities(
+                ALICE, category="social"
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_follow_still_decides_what_is_visible(self, db):
+        """The exclusion is about display, not about reach.
+
+        Following is what puts somebody's activity in front of a reader, so if the
+        follow were ignored entirely the timeline would empty out for anyone whose
+        only relationship is a follow.
+        """
+
+        found = await _feed()
+
+        # Bob is reachable because Alice follows him.
+        assert "act-bob-comment" in found
+
+        # Carol is not followed, so hers stays out - the follow is doing its job.
+        assert not found & {"act-carol-like", "act-carol-attend"}
+
+    @pytest.mark.asyncio
+    async def test_the_viewers_own_actions_appear_however_the_id_is_held(self, db):
+        """A string id and an `ObjectId` must produce the same timeline.
+
+        The route passes an `ObjectId`; other callers hold a string. Neither
+        form may see less of the viewer's own history than the other.
+        """
+
+        as_string = await ActivityService.get_feed_activities(
+            ALICE, category="all"
+        )
+
+        as_object_id = await ActivityService.get_feed_activities(
+            ObjectId(ALICE), category="all"
+        )
+
+        assert {a["id"] for a in as_string} == {
+            a["id"] for a in as_object_id
+        }
+
+        # The viewer's own activity is reachable under either id form, which is the
+        # thing the normalisation exists for.
+        assert "act-own-review" in {a["id"] for a in as_object_id}
+
+    @pytest.mark.asyncio
+    async def test_attendance_filter_returns_attendance_only(self, db):
+        found = await _feed(category="attendance")
 
         assert found == set()
 
     @pytest.mark.asyncio
-    async def test_events_filter_returns_attendance_only(self, db):
-        found = await _feed(category="events")
-
-        assert found == set()
+    async def test_events_is_still_accepted_as_an_alias(self, db):
+        """The old name keeps working, so a habit does not break."""
+        assert await _feed(category="events") == await _feed(
+            category="attendance"
+        )
 
     @pytest.mark.asyncio
     async def test_every_category_returns_only_its_own_types(self, db):
@@ -341,24 +442,26 @@ class TestEnrichment:
 
     @pytest.mark.asyncio
     async def test_follow_target_resolves_to_a_profile(self, db):
-        """A social row must name and link the person who was followed."""
-        db.activities.documents.append(
-            {
-                "_id": "act-bob-follow",
-                "user_id": BOB,
-                "activity_type": ActivityType.FOLLOW.value,
-                "target_id": ALICE,
-                "target_type": "user",
-                "metadata": {},
-                "created_at": datetime.now(UTC) - timedelta(minutes=6),
-            }
-        )
+        """A follow row, if one is ever enriched, names and links its target.
 
-        activities = await ActivityService.get_feed_activities(
-            ALICE, category="social"
-        )
-        follow = next(
-            item for item in activities if item["id"] == "act-bob-follow"
+        The feed no longer shows follows, so this exercises the enrichment
+        directly rather than through a listing. The guarantee still matters: a
+        follow document exists in the collection, and should it ever be surfaced
+        again it must resolve to a public profile and nothing more - never an
+        email address or a password hash.
+        """
+        follow_document = {
+            "_id": "act-bob-follow",
+            "user_id": BOB,
+            "activity_type": ActivityType.FOLLOW.value,
+            "target_id": ALICE,
+            "target_type": "user",
+            "metadata": {},
+            "created_at": datetime.now(UTC) - timedelta(minutes=6),
+        }
+
+        [follow] = await ActivityService._enrich_activities(
+            db, [follow_document]
         )
 
         assert follow["target"]["kind"] == "profile"
@@ -392,25 +495,14 @@ class TestEnrichment:
         monkeypatch.setattr(type(db.events), "find", counting_find)
         monkeypatch.setattr(type(db.artists), "find", counting_find)
 
-        # Include a follow so both user lookups run: actors and targets.
-        db.activities.documents.append(
-            {
-                "_id": "act-bob-follow",
-                "user_id": BOB,
-                "activity_type": ActivityType.FOLLOW.value,
-                "target_id": ALICE,
-                "target_type": "user",
-                "metadata": {},
-                "created_at": datetime.now(UTC) - timedelta(minutes=6),
-            }
-        )
-
         activities = await ActivityService.get_feed_activities(ALICE)
 
-        assert len(activities) == 4
-        # One pass per purpose, never per activity. The users collection is
-        # read twice: once for the actors, once for the follow targets.
-        assert calls.count("users") == 2
+        # Alice's own post and review, plus Bob's comment. A follow would not be
+        # here even if one existed - it is not content.
+        assert len(activities) == 3
+        # One pass per purpose, never per activity. The users collection is read
+        # once, for the actors.
+        assert calls.count("users") == 1
         assert calls.count("community_posts") <= 1
         assert calls.count("comments") <= 1
         assert calls.count("artists") == 1

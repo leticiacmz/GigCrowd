@@ -1,5 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+
+from app.schemas.event_search import (
+    EventSearchGenresResponse,
+    EventSearchResponse,
+)
 
 from app.services.event_service import EventService
 
@@ -64,6 +71,106 @@ def get_attendance_service():
         ShowLogRepository(db)
     )
 
+
+
+@router.get(
+    "",
+    response_model=EventSearchResponse,
+)
+async def search_events(
+
+    q: Optional[str] = Query(
+        None,
+        max_length=200,
+        description="Free text, matched against the title and the artists.",
+    ),
+
+    genre: Optional[str] = Query(
+        None,
+        max_length=80,
+        description=(
+            "A genre as spelled in the genres list. Matched against "
+            "persisted artist metadata, never inferred from a title."
+        ),
+    ),
+
+    limit: int = Query(20, ge=1, le=50),
+
+    before: Optional[str] = Query(
+        None,
+        description="Opaque cursor date, from a previous next_cursor.",
+    ),
+
+    before_id: Optional[str] = Query(
+        None,
+        description="Opaque cursor id, from a previous next_cursor.",
+    ),
+
+    include_past: bool = Query(
+        False,
+        description="Include events that have already happened.",
+    ),
+
+    db=Depends(get_database),
+
+):
+    """Search the events catalogue.
+
+    Declared before `/{event_id}` so "search" is never read as an event id.
+
+    Text and genre are composed inside one query rather than by the client
+    filtering a page it has already fetched. That is what keeps `total` honest
+    and keeps "next page" from jumping: both describe the same result set,
+    whichever combination produced it.
+    """
+
+    from app.services.event_search_service import (
+        EventSearchService,
+    )
+
+    service = EventSearchService(
+        EventRepository(db),
+        VenueRepository(db),
+        ArtistRepository(db),
+    )
+
+    return await service.search(
+        q=q,
+        genre=genre,
+        limit=limit,
+        before=before,
+        before_id=before_id,
+        include_past=include_past,
+    )
+
+
+@router.get(
+    "/genres",
+    response_model=EventSearchGenresResponse,
+)
+async def list_event_genres(
+
+    db=Depends(get_database),
+
+):
+    """The genres the catalogue can be filtered by.
+
+    Sourced from artist metadata only. A genre is never read out of an event
+    title, so "Rock in Rio" contributes nothing here - which is the point: the
+    filter offers real genres and nothing else.
+    """
+
+    from app.services.event_search_service import (
+        EventSearchService,
+    )
+
+    service = EventSearchService(
+        EventRepository(db),
+        VenueRepository(db),
+        ArtistRepository(db),
+    )
+
+    return {"genres": await service.genres()}
 
 
 @router.get(

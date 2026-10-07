@@ -264,16 +264,26 @@ class SongkickProvider(BaseProvider):
     async def get_artist_events(
         self,
         artist_name: str,
+        artist_id: str | None = None,
     ) -> dict:
+        """Every Songkick event for one artist.
+
+        `artist_id` is a trusted Songkick artist ID and decides *which* artist this
+        is. The name is for readability and for search-based enrichment only. A
+        caller that knows the ID should always pass it: resolving by name alone
+        picks whichever same-named act Songkick happens to rank first.
+        """
 
         logger.info(
             "Fetching complete Songkick events "
-            f"for {artist_name}"
+            f"for {artist_name} "
+            f"(artist_id={artist_id})"
         )
 
         data = (
             await self.client.scrape_artist(
-                artist_name
+                artist_name,
+                artist_id=artist_id,
             )
         )
 
@@ -444,6 +454,8 @@ class SongkickProvider(BaseProvider):
         return {
 
             "artist_name": artist_name,
+
+            "artist_id": artist_id,
 
             "artist": data.get(
                 "artist"

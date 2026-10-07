@@ -549,4 +549,13 @@ class TestLineup:
             "507f1f77bcf86cd799439018"
         )
 
-        assert len(festival.lineup) == 2
+        # A repeated row is one performer. This used to assert `== 2`, which
+        # contradicted the test's own name and meant the duplicate survived to
+        # the page whenever a lineup arrived from somewhere other than the
+        # importer - an import, a fixture, a partial patch.
+        assert len(festival.lineup) == 1
+
+        # The first appearance wins, because that is the position the source
+        # put the act in.
+        assert festival.lineup[0].name == LINEUP_DAY_ONE[0]["name"]
+        assert festival.lineup[0].order == 0

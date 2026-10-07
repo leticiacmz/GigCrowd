@@ -24,6 +24,7 @@ whatever it is called, and a real Songkick event stays real.
 """
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -107,12 +108,15 @@ def classify(document: dict) -> str:
     return PROVENANCE_UNKNOWN
 
 
+SONGKICK_URL_PREFIX = "https://www.songkick.com/"
+
+
 def has_concrete_source(document: dict) -> bool:
     """Whether this event's claim can be checked against a source."""
 
     url = (document.get("source") or {}).get("url") or ""
 
-    return url.startswith("https://www.songkick.com/")
+    return url.startswith(SONGKICK_URL_PREFIX)
 
 
 def reaches_into_the_future(
@@ -172,3 +176,113 @@ def is_trustworthy_upcoming(
         )
 
     return True, "verified_songkick_provenance"
+
+
+# ============================================================
+# THE SAME RULES, AS A DATABASE CLAUSE
+# ============================================================
+#
+# `is_trustworthy_upcoming` above is the readable statement of the rule; this is
+# the same statement expressed for Mongo, so an upcoming listing can exclude the
+# rows it disqualifies without loading every event and deciding in Python.
+#
+# The three disqualifications mirror the three provenance values exactly:
+#
+# * a recorded fixture
+# * an identifier in our own fixture block, which catches rows written before
+#   provenance was recorded
+# * a claimed provider with no URL anyone could check, which is `unknown`
+#
+# Applied only to *upcoming* listings. A finished fixture is history and makes no
+# claim about the future, so it stays visible - the fixture is what the
+# development database and the manual test accounts are built on.
+
+# Anchored on our own block, with the optional `Artist` prefix Songkick URLs use.
+# Anchoring matters: an unanchored pattern would match any id merely containing
+# those digits.
+# `synthetic_songkick_id` strips an `Artist` prefix case-insensitively, so the
+# pattern makes the whole prefix optional rather than optional after "Artis".
+_FIXTURE_ID_PATTERN = f"^(?:[Aa]rtist)?{DEV_FIXTURE_ID_PREFIX}"
+
+# Derived from the same prefix `has_concrete_source` checks, escaped for the
+# regex, so the query and the function cannot drift into disagreeing about what
+# counts as checkable.
+_SONGKICK_URL_PATTERN = (
+    "^" + re.escape(SONGKICK_URL_PREFIX)
+)
+
+
+def untrusted_upcoming_clause() -> dict:
+    """Rows that may not be presented as real upcoming events."""
+
+    return {
+        "$or": [
+            # Recorded as ours.
+            {
+                "source.provenance": PROVENANCE_FIXTURE,
+            },
+            # Written before provenance was recorded, and identifiable by id.
+            {
+                "external_ids.songkick": {
+                    "$regex": _FIXTURE_ID_PATTERN,
+                },
+            },
+            # Claims a provider but offers nothing to check.
+            {
+                "source.provider": {"$ne": None},
+                "$or": [
+                    {"source.url": {"$exists": False}},
+                    {"source.url": None},
+                    {"source.url": ""},
+                    {
+                        "source.url": {
+                            "$not": {
+                                "$regex": _SONGKICK_URL_PATTERN,
+                            }
+                        }
+                    },
+                ],
+            },
+        ]
+    }
+
+
+def trusted_upcoming_filter() -> dict:
+    """The complement of `untrusted_upcoming_clause`, ready to `$and` in.
+
+    `$nor` rather than a negated `$or` so this stays a single top-level operator
+    and composes with the rest of an existing `$and` without re-parenthesising.
+
+    The branches are spliced in, not nested: `$nor` holds one clause per entry,
+    so wrapping the `$or` in a single element would ask whether the whole
+    disjunction failed rather than whether each disqualification did.
+    """
+
+    return {
+        "$nor": untrusted_upcoming_clause()["$or"],
+    }
+
+
+def trusted_listing_filter(
+    is_ahead: dict,
+) -> dict:
+    """Keep history, and keep only what can be checked from the future.
+
+    For a listing that mixes past and future events. The trust rule is about
+    claims on the future, so applying it to the whole listing would hide a
+    fixture the reader legitimately expects to find in an artist's history while
+    doing nothing about the fixture sitting in next year's group looking exactly
+    like an announcement.
+
+    So the two are separated: anything already past is kept, and anything still
+    to come has to be trustworthy. The date clause is passed in rather than
+    rebuilt here, so this stays a statement about provenance and the repository
+    stays the single place that knows what "still ahead" means.
+    """
+
+    return {
+        "$or": [
+            {"$nor": [is_ahead]},
+            trusted_upcoming_filter(),
+        ]
+    }

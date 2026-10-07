@@ -1,3 +1,5 @@
+from typing import Optional
+
 from app.domain.event import Event
 from app.domain.event_schedule import is_past
 from app.schemas.event_response import (
@@ -13,7 +15,15 @@ class EventResponseMapper:
     def from_domain(
         event: Event,
         venue,
+        lineup_slugs: Optional[dict] = None,
     ) -> EventResponse:
+        """One event, shaped for the client.
+
+        `lineup_slugs` maps a lineup entry's Songkick artist id to the GigCrowd
+        page that exists for it. Supplied by the caller rather than resolved here,
+        because the mapper has no repository and the answer changes every time an
+        artist is imported.
+        """
 
         venue_response = None
 
@@ -53,6 +63,20 @@ class EventResponseMapper:
                     image=entry.image,
                     genres=entry.genres,
                     order=entry.order,
+                    # Which of these performers this catalogue has a page for.
+                    # Passed in rather than looked up here, so the mapper stays
+                    # the one place a response is shaped and does not need a
+                    # repository. An id with no entry in the map resolves to
+                    # `None`, which the client renders as a plain name - never as
+                    # a link to somewhere unverified, and never as an excuse to
+                    # create the artist on the spot.
+                    artist_slug=(
+                        (lineup_slugs or {}).get(
+                            str(entry.songkick_id)
+                        )
+                        if entry.songkick_id
+                        else None
+                    ),
                 )
                 for entry in event.lineup
             ],

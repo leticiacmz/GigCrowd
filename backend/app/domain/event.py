@@ -1,8 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 
-from app.domain.lineup import LineupEntry
+from app.domain.lineup import LineupEntry, dedupe_lineup
 
 
 class Event(BaseModel):
@@ -86,6 +86,22 @@ class Event(BaseModel):
             "a lineup that could not be read."
         ),
     )
+
+    @field_validator("lineup", mode="after")
+    @classmethod
+    def _one_row_per_performer(cls, value: list) -> list:
+        """A performer is on a bill once.
+
+        Ingest already drops a repeated act, but a lineup can also arrive from
+        an import, a fixture or a partial patch, and the same act listed twice
+        is still one act. Enforcing it on the domain value rather than on one
+        read path means no response can show an artist's name twice, and a count
+        of how many artists performed cannot disagree with the number of rows.
+
+        The stored document is left alone; this is about what a reader is shown.
+        """
+
+        return dedupe_lineup(value)
 
     # ============================================================
     # DATE PROVENANCE

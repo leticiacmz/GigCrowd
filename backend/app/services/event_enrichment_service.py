@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from pymongo.errors import DuplicateKeyError
 
@@ -49,6 +49,24 @@ LOCATION_FIELDS = ["location"]
 
 ALL_ENRICHABLE_FIELDS = (
     DATE_FIELDS + LINEUP_FIELDS + LOCATION_FIELDS
+)
+
+# Keys that belong to a schedule rather than to an identity.
+#
+# A stored `festival` block answers "which festival is this", never "when is
+# it". A provider's block for a festival appearance can carry the festival's
+# whole date range, and storing that next to the event's own dates would put two
+# different claims about timing into one document. `festival_identity` in
+# `app.domain.festival` draws the same line from the other direction.
+_FESTIVAL_SCHEDULE_FIELDS = frozenset(
+    {
+        "start_date",
+        "end_date",
+        "starts_at",
+        "ends_at",
+        "date",
+        "date_status",
+    }
 )
 
 
@@ -474,7 +492,17 @@ class EventEnrichmentService:
             ) or not current.get(
                 "series_id"
             ):
-                patch["festival"] = festival
+                # Only identity is stored. A provider's festival block can carry
+                # the festival's own date range, and writing that beside an
+                # event's dates would leave two competing claims about when
+                # this record is - the kind of ambiguity that later reads as a
+                # bug in whichever field someone happens to trust.
+                patch["festival"] = {
+                    name: value
+                    for name, value in festival.items()
+                    if name not in _FESTIVAL_SCHEDULE_FIELDS
+                    and value is not None
+                }
 
         # --------------------------------------------------------
         # Venue and location
@@ -546,6 +574,243 @@ class EventEnrichmentService:
     # ============================================================
     # RUNNING
     # ============================================================
+
+    # ============================================================
+    # IS AN EVENT INCOMPLETE?
+    # ============================================================
+
+    @staticmethod
+    def is_incomplete(
+        event: Any,
+        fields: Optional[Iterable[str]] = None,
+    ) -> bool:
+        """Whether an event still needs its concrete source read.
+
+        This is the definition of "incomplete" that the import path and the
+        scheduler both use, so a newly imported event and a scheduled one are
+        judged by exactly the same rule.
+
+        It accepts an `Event`, a raw document or any object with those
+        attributes, which is what lets the importer ask the question about the
+        event it has just mapped without a second round trip to the database.
+
+        What deliberately does *not* count as incomplete:
+
+        * **A concert with a start and no end.** A gig starts and it is over;
+          Songkick states no end for it, and going looking for one would pay for
+          a page fetch on every concert ever imported.
+        * **An event whose source was already read and genuinely had no date.**
+          `unavailable` next to `date_source_checked_at` is a finished
+          statement, not a gap. Re-reading it on every sync would be the
+          scheduler doing its job forever.
+
+        Everything that *is* incomplete:
+
+        * no `starts_at` - the event cannot be placed in time at all
+        * no `date_status` - nothing has claimed to know, and unknown is not
+          `unavailable`: this is the state a freshly listed undated event lands
+          in, and it is exactly what enrichment is for
+        * `parser_failed` - the shape that broke the parser is the shape a
+          later parser understands, so this is always retriable
+        * `unavailable` with no `date_source_checked_at` - asserted by a
+          listing, never confirmed against the event's own page
+        * a missing location or a festival's missing lineup, when the caller
+          asked for those fields and the event has something a page read can
+          supply
+        """
+
+        wanted = set(
+            fields
+            if fields is not None
+            else ALL_ENRICHABLE_FIELDS
+        )
+
+        starts_at = _read(event, "starts_at")
+
+        status = _read(event, "date_status")
+
+        checked_at = _read(event, "date_source_checked_at")
+
+        if wanted & set(DATE_FIELDS):
+            # A source visit already confirmed there is no date. This is checked
+            # before the missing-date test below, which would otherwise call the
+            # event incomplete forever - the order is the whole point, because
+            # `starts_at` being absent is a gap only until a page read says it is
+            # not there.
+            confirmed_absence = (
+                status == DATE_UNAVAILABLE
+                and bool(checked_at)
+                and not starts_at
+            )
+
+            if confirmed_absence:
+                # Answered. Nothing below applies.
+                pass
+
+            elif not starts_at:
+                return True
+
+            elif not status:
+                return True
+
+            elif status == DATE_PARSER_FAILED:
+                return True
+
+            # `unavailable` means "the source has no date" only once a source
+            # visit has written the marker. Without the marker it is the
+            # importer's guess from a listing that simply carried no date, and
+            # treating that guess as a finding is what stranded fifty
+            # recoverable festival dates.
+            elif (
+                status == DATE_UNAVAILABLE
+                and not checked_at
+            ):
+                return True
+
+        if "location" in wanted and not _read(
+            event,
+            "location",
+        ):
+            return True
+
+        if "lineup" in wanted:
+            event_type = str(
+                _read(event, "event_type") or ""
+            ).lower()
+
+            if (
+                event_type in {
+                    "festival",
+                    "festivalinstance",
+                }
+                and not _read(event, "lineup")
+            ):
+                return True
+
+        return False
+
+    @staticmethod
+    def _confirmed_undated(document: dict) -> bool:
+        """Whether this event's own page was already read and held no date.
+
+        A second visit cannot change the answer, so the import path returns
+        without spending a request. This is what makes a resync cheap for the
+        events that are genuinely undated rather than only for the ones that
+        were recoverable.
+        """
+
+        return bool(
+            str(document.get("date_status") or "")
+            == DATE_UNAVAILABLE
+            and document.get("date_source_checked_at")
+            and not document.get("starts_at")
+        )
+
+    async def enrich_event(
+        self,
+        event_id: str,
+        dry_run: bool = False,
+        fields: Optional[Iterable[str]] = None,
+    ) -> dict:
+        """Re-read one event's concrete source, if that event still needs it.
+
+        This is the import-time entry point, and it deliberately shares its
+        whole implementation with the scheduled run: the same `_plan_for`, the
+        same `enrich_one`, the same `apply_patch`, the same date helpers. There
+        is no second enrichment path and no second Songkick parser, so a
+        scheduled run and an import-time run cannot disagree about what is
+        missing or about what is safe to write.
+
+        The difference from the scheduled run is only in how an event is
+        *chosen*. A scheduled run asks the database which events are
+        incomplete, because it has no other way to know. The import already
+        holds the event it has just written, so it calls `is_incomplete`
+        directly and only pays for the page visits that can return something.
+
+        Returns the same vocabulary as `enrich_one`, plus `complete` for an
+        event that needs nothing. Never raises: an import that cannot reach one
+        event's page must still finish importing the rest.
+        """
+
+        try:
+            document = await self.event_repository.collection.find_one(
+                {"_id": _object_id(event_id)},
+                {
+                    "title": 1,
+                    "event_type": 1,
+                    "source.url": 1,
+                    "festival.url": 1,
+                    "external_ids.songkick": 1,
+                    "starts_at": 1,
+                    "ends_at": 1,
+                    "date_status": 1,
+                    "date_source_checked_at": 1,
+                    "lineup": 1,
+                    "location": 1,
+                    "venue_slug": 1,
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                f"[ENRICH] could not read event "
+                f"{event_id}: {exc}"
+            )
+
+            return {
+                "event_id": event_id,
+                "outcome": "source_failed",
+                "error": str(exc)[:200],
+            }
+
+        if document is None:
+            return {
+                "event_id": event_id,
+                "outcome": "missing",
+            }
+
+        # The stored document is the authority, not the object the caller just
+        # built. An event that a previous run already inspected and confirmed
+        # has no date is finished, whatever the listing said this time round.
+        if self._confirmed_undated(document):
+            return {
+                "event_id": event_id,
+                "outcome": "complete",
+                "reason": (
+                    "the source was inspected and states "
+                    "no date"
+                ),
+            }
+
+        wanted = set(
+            fields
+            if fields is not None
+            else ALL_ENRICHABLE_FIELDS
+        )
+
+        plan = self._plan_for(document)
+
+        if not plan.eligible:
+            return {
+                "event_id": event_id,
+                "outcome": "skipped",
+                "reason": plan.skip_reason,
+            }
+
+        if not self._is_worth_visiting(
+            plan,
+            document,
+            wanted,
+        ):
+            return {
+                "event_id": event_id,
+                "outcome": "complete",
+                "missing": list(plan.reasons),
+            }
+
+        return await self.enrich_one(
+            plan,
+            dry_run=dry_run,
+        )
 
     async def enrich_one(
         self,
@@ -991,3 +1256,19 @@ def _object_id(value: str):
     parsed = to_object_id(value)
 
     return parsed if parsed is not None else value
+
+
+def _read(event: Any, name: str):
+    """One field of an event, whether it arrived as a document or an object.
+
+    `is_incomplete` is asked about two different things - a raw Mongo document
+    by the scheduler and a freshly mapped `Event` by the importer - and the
+    question has to mean the same either way. Reading a field through one
+    accessor is what makes that true, and stops the two callers from each
+    growing their own idea of what a missing field looks like.
+    """
+
+    if isinstance(event, dict):
+        return event.get(name)
+
+    return getattr(event, name, None)

@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import quote, urljoin
 
 from curl_cffi import requests
@@ -14,9 +14,27 @@ from app.domain.festival import (
     festival_data_from_url,
     songkick_artist_reference,
 )
+from app.domain.artist_image import resolve_artist_image
+from app.domain.songkick_identity import (
+    artist_id_from_url,
+    normalize_songkick_artist_id,
+    resolve_artist_from_search,
+    slug_from_artist_url,
+)
 
 
 logger = get_logger("songkick_client")
+
+
+class SongkickNotFound(Exception):
+    """Songkick has no page at this address.
+
+    Kept distinct from every other failure on purpose. A 404 means "this
+    identifier names nothing here", which is a fact about stored data and may be
+    recoverable by resolving a different way. A timeout, a 406 or a parse failure
+    means "we could not read the page", and treating those as absence would let a
+    transient network problem quietly look like an artist who does not exist.
+    """
 
 
 class SongkickClient:
@@ -255,6 +273,12 @@ class SongkickClient:
             artist_url
         )
 
+        if response.status_code == 404:
+            raise SongkickNotFound(
+                "Songkick has no artist page at "
+                f"{artist_url}"
+            )
+
         if response.status_code != 200:
             raise Exception(
                 "Songkick artist page error: "
@@ -274,6 +298,17 @@ class SongkickClient:
 
         return {
             "url": artist_url,
+
+            # Where the site actually ended up after redirects. Songkick redirects a
+            # decorative slug to the canonical one, so this is the only place the
+            # ID of the artist that was really served is visible - the requested URL
+            # just echoes back what we asked for, which would make an identity
+            # check against it vacuously true.
+            "final_url": str(
+                getattr(response, "url", None)
+                or artist_url
+            ),
+
             "status": response.status_code,
             "html": response.text,
             "upcoming_events": (
@@ -1047,6 +1082,249 @@ class SongkickClient:
 
         yield value
 
+    async def _read_artist_page(
+        self,
+        *,
+        artist_name: str,
+        artist_id: Any,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Fetch an artist's page, resolving the artist first.
+
+        Returns `(html, effective_artist_id)`, or `(None, None)` when no page could
+        be read.
+
+        Resolution follows the same rule as event importing: the stored Songkick ID
+        decides which artist this is, and only if that ID names nothing does an
+        exact name match take over. That fallback is not optional in practice -
+        most of the catalogue's stored IDs are stale, so reading by ID alone would
+        return a photograph for a single artist and nothing at all for the rest.
+
+        The ID that was actually served is reported back so a caller can record
+        which artist it really read.
+        """
+
+        trusted = normalize_songkick_artist_id(artist_id)
+
+        document, reason = resolve_artist_from_search(
+            [], artist_name=artist_name, artist_id=trusted
+        )
+
+        slug = re.sub(
+            r"[^a-z0-9]+",
+            "-",
+            (artist_name or "").lower(),
+        ).strip("-")
+
+        def page_url(artist_id_value: str) -> str:
+
+            return (
+                f"{self.base_url}/artists/"
+                f"{artist_id_value}-{slug}"
+            )
+
+        async def fetch(value: str) -> Optional[str]:
+
+            url = page_url(value)
+
+            try:
+                response = await self._request(url)
+
+            except Exception as exc:
+
+                logger.warning(
+                    f"Could not read the Songkick page for "
+                    f"{artist_name!r} (id={value}): "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                return None
+
+            if response.status_code != 200:
+
+                logger.info(
+                    f"Songkick page for {artist_name!r} "
+                    f"(id={value}) returned {response.status_code}"
+                )
+                return None
+
+            return response.text
+
+        if trusted:
+
+            html = await fetch(trusted)
+
+            if html:
+                return html, trusted
+
+            logger.error(
+                f"Songkick has no page for the stored ID {trusted!r} "
+                f"({artist_name!r}). Resolving by exact name instead."
+            )
+
+        # No usable ID, or the stored one is dead. An exact name match only -
+        # never a near match, never the first result.
+        search = await self.search_artist_full(artist_name)
+
+        document, reason = resolve_artist_from_search(
+            search.get("artists") or [],
+            artist_name=artist_name,
+        )
+
+        if document is None:
+
+            logger.warning(
+                f"No exact Songkick name match for {artist_name!r} "
+                f"({reason}); no page read."
+            )
+            return None, None
+
+        resolved = normalize_songkick_artist_id(
+            document.get("primary_key_id")
+            or document.get("id")
+        )
+
+        if not resolved:
+
+            return None, None
+
+        slug = self._extract_artist_slug(
+            document, artist_name
+        )
+
+        html = await fetch(resolved)
+
+        if html:
+            logger.warning(
+                f"Read the Songkick page for {artist_name!r} using "
+                f"resolved ID {resolved} because the stored ID was "
+                f"unusable ({reason}). The stored ID should be corrected."
+            )
+            return html, resolved
+
+        return None, None
+
+    async def get_artist_image(
+        self,
+        artist_id: Any = None,
+        artist_name: str = "",
+    ) -> Optional[str]:
+        """This artist's photograph, from their own Songkick page.
+
+        Returns None when the page offers nothing usable, which is a real answer
+        and not a failure: not every Songkick act has a photograph, and the caller
+        is expected to leave the artist without an image rather than store
+        something wrong.
+
+        Only the page's own JSON-LD and its own artist-scoped image paths are
+        consulted. The page's `og:image` is a promotional banner, so it is never
+        used - accepting it would produce a plausible-looking image of something
+        that is not the artist.
+        """
+
+        trusted = normalize_songkick_artist_id(
+            artist_id
+        )
+
+        if not trusted:
+            logger.info(
+                f"Cannot read a Songkick image for {artist_name!r} "
+                f"without a Songkick artist ID."
+            )
+            return None
+
+        html, effective = await self._read_artist_page(
+            artist_name=artist_name,
+            artist_id=trusted,
+        )
+
+        if not html or not effective:
+            return None
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        blocks = []
+
+        for tag in soup.find_all(
+            "script", attrs={"type": "application/ld+json"}
+        ):
+            try:
+                blocks.append(json.loads(tag.string or ""))
+            except (TypeError, ValueError):
+                # Malformed structured data is common and is simply not evidence.
+                continue
+
+        candidates = list(
+            self._iter_jsonld_blocks(blocks)
+        )
+
+        # Every artist-scoped image path on the page, for the fallback.
+        page_images = re.findall(
+            r"(?:https?:)?//images\.sk-static\.com/images/media/"
+            r"profile_images/artists/\d+/[a-z_]+",
+            html,
+            re.IGNORECASE,
+        )
+
+        image = resolve_artist_image(
+            jsonld_blocks=candidates,
+            page_urls=page_images,
+            artist_id=effective,
+        )
+
+        if image:
+            logger.info(
+                f"Songkick image for {artist_name!r} "
+                f"(read from artist id={effective}): {image}"
+            )
+        else:
+            logger.info(
+                f"Songkick has no usable image for {artist_name!r} "
+                f"(read from artist id={effective})"
+            )
+
+        return image
+
+    @staticmethod
+    def _artist_image_from_page(
+        html: str,
+        *,
+        artist_id: str | None,
+    ) -> str | None:
+        """The photograph published for `artist_id` on an already-fetched page.
+
+        Split out of `get_artist_image` so that a scrape which is *already*
+        holding the artist's page can read the photograph out of it rather than
+        issuing a second request for something it has in hand. One rule, one
+        place: a page read here and a page read there produce the same answer.
+        """
+
+        if not html or not artist_id:
+            return None
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        blocks = []
+
+        for tag in soup.find_all(
+            "script", attrs={"type": "application/ld+json"}
+        ):
+            try:
+                blocks.append(json.loads(tag.string or ""))
+            except (TypeError, ValueError):
+                continue
+
+        page_images = re.findall(
+            r"(?:https?:)?//images\.sk-static\.com/images/media/"
+            r"profile_images/artists/\d+/[a-z_]+",
+            html,
+            re.IGNORECASE,
+        )
+
+        return resolve_artist_image(
+            jsonld_blocks=blocks,
+            page_urls=page_images,
+            artist_id=artist_id,
+        )
+
     async def enrich_event_details(
         self,
         event: dict,
@@ -1399,11 +1677,26 @@ class SongkickClient:
     async def scrape_artist(
         self,
         artist_name: str,
+        artist_id: Any = None,
     ) -> dict:
+        """Scrape one artist's complete Songkick presence.
+
+        `artist_id` is a trusted Songkick artist ID when the caller has one, and it
+        decides which artist this is. The name is only used to search for *event*
+        enrichment and to build a readable slug; it never decides identity. That
+        distinction is the point: Songkick search puts several acts under the same
+        name, so a name-led lookup silently imports the wrong gigography.
+
+        The search is still performed even when the ID is known, because its
+        results carry festival and location data the artist's own page does not
+        expose in the same shape. It is used as enrichment only.
+        """
 
         logger.info(
             "Starting complete Songkick scrape: "
-            f"{artist_name}"
+            f"{artist_name} "
+            f"(trusted_id="
+            f"{normalize_songkick_artist_id(artist_id)})"
         )
 
         search_data = (
@@ -1412,55 +1705,152 @@ class SongkickClient:
             )
         )
 
+        trusted_id = normalize_songkick_artist_id(
+            artist_id
+        )
+
         artist_info = self._find_artist(
             search_data["artists"],
             artist_name,
+            artist_id=trusted_id,
         )
 
-        if not artist_info:
+        document = (
+            artist_info.get("document", artist_info)
+            if artist_info
+            else {}
+        )
+
+        resolved_id = normalize_songkick_artist_id(
+            document.get("primary_key_id")
+            or document.get("id")
+        )
+
+        # The trusted ID wins. A search result that disagrees is a search result
+        # that is wrong, not an artist that changed.
+        effective_id = trusted_id or resolved_id
+
+        if not effective_id:
+
             raise ValueError(
-                "Artist not found on Songkick: "
-                f"{artist_name}"
+                "Cannot resolve a Songkick artist without a "
+                f"trusted ID or an exact name match: "
+                f"{artist_name!r}"
             )
-
-        document = artist_info.get(
-            "document",
-            artist_info,
-        )
-
-        artist_id = (
-            document.get(
-                "primary_key_id"
-            )
-            or self._numeric_artist_id(
-                document.get("id")
-            )
-        )
 
         artist_slug = (
             self._extract_artist_slug(
                 document,
                 artist_name,
             )
+            if document
+            else re.sub(
+                r"[^a-z0-9]+",
+                "-",
+                artist_name.lower(),
+            ).strip("-")
         )
 
         artist_url = (
             f"{self.base_url}/artists/"
-            f"{artist_id}-{artist_slug}"
+            f"{effective_id}-{artist_slug}"
         )
 
         logger.info(
             "Resolved artist: "
-            f"{document.get('name')} "
-            f"(id={artist_id}, "
-            f"slug={artist_slug})"
+            f"{document.get('name') if document else artist_name} "
+            f"(id={effective_id}, "
+            f"slug={artist_slug}, "
+            f"from_search={bool(document)})"
         )
 
-        artist_page = (
-            await self.get_artist_page(
+        artist_page = None
+
+        try:
+            artist_page = await self.get_artist_page(
                 artist_url
             )
-        )
+
+        except SongkickNotFound:
+
+            # ------------------------------------------------------
+            # THE STORED ID NAMES NOTHING
+            # ------------------------------------------------------
+            #
+            # The stored Songkick ID does not exist on the site. That is a data
+            # fault, not a resolution strategy, and it has to be reported rather
+            # than papered over - so it is logged loudly, including what the stored
+            # value was.
+            #
+            # Recovery falls back to an exact name match, never a near match and
+            # never the first result. An exact match is deterministic, so the artist
+            # still synchronises, and the catalogue stays usable while somebody
+            # corrects the stored ID. The stored ID is deliberately *not* rewritten
+            # here: this code cannot know whether the exact-name act is the one the
+            # value was meant to be.
+            # ------------------------------------------------------
+
+            logger.error(
+                f"Songkick has no artist page for the stored ID "
+                f"{effective_id!r} ({artist_name!r}). The stored ID is "
+                f"wrong or has gone stale."
+            )
+
+            if not trusted_id:
+                raise
+
+            fallback_document, fallback_reason = (
+                resolve_artist_from_search(
+                    search_data["artists"],
+                    artist_name=artist_name,
+                )
+            )
+
+            if fallback_document is None:
+
+                logger.error(
+                    f"No exact Songkick name match for "
+                    f"{artist_name!r} either, so the artist cannot be "
+                    f"resolved. Refusing to guess."
+                )
+
+                raise ValueError(
+                    "Songkick has no artist page for the stored ID "
+                    f"{effective_id!r} and no exact name match for "
+                    f"{artist_name!r}"
+                )
+
+            effective_id = (
+                normalize_songkick_artist_id(
+                    fallback_document.get("primary_key_id")
+                    or fallback_document.get("id")
+                )
+                or effective_id
+            )
+
+            artist_slug = self._extract_artist_slug(
+                fallback_document,
+                artist_name,
+            )
+
+            artist_url = (
+                f"{self.base_url}/artists/"
+                f"{effective_id}-{artist_slug}"
+            )
+
+            logger.warning(
+                f"Falling back to an exact Songkick name match for "
+                f"{artist_name!r}: {fallback_reason}, using ID "
+                f"{effective_id}. The stored ID should be corrected "
+                f"manually."
+            )
+
+            artist_page = await self.get_artist_page(
+                artist_url
+            )
+
+            trusted_id = effective_id
+            document = fallback_document
 
         # Fetch the calendar page for complete upcoming events
         calendar = (
@@ -1473,6 +1863,71 @@ class SongkickClient:
             await self.get_gigography(
                 artist_url
             )
+        )
+
+        # --------------------------------------------------------
+        # CONFIRM THE PAGE IS THIS ARTIST
+        # --------------------------------------------------------
+        #
+        # Songkick redirects a decorative slug to the canonical one, which is why
+        # a trusted ID alone is enough to address an artist. That same redirect is
+        # the risk: if a page answers with somebody else's artist, every event
+        # scraped from it is imported under the wrong name. The final URL carries
+        # the ID the site actually served, so comparing it with the one that was
+        # asked for turns a silent mismatch into a loud failure.
+        #
+        # The canonical slug is adopted from the final URL when Songkick supplied
+        # one, so a later request uses the site's own spelling.
+
+        served_url = (
+            artist_page.get("final_url")
+            or artist_page.get("url")
+            or artist_url
+        )
+
+        served_id = artist_id_from_url(served_url)
+
+        if trusted_id and served_id and served_id != trusted_id:
+
+            raise ValueError(
+                "Songkick served a different artist than the one "
+                f"requested: asked for {trusted_id}, "
+                f"landed on {served_id} ({served_url})"
+            )
+
+        # --------------------------------------------------------
+        # THE ARTIST'S OWN PHOTOGRAPH
+        # --------------------------------------------------------
+        #
+        # Read from the page this scrape has already fetched, rather than by
+        # asking for it separately: an extra request per artist to obtain a fact
+        # the response is already holding is a request that can fail on its own
+        # and take the import down with it.
+        #
+        # The same sources `get_artist_image` uses, for the same reasons - the
+        # page's own structured data and its own artist-scoped image paths, never
+        # `og:image`, which is a promotional banner rather than a picture of the
+        # artist. None of them means this artist has no photograph published
+        # here, which is a real answer and is left as one.
+
+        artist_image = self._artist_image_from_page(
+            artist_page.get("html") or "",
+            artist_id=served_id or effective_id,
+        )
+
+        canonical_slug = slug_from_artist_url(served_url)
+
+        if canonical_slug:
+            artist_slug = canonical_slug
+            artist_url = (
+                f"{self.base_url}/artists/"
+                f"{effective_id}-{artist_slug}"
+            )
+
+        logger.info(
+            f"Confirmed artist page: served_id={served_id}, "
+            f"requested_id={trusted_id or resolved_id}, "
+            f"canonical_slug={artist_slug}"
         )
 
         # Use calendar page as primary source for upcoming events
@@ -1693,10 +2148,15 @@ class SongkickClient:
 
         return {
             "artist": {
-                "id": artist_id,
+                # `effective_id` rather than the search-resolved one, so a scrape
+                # that fell back off a dead stored ID reports the artist it
+                # actually read. Reporting the dead ID here would leave the
+                # import believing it had reached the artist it was asked for.
+                "id": effective_id,
                 "slug": artist_slug,
                 "name": document.get("name"),
                 "url": artist_url,
+                "image": artist_image,
                 "raw": document,
             },
 
@@ -4563,32 +5023,41 @@ class SongkickClient:
     def _find_artist(
         artists: list,
         artist_name: str,
+        artist_id: Any = None,
     ) -> dict | None:
+        """The one search entry that is this artist, or None.
 
-        if not artists:
-            return None
+        Delegates to `resolve_artist_from_search`, which holds the rules. The
+        important change from the previous version is that there is no
+        `artists[0]` fallback: Songkick search returns several acts under the same
+        name, and taking the first one imports somebody else's gigography.
 
-        normalized_query = (
-            artist_name
-            .strip()
-            .lower()
+        Returns the raw search entry (not the inner document) because callers want
+        to keep the surrounding keys.
+        """
+
+        document, reason = resolve_artist_from_search(
+            artists,
+            artist_name=artist_name,
+            artist_id=artist_id,
         )
 
-        for item in artists:
+        logger.info(
+            "Songkick artist resolution: "
+            f"reason={reason}, "
+            f"trusted_id={normalize_songkick_artist_id(artist_id)}, "
+            f"resolved={document.get('name') if document else None}"
+        )
 
-            document = item.get(
-                "document",
-                item,
-            )
+        if document is None:
+            return None
 
-            name = str(
-                document.get(
-                    "name",
-                    "",
-                )
-            ).strip().lower()
+        for item in artists or []:
 
-            if name == normalized_query:
+            if isinstance(item, dict) and (
+                item.get("document") is document
+                or item is document
+            ):
                 return item
 
-        return artists[0]
+        return document

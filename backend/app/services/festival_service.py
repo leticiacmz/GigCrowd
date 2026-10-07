@@ -40,6 +40,7 @@ from app.schemas.festival_response import (
     FestivalIdentityResponse,
     FestivalResponse,
 )
+from app.services.lineup_artist_resolver import LineupArtistResolver
 
 logger = get_logger("festival")
 
@@ -59,6 +60,11 @@ class FestivalService:
     ):
         self.event_repository = event_repository
         self.artist_repository = artist_repository
+
+        # The one implementation of "does this lineup entry have a GigCrowd
+        # page". Shared with the resolution report so a festival page and an
+        # operational report can never disagree.
+        self.resolver = LineupArtistResolver(artist_repository)
 
     async def _venues(
         self,
@@ -103,53 +109,21 @@ class FestivalService:
         no imported page is simply absent from the result. That absence is what
         the client renders as a plain name.
 
-        The whole lineup is resolved in one query.
+        The whole lineup is resolved in one query, by the shared resolver that
+        also produces the resolution report, so the page and the report can
+        never disagree about which entries are linkable.
         """
 
-        ids = {
+        ids = [
             entry["songkick_id"]
             for entry in entries
             if entry.get("songkick_id")
-        }
+        ]
 
         if not ids or self.artist_repository is None:
             return {}
 
-        # Songkick artist ids are stored in the prefixed form the repository
-        # writes, so the lookup uses that form rather than assuming bare digits.
-        external_ids = [
-            f"Artist{songkick_id}"
-            for songkick_id in ids
-        ]
-
-        slugs: dict[str, str] = {}
-
-        documents = await (
-            self.artist_repository.collection.find(
-                {
-                    "external_ids.songkick": {
-                        "$in": external_ids
-                    }
-                },
-                {
-                    "slug": 1,
-                    "external_ids.songkick": 1,
-                },
-            ).to_list(length=None)
-        )
-
-        for document in documents:
-
-            external = (
-                document.get("external_ids") or {}
-            ).get("songkick")
-
-            slug = document.get("slug")
-
-            if external and slug:
-                slugs[str(external)] = slug
-
-        return slugs
+        return await self.resolver.resolve(ids)
 
     async def get_festival(
         self,
@@ -359,14 +333,20 @@ def _slug_of(
     entry: dict,
     slugs: dict[str, str],
 ) -> Optional[str]:
-    """The GigCrowd page for a lineup entry, when one exists."""
+    """The GigCrowd page for a lineup entry, when one exists.
+
+    `slugs` is keyed by the bare numeric id the entry carries. An entry whose id
+    resolved to nothing - because no artist is imported for it, or because more
+    than one claims it - returns `None`, and the client shows the name as plain
+    text rather than a link that would go somewhere unverified.
+    """
 
     songkick_id = entry.get("songkick_id")
 
     if not songkick_id:
         return None
 
-    return slugs.get(f"Artist{songkick_id}")
+    return slugs.get(str(songkick_id).strip())
 
 
 def _lineup_response(entry) -> dict:

@@ -181,15 +181,26 @@ class TestConcreteSource:
         # itself a pass - which is why the verdict also checks provenance.
         assert has_concrete_source(fixture_event()) is True
 
-        trusted, reason = is_trustworthy_upcoming(fixture_event())
+        trusted, reason = is_trustworthy_upcoming(
+            fixture_event(), now=NOW
+        )
 
         assert trusted is False
         assert "fixture" in reason
 
 
 class TestFutureDetection:
+    """
+    Every case below passes `NOW` to the function.
+
+    The fixtures are built from a frozen instant, so comparing them against the
+    real clock is only accidentally correct - and only until the day the fixture
+    runs out. `ends_at = NOW + 1 day` was true for a while and then quietly became
+    false, which is how a test starts failing for a reason nobody changed.
+    """
+
     def test_a_start_in_the_future_is_future(self):
-        assert reaches_into_the_future(real_event()) is True
+        assert reaches_into_the_future(real_event(), now=NOW) is True
 
     def test_an_end_still_running_counts_as_future(self):
         document = real_event(
@@ -197,20 +208,20 @@ class TestFutureDetection:
             ends_at=NOW + timedelta(days=1),
         )
 
-        assert reaches_into_the_future(document) is True
+        assert reaches_into_the_future(document, now=NOW) is True
 
     def test_a_finished_show_is_not_future(self):
         document = real_event(starts_at=NOW - timedelta(days=30))
 
-        assert reaches_into_the_future(document) is False
+        assert reaches_into_the_future(document, now=NOW) is False
 
     def test_no_date_is_not_future(self):
-        assert reaches_into_the_future({"_id": "x"}) is False
+        assert reaches_into_the_future({"_id": "x"}, now=NOW) is False
 
 
 class TestWhatMayBePresentedAsUpcoming:
     def test_a_real_future_songkick_event_is_trustworthy(self):
-        trusted, reason = is_trustworthy_upcoming(real_event())
+        trusted, reason = is_trustworthy_upcoming(real_event(), now=NOW)
 
         assert trusted is True
         assert reason == "verified_songkick_provenance"
@@ -218,7 +229,7 @@ class TestWhatMayBePresentedAsUpcoming:
     def test_a_future_fixture_is_not(self):
         # The case that started this: a plausible date, a provider-shaped URL,
         # and nothing behind either.
-        trusted, reason = is_trustworthy_upcoming(fixture_event())
+        trusted, reason = is_trustworthy_upcoming(fixture_event(), now=NOW)
 
         assert trusted is False
         assert "fixture" in reason
@@ -228,7 +239,7 @@ class TestWhatMayBePresentedAsUpcoming:
         # and makes no promise about the future.
         document = fixture_event(starts_at=NOW - timedelta(days=400))
 
-        trusted, reason = is_trustworthy_upcoming(document)
+        trusted, reason = is_trustworthy_upcoming(document, now=NOW)
 
         assert trusted is True
         assert reason == "not_upcoming"
@@ -237,13 +248,13 @@ class TestWhatMayBePresentedAsUpcoming:
         document = real_event()
         document["source"] = {"provider": "songkick"}
 
-        trusted, reason = is_trustworthy_upcoming(document)
+        trusted, reason = is_trustworthy_upcoming(document, now=NOW)
 
         assert trusted is False
         assert "no source" in reason
 
     def test_a_real_festival_edition_past_or_present_is_untouched(self):
-        trusted, _ = is_trustworthy_upcoming(festival_edition())
+        trusted, _ = is_trustworthy_upcoming(festival_edition(), now=NOW)
 
         assert trusted is True
 
@@ -253,7 +264,7 @@ class TestWhatMayBePresentedAsUpcoming:
             ends_at=NOW + timedelta(days=204),
         )
 
-        trusted, reason = is_trustworthy_upcoming(document)
+        trusted, reason = is_trustworthy_upcoming(document, now=NOW)
 
         assert trusted is False
         assert "fixture" in reason

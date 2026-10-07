@@ -68,11 +68,19 @@ class EventDocumentMapper:
 
         else:
 
-            artist_slug = document.get(
-                "artist_slug",
-                artist_slugs[0]
-                if artist_slugs
-                else "",
+            # `dict.get` with a default returns None when the key is *present*
+            # holding None, which is exactly what a festival date looks like:
+            # it has a lineup but no headline performer. Falling back to the
+            # first of the bill keeps a concert's own value and gives a festival
+            # the empty string, which is already this mapper's "no single
+            # artist" answer.
+            artist_slug = (
+                document.get("artist_slug")
+                or (
+                    artist_slugs[0]
+                    if artist_slugs
+                    else ""
+                )
             )
 
         # ========================================================
