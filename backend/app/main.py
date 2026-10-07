@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.database.connection import db
+from app.database.indexes import ensure_indexes
 
 from app.routes import (
     artists,
@@ -49,6 +50,13 @@ from app.providers.registry import registry
 from app.providers.spotify.provider import SpotifyProvider
 from app.providers.songkick.provider import SongkickProvider
 
+from app.jobs.scheduler import create_scheduler
+
+
+# The single background scheduler. Built from settings, so whether it does
+# anything at all is a configuration decision rather than a code one.
+scheduler = create_scheduler()
+
 
 # =====================================================
 # Lifespan
@@ -61,15 +69,42 @@ async def lifespan(app: FastAPI):
 
     await db.connect()
 
+    # Indexes are declared in one place and created here, so a fresh database
+    # is usable immediately and a wiped one does not silently lose them.
+    #
+    # `ensure_indexes` contains its own failures: an index it cannot create is
+    # reported rather than raised, because a missing index is a slow query, not
+    # a reason to refuse to serve.
+    index_report = await ensure_indexes(db.get_database())
+
+    failed = [
+        f"{collection}.{name}"
+        for collection, names in index_report.items()
+        for name in names
+        if "FAILED" in name
+    ]
+
+    if failed:
+        print(f"GigCrowd API started with index problems: {failed}")
+
     print("GigCrowd API started")
 
-    yield
+    # Started after the database is connected, because the first pass plans
+    # against it. Disabled by default: this only does work when
+    # ENRICHMENT_SCHEDULER_ENABLED says so.
+    scheduler.start()
 
-    # Shutdown
+    try:
+        yield
+    finally:
+        # Shutdown. In a `finally` so a failure during startup or a request
+        # cannot leave a background thread making outbound requests after the
+        # application has decided to stop.
+        scheduler.shutdown()
 
-    await db.disconnect()
+        await db.disconnect()
 
-    print("GigCrowd API stopped")
+        print("GigCrowd API stopped")
 
 
 # =====================================================
@@ -265,6 +300,10 @@ async def health():
     return {
         "status": "ok",
         "service": "GigCrowd API",
+        # Scheduling facts only: no credentials, no source URLs and no page
+        # content. Useful for confirming that enrichment is on in production and
+        # off everywhere else.
+        "scheduler": scheduler.get_status(),
     }
 
 

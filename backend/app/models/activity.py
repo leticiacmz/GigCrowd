@@ -25,6 +25,25 @@ class NotificationType(str, Enum):
     COMMENT = "comment"
     REPLY = "reply"
 
+    # Asked by GigCrowd rather than caused by another person. The event is over
+    # and this person's own show log is waiting on them: either to say whether
+    # they went, or to say what they thought of it.
+    #
+    # These two are kept apart because they ask different things of the reader.
+    # A confirmation prompt is only meaningful once, and asking again is nagging;
+    # a review prompt stops as soon as they have written one.
+    EVENT_ATTENDANCE_CHECK = "event_attendance_check"
+    EVENT_REVIEW_PROMPT = "event_review_prompt"
+
+
+# The sender of a notification GigCrowd asked for itself.
+#
+# Notifications from one person to another have that person as the actor, and a
+# self-notification is dropped because acting on your own content is not news to
+# you. A prompt is not somebody acting at all, so it needs an actor that is
+# plainly not a user. This sentinel is what stops it being mistaken for one.
+SYSTEM_ACTOR_ID = "system"
+
 
 class ActivityBase(BaseModel):
     activity_type: ActivityType
