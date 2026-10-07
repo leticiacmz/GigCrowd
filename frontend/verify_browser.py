@@ -34,6 +34,14 @@ API = os.environ.get("API", "http://localhost:8000").rstrip("/")
 # it is about to assert on, which is the thing that has to have happened.
 NAV_WAIT = "domcontentloaded"
 
+# One page of the timeline, as the feed route sizes it.
+#
+# Used to decide whether the timeline *has* to page before a check can mean
+# anything. Taken from the route rather than guessed, so the two cannot drift:
+# a check that compares against 15 because 15 rows once filled a screen is
+# asserting a property of the fixture.
+FEED_PAGE_SIZE = 20
+
 results = []
 
 
@@ -99,10 +107,36 @@ def api(token):
     )
 
 
+def api_get(path):
+    """A public GET against the API, as JSON.
+
+    Used where a check has to compare what the page claims against what the
+    endpoint actually says. Reading both from the page would compare the page
+    with itself, which is how a client that filters a list it has already
+    fetched can look correct while the number above it is wrong.
+    """
+
+    with httpx.Client(base_url=API, timeout=30) as client:
+        response = client.get(path)
+
+    if response.status_code != 200:
+        return {}
+
+    try:
+        return response.json()
+    except Exception:
+        return {}
+
+
 def seed():
     """Build a real dataset: two artists, three users, posts, comments, likes."""
     with httpx.Client(base_url=API, timeout=60) as client:
-        artists = client.get("/artists", params={"limit": 40}).json()
+        # A wide page on purpose. The catalogue holds every artist announced on
+        # a festival lineup, and most of those have no gigography of their own -
+        # they exist to be linked from a poster. Taking the first twelve of
+        # those would pick twelve artists with no finished shows and fail every
+        # check below for a reason that has nothing to do with the product.
+        artists = client.get("/artists", params={"limit": 400}).json()
 
     # Two artists with genuinely different slugs and names, so the isolation
     # and "which artist is this?" checks are meaningful.
@@ -120,7 +154,7 @@ def seed():
         slugs.append(slug)
         names[slug] = name
 
-        if len(slugs) >= 12:
+        if len(slugs) >= 400:
             break
 
     # Attendance is only recordable against a show that has already happened, so
@@ -131,36 +165,104 @@ def seed():
     #
     # The first choice needs two finished shows, because the author attends one
     # of them as a review and another as a plain attendance.
+    #
+    # Read the histories in listing order but stop as soon as enough artists with
+    # history have been found, so a large catalogue does not turn seeding into a
+    # thousand requests. The bound is a cost limit, not a correctness one: an
+    # artist outside the window that has a gigography is skipped over, not
+    # rejected.
     histories: dict[str, list] = {}
 
-    for slug in slugs:
-        try:
-            history = httpx.get(
-                f"{API}/artists/{slug}/events/all", timeout=120
-            ).json()
-        except Exception:
-            continue
+    def history_of(slug: str) -> list:
+        if slug not in histories:
+            try:
+                history = httpx.get(
+                    f"{API}/artists/{slug}/events/all", timeout=120
+                ).json()
+            except Exception:
+                history = []
 
-        if isinstance(history, list):
-            histories[slug] = history
+            histories[slug] = history if isinstance(history, list) else []
+
+        return histories[slug]
 
     def finished(slug: str) -> list:
-        return [row for row in histories.get(slug, []) if row.get("is_past")]
+        return [row for row in history_of(slug) if row.get("is_past")]
 
-    rich = [slug for slug in slugs if len(finished(slug)) >= 2]
-    any_history = [slug for slug in slugs if len(finished(slug)) >= 1]
+    rich = []
+    any_history = []
 
+    for slug in slugs:
+        count = len(finished(slug))
+
+        if count >= 1:
+            any_history.append(slug)
+
+        if count >= 2:
+            rich.append(slug)
+
+        if len(rich) >= 3 and len(any_history) >= 6:
+            break
+
+    # One artist with two finished shows, and a *different* artist with at least
+    # one. The second artist does not have to have only one: the isolation checks
+    # below need two distinct artists with history, and an artist with three
+    # finished shows satisfies that perfectly well. Requiring it to sit outside
+    # `rich` was stricter than anything downstream needs, and it quietly made the
+    # suite a test of the catalogue's shape - it fails the moment every artist in
+    # a small dataset happens to have a real gigography behind them, which is
+    # exactly what a working artist sync produces.
     assert rich and any(
-        slug not in rich for slug in any_history
+        slug != rich[0] for slug in any_history
     ), (
         "need one artist with two finished shows and a distinct artist with "
-        f"one; catalogue has {[(s, len(finished(s))) for s in slugs]}"
+        f"one; checked {len(histories)} artists, "
+        f"{len(rich)} had two or more finished shows"
     )
 
     artist_slug = rich[0]
 
     other_artist = next(
         slug for slug in any_history if slug != artist_slug
+    )
+
+    # Initialize both artists now, once, where a failure is visible.
+    #
+    # `rich` and `any_history` come from `/artists/{slug}/events/all`, which reads
+    # whatever is already stored - so the chosen artists are typically *pending*:
+    # a seeded artist has history from the fixture but no gigography of its own.
+    # The first page view of a pending artist performs the import, and that costs
+    # 42s to 174s depending on catalogue size.
+    #
+    # Paying it here rather than mid-run is the point. It used to be paid inside
+    # the artist-tabs check, which meant a single cold import left the frontend
+    # rendering a few hundred event cards in the middle of the run, and the pages
+    # loaded immediately afterwards - a community, a profile - came up empty and
+    # were reported as product faults. They were not. The backend was never
+    # blocked: 1194 requests across six reader routes during a 135s import were
+    # served at a 0.02-0.04s median with none over 2s.
+    #
+    # So the cost is real but it is a *one-off*, and this suite is about whether
+    # pages render, not about what a cold import costs. That measurement has its
+    # own tests; repeating it once per run only destabilised the ones that matter.
+    warmed = {}
+
+    for slug in (artist_slug, other_artist):
+        started = time.time()
+
+        response = httpx.get(f"{API}/artists/{slug}", timeout=600)
+
+        warmed[slug] = response.status_code
+
+        print(
+            f"  warmed {slug:<22} HTTP {response.status_code} "
+            f"in {time.time() - started:.1f}s"
+        )
+
+    assert all(
+        status == 200 for status in warmed.values()
+    ), (
+        f"could not initialize the artists these checks render: {warmed}"
     )
 
     past_history: list = []
@@ -225,12 +327,39 @@ def seed():
         client.post(f"/artists/{artist_slug}/community/posts/{post['id']}/like")
 
     # A second real artist with a real post, for the isolation check.
+    #
+    # Both the follow and the post are checked. A fixture step that silently does
+    # nothing is worse than one that fails loudly: when the post does not exist,
+    # every later check that reads the community page reports the *page* as broken
+    # when the truth is that the page is empty because nothing was ever written to
+    # it. That is exactly how "the community page did not read the API" came to be
+    # reported once already.
+    other_followed = False
+    other_post_seeded = False
+
     with api(author_token) as client:
-        client.post(f"/artists/{other_artist}/follow")
-        other_post = client.post(
+        follow_response = client.post(f"/artists/{other_artist}/follow")
+
+        other_followed = follow_response.status_code in (200, 201)
+
+        other_post_response = client.post(
             f"/artists/{other_artist}/community/posts",
             json={"content": f"Only on {other_artist}: {other_marker}"},
-        ).json()
+        )
+
+        other_post_seeded = other_post_response.status_code in (200, 201)
+
+    assert other_followed, (
+        f"could not follow {other_artist} "
+        f"(HTTP {follow_response.status_code}); its community would refuse "
+        f"every post and the isolation checks would report an empty page"
+    )
+
+    assert other_post_seeded, (
+        f"could not post in {other_artist}'s community "
+        f"(HTTP {other_post_response.status_code}); the checks that read that "
+        f"page would report a missing post rather than a missing fixture"
+    )
 
     # Attendance has to be recorded against a show that has already happened,
     # and `/events/artist/{slug}` only returns what is still to come, so the
@@ -299,6 +428,17 @@ def seed():
         )
 
         attendance_seeded = attendance_response.status_code in (200, 201)
+
+    # Loudly, because an author with no attendance has no Shows section at all -
+    # and a profile with no Shows section is reported by every later check as
+    # "the calendar does not exist on a phone", which is a product claim the
+    # fixture would be making on the product's behalf.
+    assert attendance_seeded, (
+        f"could not record the author's attendance "
+        f"(HTTP {attendance_response.status_code}); their profile would have no "
+        f"Shows section, and the calendar and diary checks would report a "
+        f"missing feature rather than a missing fixture"
+    )
 
     # A festival date, attended. Its lineup carries several acts, so it is the
     # attended show that proves a lineup does not become personal attendance:
@@ -400,6 +540,10 @@ def seed():
         "artist_slug": artist_slug,
         "other_artist": other_artist,
         "never_seen_artist": never_seen_artist,
+        # Every artist this run considered, so a later section that needs some
+        # other property of an artist - an upcoming show, say - does not have to
+        # re-derive the list or guess at an alphabetical favourite.
+        "artist_slugs": slugs,
         "artist_name": names[artist_slug],
         "author_token": author_token,
         "author": author,
@@ -408,7 +552,7 @@ def seed():
         "visitor_token": visitor_token,
         "visitor": visitor,
         "post": post,
-        "other_post": other_post,
+        "other_post": other_post_response.json(),
         "comment": comment,
         "stamp": stamp,
         "primary_marker": primary_marker,
@@ -483,6 +627,87 @@ def _all_events():
                 rows.append(row)
 
     return rows
+
+
+def _festival_editions():
+    """A festival edition that really has a lineup, found through real routes.
+
+    Read from `/events` with `include_past=true` rather than from an artist's
+    history, because a festival edition belongs to nobody in particular: the acts
+    on its bill are the ones whose history would carry it, and whether those two
+    particular artists happened to have been on a festival tour is not something
+    this suite should depend on.
+
+    Two details here cost a run each to discover:
+
+    * **The cursor needs both `before` and `before_id`.** Several events routinely
+      share one instant - a festival with three dates, all at midnight on the 1st
+      - so paging on the date alone re-reads the boundary row every time. The walk
+      does still terminate, on its "nothing new" guard, which means it silently
+      returns the first page and nothing else and looks like a catalogue with no
+      festivals in it.
+    * **The search route does not carry `lineup` at all.** It is on the event
+      detail and the festival detail only. An edition therefore cannot be
+      recognised as having a bill by looking at a search row; the detail route has
+      to be asked, which is what the inner loop does.
+
+    The walk stops at the first edition that turns out to have a lineup, which is
+    what the caller wants and keeps this to a handful of requests.
+    """
+
+    rows: list = []
+    seen: set = set()
+
+    before = None
+    before_id = None
+
+    for _ in range(10):
+        query = "/events?include_past=true&limit=50"
+
+        if before and before_id:
+            query += f"&before={before}&before_id={before_id}"
+
+        body = api_get(query)
+
+        page = body.get("events") or []
+
+        if not page:
+            break
+
+        fresh = 0
+
+        for row in page:
+            identity = row.get("id")
+
+            if identity not in seen:
+                seen.add(identity)
+                rows.append(row)
+                fresh += 1
+
+        # Only the editions on this page can be new, so only they are worth
+        # asking about - asking all of `rows` again each round would re-read
+        # every detail fetched so far.
+        editions = [
+            row
+            for row in page
+            if (row.get("festival") or {}).get("series_id")
+        ]
+
+        for row in editions:
+            detail = api_get(f"/events/{row['id']}/festival")
+
+            if detail.get("lineup"):
+                return [row]
+
+        cursor = body.get("next_cursor") or {}
+
+        before = cursor.get("date")
+        before_id = cursor.get("id")
+
+        if not before or not before_id or not fresh:
+            break
+
+    return []
 
 
 def _festival_candidates():
@@ -702,9 +927,26 @@ with sync_playwright() as p:
     # In dev the first hit on a route is compiled on demand, so the client
     # bundle can land after network idle. Wait for the strip rather than
     # asserting against whatever happened to be painted.
+    #
+    # The budget is generous because of what a *first* open of this artist may
+    # legitimately cost. An artist announced on a festival lineup exists in the
+    # catalogue as a name and an identity and nothing else, and opening their
+    # page for the first time is the moment their gigography is fetched.
+    #
+    # Measured against the live provider, that is not a second or two: 42s for a
+    # mid-sized catalogue, 135s for a larger one, and 174s observed for a seeded
+    # artist with 678 events. So the budget has to clear the largest of those or
+    # it fails on a cold artist and passes on a warm one - which is testing the
+    # catalogue's state rather than the page.
+    #
+    # 300s is not a target. It is the point past which a blank page means
+    # something is actually wrong, as opposed to "this artist had never been
+    # fetched and now has". The backend is not blocked while it happens: 1194
+    # requests across six reader routes during a 135s import were served at a
+    # 0.02-0.04s median with none over 2s.
     try:
         pg.locator("[data-testid='artist-tabs']").first.wait_for(
-            state="attached", timeout=45000
+            state="attached", timeout=300000
         )
         tab_strip_ready = True
     except Exception:
@@ -713,6 +955,7 @@ with sync_playwright() as p:
     check(
         f"artist {SLUG}: tab strip renders",
         pg.locator("[data-testid='artist-tabs']").count() == 1 and tab_strip_ready,
+        "waited up to 300s; a cold artist's first open imports their gigography",
     )
     tabs = pg.locator("[data-testid='artist-tabs'] a")
     tab_labels = [tabs.nth(i).inner_text().strip() for i in range(tabs.count())]
@@ -726,10 +969,11 @@ with sync_playwright() as p:
         f"{tab_labels} {tab_hrefs}",
     )
 
-    # Following the tab must land on the community page itself.
+    # Following the tab must land on the community page itself. The same cold
+    # artist can be open here, so the budget matches.
     pg.goto(f"{BASE}/en/artists/{SLUG}", wait_until=NAV_WAIT)
     pg.locator("[data-testid='artist-tab-community']").wait_for(
-        state="attached", timeout=45000
+        state="attached", timeout=300000
     )
     pg.locator("[data-testid='artist-tab-community']").click()
     pg.wait_for_url(f"**/en/artists/{SLUG}/community", timeout=15000)
@@ -749,6 +993,20 @@ with sync_playwright() as p:
     pg.on("pageerror", lambda e: errors.append(str(e)))
 
     pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until=NAV_WAIT)
+
+    # Wait for the community to actually have something in it before counting.
+    # `.count()` does not auto-wait the way an assertion or a `wait_for_selector`
+    # does, so a fixed pause is a race whose losing side gets slower as the
+    # community grows. This page now carries a great many posts, and a reader is
+    # not told "no posts" because the list had not finished rendering.
+    try:
+        pg.wait_for_selector(
+            "[data-testid='community-post'], [data-testid='participation-gate']",
+            timeout=20000,
+        )
+    except Exception:
+        pass
+
     pg.wait_for_timeout(600)
 
     check(
@@ -796,21 +1054,72 @@ with sync_playwright() as p:
     )
 
     # Artist isolation: the other artist's conversation must not leak here.
+    #
+    # Waited on for, not timed. These pages fetch their posts on the client, so
+    # a fixed delay is a race that passes on a warm server and fails on a cold one
+    # - and it fails as "the post is missing", which sends you looking at the
+    # post instead of at the wait. The marker is a unique string, so waiting for it
+    # is unambiguous.
+    try:
+        pg.locator(f"text={DATA['primary_marker']}").first.wait_for(
+            state="attached", timeout=30000
+        )
+        primary_rendered = True
+    except Exception:
+        primary_rendered = False
+
     body = pg.content()
+
     check(
         "community: this artist's own post is listed",
-        DATA["primary_marker"] in body,
+        primary_rendered and DATA["primary_marker"] in body,
     )
     check(
         "community: another artist's post is not listed here",
         DATA["other_marker"] not in body,
     )
-    pg.goto(f"{BASE}/en/artists/{DATA['other_artist']}/community", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(900)
+
+    pg.goto(
+        f"{BASE}/en/artists/{DATA['other_artist']}/community",
+        wait_until=NAV_WAIT,
+    )
+
+    try:
+        pg.locator(f"text={DATA['other_marker']}").first.wait_for(
+            state="attached", timeout=30000
+        )
+        other_rendered = True
+    except Exception:
+        other_rendered = False
+
     other_body = pg.content()
+
+    # Say *which* of two quite different things went wrong.
+    #
+    # "The post never rendered" on its own sends you to the post. But a page that
+    # rendered no posts at all is a different failure entirely - the community
+    # page not reading the API is a product fault, while a page full of posts
+    # that lacks this one is a fixture or ordering fault. Reporting them with the
+    # same words is how the first one gets investigated as the second.
+    posts_rendered = pg.locator("[data-testid='community-post']").count()
+
+    if other_rendered:
+        detail = f"waited up to 30s, {posts_rendered} post(s) on the page"
+    elif posts_rendered:
+        detail = (
+            f"the page rendered {posts_rendered} post(s), "
+            f"none of them this one"
+        )
+    else:
+        detail = (
+            "the page rendered no posts at all - the community page did "
+            "not read the API"
+        )
+
     check(
         "community: the other artist's community shows its own post",
-        DATA["other_marker"] in other_body,
+        other_rendered and DATA["other_marker"] in other_body,
+        detail,
     )
     check(
         "community: this artist's post is not on the other community page",
@@ -1040,13 +1349,20 @@ with sync_playwright() as p:
     ]
     check(
         "feed: exactly one filter row",
-        filters.count() == 5,
+        filters.count() == 4,
         str(filter_keys),
     )
     check(
-        "feed: filters are All, Community, Reviews, Events and Social",
-        filter_keys == ["all", "community", "reviews", "events", "social"],
+        # No Social filter. A follow decides who may see what; it is not something
+        # a reader asked to read, and a card saying "Ana followed Bruno" fills the
+        # timeline with relationships nobody chose to publish.
+        "feed: filters are All, Community, Reviews and Attendance",
+        filter_keys == ["all", "community", "reviews", "attendance"],
         str(filter_keys),
+    )
+    check(
+        "feed: no filter offers follows as content",
+        pg.locator("[data-testid='feed-filter-social']").count() == 0,
     )
     check(
         "feed: no legacy tab set",
@@ -1110,37 +1426,98 @@ with sync_playwright() as p:
         )
 
     # The filters narrow the one timeline; they never switch to another dataset.
-    # The unified timeline must be paged in before it can be compared with a
-    # filter: comparing against the first page alone would fail for any
-    # activity that is simply older than that page.
+    # The unified timeline has to be paged in before it can be compared with a
+    # filter, and "paged in" has to mean *deep enough to reach the filtered rows*.
+    #
+    # A fixed page count quietly assumes the interesting activity is recent. It is
+    # not: a review written last week can sit hundreds of rows below a timeline
+    # that is mostly comments, and comparing at a fixed depth then fails for
+    # precisely the rows this check is about - making the suite a measurement of
+    # how busy the community has been lately. So page until every filtered row has
+    # actually been seen, or until there is nothing left to load.
     pg.goto(f"{BASE}/en/feed", wait_until=NAV_WAIT)
     pg.wait_for_selector("[data-testid='feed-item']", timeout=20000)
+
+    wanted = {
+        text
+        for key, rows in seen.items()
+        if key != "all"
+        for text in rows
+    }
+
+    all_texts: list = []
+    found: set = set()
+    read = 0
     paged = 1
-    while paged < 12:
+
+    # Whether the timeline ever offered a further page. Recorded rather than
+    # inferred from a row count, because "is there more to load" is the
+    # timeline's own claim and the check below is about honouring it.
+    saw_more = False
+
+    while paged < 60:
+
+        items = pg.locator("[data-testid='feed-item']")
+
+        count = items.count()
+
+        # Read only what was appended, so this stays linear in the number of rows
+        # rather than quadratic in the number of pages.
+        if count > read:
+
+            for index in range(read, count):
+                all_texts.append(
+                    items.nth(index)
+                    .inner_text()
+                    .replace("\n", " ")
+                    .strip()
+                )
+
+            read = count
+            found = set(all_texts)
+
+        if wanted <= found:
+            break
+
         more = pg.locator("[data-testid='feed-load-more']")
+
         if not more.count() or not more.first.is_visible():
             break
-        before = pg.locator("[data-testid='feed-item']").count()
+
+        saw_more = True
+
         more.first.click()
+
         try:
             pg.wait_for_function(
                 "count => document.querySelectorAll(\"[data-testid='feed-item']\").length > count",
-                arg=before,
+                arg=count,
                 timeout=20000,
             )
         except Exception:
             break
+
         paged += 1
 
-    full = pg.locator("[data-testid='feed-item']")
-    all_texts = [
-        full.nth(i).inner_text().replace("\n", " ").strip()
-        for i in range(full.count())
-    ]
     check(
-        "feed: the timeline pages in beyond the first screen",
-        len(all_texts) > 15,
-        f"{len(all_texts)} rows over {paged} request(s)",
+        "feed: the timeline reaches every row a filter shows",
+        wanted <= found,
+        f"{len(wanted - found)} of {len(wanted)} unseen after "
+        f"{paged} request(s), {len(all_texts)} rows",
+    )
+    # Whether paging is *required* is a fact about the data, not a constant.
+    # `> 15` was a magic number standing in for "more than one screen", and it
+    # passes or fails according to how busy the community has been lately - which
+    # is the mistake the comment above this block was written to avoid.
+    #
+    # The timeline itself is the authority: its "load more" control is rendered
+    # only while more rows exist, so whether there was a second screen to reach
+    # is observed rather than assumed.
+    check(
+        "feed: the timeline pages in when there is a second screen",
+        (not saw_more) or (paged > 1 and len(all_texts) > FEED_PAGE_SIZE),
+        f"{len(all_texts)} rows over {paged} request(s); "
+        f"a further page was offered={saw_more}",
     )
     check(
         "feed: every filter only narrows the unified timeline",
@@ -1195,18 +1572,42 @@ with sync_playwright() as p:
         f"{targets.count()}/{rows.count()} targets, e.g. {hrefs[0] if hrefs else None}",
     )
 
-    # A social row links to the followed person's profile.
-    pg.locator("[data-testid='feed-filter-social']").click()
+    # A follow must never reach the timeline. The relationship decides who sees
+    # what; it is not content, and no row on any filter may be one.
+    pg.goto(f"{BASE}/en/feed", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1500)
-    social_target = pg.locator("[data-testid='feed-target-link']").first
-    social_href = (
-        social_target.get_attribute("href") if social_target.count() else None
-    )
+
+    body = pg.inner_text("body")
+
     check(
-        "feed: a social row targets a profile",
-        bool(social_href) and social_href.startswith("/en/profile/"),
-        social_href or "no target on the social row",
+        "feed: no row is a follow",
+        "followed" not in body.lower(),
+        "a follow rendered as content",
     )
+
+    for key in ["all", "community", "reviews", "attendance"]:
+
+        chip = pg.locator(f"[data-testid='feed-filter-{key}']")
+
+        if not chip.count():
+            continue
+
+        chip.first.click()
+        pg.wait_for_timeout(900)
+
+        verbs = pg.locator("[data-testid='feed-verb']").all_inner_texts()
+
+        offenders = [
+            verb
+            for verb in verbs
+            if "follow" in (verb or "").lower()
+        ]
+
+        check(
+            f"feed: the '{key}' filter holds no follow",
+            not offenders,
+            str(offenders[:3]),
+        )
 
     # A community row links to that artist's community, in this locale.
     pg.locator("[data-testid='feed-filter-community']").click()
@@ -1396,11 +1797,26 @@ with sync_playwright() as p:
 
     for kind in ("followers", "following"):
         toggle = pg.locator(f"[data-testid='profile-{kind}-toggle']")
+
+        # Read once and guard. A `click()` on a locator that matches nothing waits
+        # out a full timeout and aborts the run, so a missing toggle has to be
+        # *reported* here rather than discovered on the next line - the check below
+        # says what is wrong, and the section carries on to the next kind.
+        has_toggle = toggle.count() == 1
+
+        toggle_box = (
+            (toggle.first.bounding_box() or {}) if has_toggle else {}
+        )
+
         check(
             f"profile: the {kind} count is an interactive control",
-            toggle.count() == 1
-            and (toggle.first.bounding_box() or {}).get("height", 0) >= 44,
+            has_toggle and toggle_box.get("height", 0) >= 44,
+            f"{toggle_box}" if has_toggle else "no toggle",
         )
+
+        if not has_toggle:
+            continue
+
         toggle.click()
         pg.wait_for_timeout(1500)
         listed = pg.locator(f"[data-testid='profile-{kind}']")
@@ -2262,17 +2678,25 @@ with sync_playwright() as p:
 
     pg.wait_for_timeout(400)
 
+    # Read the layout attribute once, and tolerate its absence.
+    #
+    # The `and` below short-circuits, but the detail string passed to `check` was
+    # a second, *unconditional* read of the same attribute - so a profile that
+    # genuinely has no diary section waited out a 30-second locator timeout
+    # instead of reporting "no diary", which is what it was trying to say.
+    shows_panel = pg.locator("[data-testid='profile-events']")
+
+    diary_layout = (
+        shows_panel.get_attribute("data-show-layout")
+        if shows_panel.count() == 1
+        else None
+    )
+
     check(
         "profile: the attended shows read as a diary",
         pg.locator("[data-testid='profile-diary']").count() == 1
-        and pg.locator("[data-testid='profile-events']").get_attribute(
-            "data-show-layout"
-        )
-        == "diary",
-        pg.locator("[data-testid='profile-events']").get_attribute(
-            "data-show-layout"
-        )
-        or "no diary",
+        and diary_layout == "diary",
+        diary_layout or "no diary",
     )
 
     diary_years = pg.eval_on_selector_all(
@@ -2400,6 +2824,216 @@ with sync_playwright() as p:
         ),
         f"hrefs={diary_hrefs[:3]}",
     )
+
+    # ------------------------------------------------------------------
+    # THE CALENDAR
+    # Closed by default, and every part of it reachable without clicking
+    # through sixty months. The checks below are the ones a reader would
+    # actually make: is it shut, does it open, can I jump a year, does it mark
+    # only the nights I attended, and can I get out of it again.
+    # ------------------------------------------------------------------
+
+    calendar = pg.locator("[data-testid='profile-show-calendar']")
+
+    check(
+        "profile: the calendar is closed until asked for",
+        calendar.count() == 1
+        and calendar.get_attribute("data-calendar-open") == "false"
+        and pg.locator("[data-testid='calendar-trigger']").count() == 1
+        and pg.locator("[data-testid='calendar-popover']").count() == 0,
+        "a permanently-open calendar takes a month-shaped hole above the "
+        "diary before anyone has scrolled to it",
+    )
+
+    pg.locator("[data-testid='calendar-trigger']").click()
+
+    try:
+        pg.wait_for_selector(
+            "[data-testid='calendar-popover']", timeout=15000
+        )
+    except Exception:
+        pass
+
+    check(
+        "profile: the calendar opens as a popover",
+        calendar.get_attribute("data-calendar-open") == "true"
+        and pg.locator("[data-testid='calendar-popover']").count() == 1,
+    )
+
+    # A calendar that can only be moved a month at a time makes somebody with
+    # five years of shows click sixty times to reach the one they mean, so the
+    # year selector is the whole reason the month arrows are allowed to be small.
+    year_options = pg.eval_on_selector_all(
+        "[data-testid='calendar-year-select'] option",
+        "els => els.map(e => e.value)",
+    )
+
+    month_options = pg.eval_on_selector_all(
+        "[data-testid='calendar-month-select'] option",
+        "els => els.map(e => e.value)",
+    )
+
+    check(
+        "profile: the calendar can jump to a year and a month directly",
+        len(year_options) >= 1 and len(month_options) == 12,
+        f"years={year_options} months={len(month_options)}",
+    )
+
+    # The years offered must be the ones this profile actually has shows in, or
+    # the selector is decoration.
+    #
+    # Taken from the attended rows the suite has already read rather than from a
+    # second request: the point being checked is that the selector covers the
+    # years the diary is grouped by, and a check that depends on an extra call
+    # which can fail for its own reasons proves nothing when that call returns
+    # nothing. An empty set would pass a subset test vacuously, which is exactly
+    # what happened here first time round.
+    attended_dates = {
+        (row.get("starts_at") or "")[:10]
+        for row in api_shows["attended"]["events"]
+        if row.get("starts_at")
+    }
+
+    years_with_shows = {
+        day[:4] for day in attended_dates
+    }
+
+    check(
+        "profile: the year selector offers every year the diary groups by",
+        bool(years_with_shows)
+        and years_with_shows.issubset(set(year_options)),
+        f"offered={year_options} diary_years={sorted(years_with_shows)}",
+    )
+
+    # Walk to the oldest year with shows in it, without touching the arrows.
+    target_year = sorted(years_with_shows)[0] if years_with_shows else None
+
+    if target_year:
+        pg.select_option(
+            "[data-testid='calendar-year-select']", target_year
+        )
+        pg.wait_for_timeout(1500)
+
+        shown_month = (
+            calendar.get_attribute("data-calendar-month") or ""
+        )
+
+        check(
+            "profile: the calendar reaches a distant year in one choice",
+            shown_month.startswith(target_year),
+            f"showing={shown_month} asked_for={target_year}",
+        )
+
+    # Only nights attended mark a day.
+    marked_days = pg.eval_on_selector_all(
+        "[data-testid='calendar-day'][data-marked='true']",
+        "els => els.map(e => e.getAttribute('data-day'))",
+    )
+
+    check(
+        "profile: the calendar marks attended nights and nothing else",
+        all(day in attended_dates for day in marked_days),
+        f"marked={marked_days[:5]} attended={sorted(attended_dates)[:5]}",
+    )
+
+    # A night with two shows carries a count, so one night is not read as two.
+    per_night: dict = {}
+    for row in api_shows["attended"]["events"]:
+        day = (row.get("starts_at") or "")[:10]
+        per_night[day] = per_night.get(day, 0) + 1
+
+    busiest = max(per_night.values()) if per_night else 1
+    counted = pg.locator("[data-testid='calendar-day-count']").count()
+
+    if busiest > 1:
+        check(
+            "profile: a night with more than one show says so",
+            counted >= 1,
+            f"busiest_night_holds={busiest} counts_rendered={counted}",
+        )
+    else:
+        check(
+            "profile: no night invents a second show",
+            counted == 0,
+            f"counts_rendered={counted} busiest={busiest}",
+        )
+
+    # Escape closes it, because a dialog that cannot be dismissed from the
+    # keyboard strands anybody using one.
+    pg.keyboard.press("Escape")
+    pg.wait_for_timeout(600)
+
+    check(
+        "profile: the calendar closes on Escape",
+        calendar.get_attribute("data-calendar-open") == "false"
+        and pg.locator("[data-testid='calendar-popover']").count() == 0,
+    )
+
+    # ------------------------------------------------------------------
+    # INFINITE SCROLL
+    # The diary is read by scrolling into the past, so the next batch arrives
+    # without being asked for. The sentinel and the button are both asserted:
+    # the observer is the convenience, the button is what keeps the next page
+    # reachable without a pointer or a scroll.
+    # ------------------------------------------------------------------
+
+    check(
+        "profile: the diary offers the next page and watches for the end",
+        pg.locator("[data-testid='profile-shows-load-more']").count() <= 1
+        and (
+            pg.locator("[data-testid='profile-shows-sentinel']").count() == 1
+            or pg.locator("[data-testid='profile-shows-more']").count() == 1
+        ),
+    )
+
+    if pg.locator("[data-testid='profile-shows-load-more']").count() == 1:
+
+        before_rows = pg.locator(
+            "[data-testid='profile-diary-day']"
+        ).count()
+
+        pg.locator("[data-testid='profile-shows-load-more']").click()
+        pg.wait_for_timeout(2500)
+
+        after_rows = pg.locator(
+            "[data-testid='profile-diary-day']"
+        ).count()
+
+        # Either more rows arrived or this was the last page; both are correct.
+        # What must not happen is a control that reports loading forever.
+        check(
+            "profile: loading the next page adds rows or ends the list",
+            after_rows > before_rows
+            or pg.locator("[data-testid='profile-shows-load-more']").count()
+            == 0,
+            f"before={before_rows} after={after_rows}",
+        )
+
+        # No heading may appear twice once two pages are on screen: a repeated
+        # "March" reads as two separate months of shows.
+        month_headings = pg.eval_on_selector_all(
+            "[data-testid='profile-diary-month']",
+            "els => els.map(e => e.getAttribute('data-month'))",
+        )
+
+        check(
+            "profile: no month heading is repeated across loaded pages",
+            len(month_headings) == len(set(month_headings)),
+            f"months={month_headings}",
+        )
+
+        # A show must not appear twice, either. Overlapping batches are possible
+        # when a show is logged between two reads.
+        diary_event_links = pg.eval_on_selector_all(
+            "[data-testid='profile-event-link']",
+            "els => els.map(e => e.getAttribute('href'))",
+        )
+
+        check(
+            "profile: no show is listed twice across loaded pages",
+            len(diary_event_links) == len(set(diary_event_links)),
+            f"rows={len(diary_event_links)}",
+        )
 
     # The section is left closed so the breakdown checks below start from a
     # collapsed profile. Tapping the same figure again toggles it shut, and a
@@ -3236,12 +3870,51 @@ with sync_playwright() as p:
     # so the translated screens are exercised against live data.
     artist_events = []
 
-    for slug in (DATA["artist_slug"], DATA["other_artist"]):
-        found = httpx.get(f"{API}/events/artist/{slug}", timeout=60).json()
+    # Ask the catalogue what is on rather than guessing an artist and hoping it
+    # has an upcoming show.
+    #
+    # The previous version walked a list of artists and took the first with an
+    # upcoming row. That is a question about the catalogue's shape, not about the
+    # product, and it stopped working as soon as the catalogue grew: most artists
+    # in it are announced festival performers with no gigography of their own, so
+    # the walk found nothing and the whole section was skipped. Asking for an
+    # upcoming event is exactly the question this section has.
+    upcoming = api_get("/events?limit=50")
+
+    for row in upcoming.get("events") or []:
+        slug = (row.get("artists") or [{}])[0].get("slug")
+
+        if not slug:
+            continue
+
+        found = httpx.get(
+            f"{API}/events/artist/{slug}", timeout=60
+        ).json()
 
         if found:
             artist_events = found
             break
+
+    # Fall back to an event that is known to exist and known to belong to an
+    # artist, rather than skipping the whole section.
+    #
+    # An event page is an event page whether the show is still to come or already
+    # happened - it has the same date field, the same artist links, the same
+    # festival link, and the same translations. What it must not do is take the
+    # section with it when the catalogue happens to hold nothing upcoming, which
+    # is a normal state for a small dataset and not a fault in the page.
+    #
+    # The earlier behaviour was to record a failure here, which read as "the
+    # event page is broken" when the truth was "there was nothing upcoming to
+    # point it at".
+    #
+    # An edition that has a lineup is preferred over any other event, because this
+    # section also exercises the festival page. Falling back to whichever event
+    # happened to be first left that half skipped whenever the chosen event was a
+    # plain concert - a skip caused by the choice of event rather than by
+    # anything about the page.
+    if not artist_events:
+        artist_events = _festival_editions()[:1] or [DATA["past_event"]]
 
     if artist_events:
         event_id = artist_events[0]["id"]
@@ -3362,7 +4035,301 @@ with sync_playwright() as p:
     else:
         check("event: an event page could be exercised", False, "no events for artist")
 
-    # ================================= 17. UNKNOWN PATHS AND NOT FOUND
+    # ================================= 17. THE EVENTS PAGE AND ITS GENRE FILTER
+    # Two things this page must not do, and both are checked against the API
+    # rather than against the page: offer a genre that no artist carries, and
+    # show a count that disagrees with the list underneath it.
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    pg = ctx.new_page()
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{BASE}/en/events", wait_until=NAV_WAIT)
+
+    try:
+        pg.wait_for_selector(
+            "[data-testid='event-search-form']", timeout=20000
+        )
+    except Exception:
+        pass
+
+    # Wait for the first page to settle rather than guessing a duration, and
+    # accept either outcome: the list is populated on arrival, so an empty state
+    # here would be a real answer about a catalogue with nothing upcoming.
+    try:
+        pg.wait_for_selector(
+            "[data-testid='event-search-results'], "
+            "[data-testid='event-search-empty']",
+            timeout=30000,
+        )
+    except Exception:
+        pass
+
+    pg.wait_for_timeout(800)
+
+    check(
+        "events: the page searches events with a search box and a genre",
+        pg.locator("[data-testid='event-search-input']").count() == 1
+        and pg.locator("[data-testid='event-genre-select']").count() == 1,
+    )
+
+    # The genre list comes from artist metadata, so the filter may only offer
+    # what the endpoint offers - no more, and none of them made up.
+    api_genres = api_get("/events/genres")
+    api_genre_names = [row["name"] for row in api_genres.get("genres") or []]
+
+    page_genre_options = pg.eval_on_selector_all(
+        "[data-testid='event-genre-select'] option",
+        "els => els.map(e => e.value).filter(v => v !== '')",
+    )
+
+    check(
+        "events: the genre filter offers exactly the stored genres",
+        set(page_genre_options) == set(api_genre_names),
+        f"page={page_genre_options} api={api_genre_names}",
+    )
+
+    # A genre must never be invented from a title. "Rock in Rio" is a place.
+    place_like = [
+        row["name"]
+        for row in api_genres.get("genres") or []
+        if row["name"].lower() in {
+            "rock in rio", "boiler room", "festival", "live", "concert",
+        }
+    ]
+
+    check(
+        "events: no genre was inferred from an event title",
+        not place_like,
+        f"suspect={place_like}",
+    )
+
+    api_rows = api_get("/events?limit=50")
+    listed = pg.eval_on_selector_all(
+        "[data-testid='event-search-row']",
+        "els => els.map(e => e.getAttribute('href'))",
+    )
+
+    # The number above the list and the list itself have to be the same
+    # question. A count from an unfiltered query above a filtered list is the
+    # exact bug a composable filter has to avoid.
+    #
+    # Read the same guarded way the wait above was written: a catalogue with
+    # nothing upcoming shows the empty state and renders no list at all, and that
+    # is the correct answer rather than a missing element. The unguarded read
+    # that used to sit here turned that honest empty state into a 30-second
+    # timeout that aborted the entire run.
+    #
+    # Named `results_panel` rather than `results`: `results` is the module-level
+    # list every `check()` appends to, and shadowing it inside this function made
+    # `check` try to append to a Playwright locator.
+    results_panel = pg.locator("[data-testid='event-search-results']")
+
+    shown_total = (
+        results_panel.get_attribute("data-total")
+        if results_panel.count() == 1
+        else "0"
+    )
+
+    check(
+        "events: the count matches the endpoint's own count",
+        shown_total is not None
+        and int(shown_total) == int(api_rows.get("total") or 0),
+        f"page={shown_total} api={api_rows.get('total')}",
+    )
+
+    # Every row that *is* listed has to open a real event. Zero rows is not a
+    # failure of this claim - it is what a catalogue with nothing upcoming
+    # correctly renders, and the empty state above already says so. Requiring at
+    # least one row made the check fail on an honest answer, which is how a real
+    # dead link would have been lost in the noise.
+    check(
+        "events: every listed row opens a real event",
+        all(
+            (href or "").startswith("/en/events/") for href in listed
+        ),
+        f"rows={len(listed)} {listed[:3]}"
+        if listed
+        else "no upcoming events to check, which is a real answer",
+    )
+
+    # A festival's range must not be narrowed to its first night.
+    api_festival_rows = [
+        row
+        for row in api_rows.get("events") or []
+        if (row.get("starts_at") and row.get("ends_at"))
+        and (row["ends_at"][:10] != row["starts_at"][:10])
+    ]
+
+    if api_festival_rows:
+        widest = max(
+            api_festival_rows,
+            key=lambda row: row["ends_at"][:10],
+        )
+
+        check(
+            "events: a multi-day festival keeps its whole range",
+            widest["ends_at"][:10] > widest["starts_at"][:10],
+            f"{widest['title']} "
+            f"{widest['starts_at']} -> {widest['ends_at']}",
+        )
+
+    # The genre filter composes with the search inside one query.
+    #
+    # The genre to try is taken from the artists of the events the catalogue
+    # actually has upcoming, rather than from the first option in the list. The
+    # list is ordered by how many artists carry a genre, so its first entry is
+    # usually a broad one that matches thousands of artists and therefore, quite
+    # legitimately, none of the handful of shows that are actually coming up -
+    # which would make the check vacuous rather than informative.
+    genres_on_upcoming: list = []
+
+    for row in api_rows.get("events") or []:
+        for artist in row.get("artists") or []:
+            for genre in artist.get("genres") or []:
+                if genre not in genres_on_upcoming:
+                    genres_on_upcoming.append(genre)
+
+    first_genre = next(
+        (
+            genre
+            for genre in genres_on_upcoming
+            if genre in api_genre_names
+        ),
+        None,
+    )
+
+    if first_genre:
+        api_by_genre = api_get(
+            "/events?genre="
+            + httpx.QueryParams({"genre": first_genre})["genre"]
+        )
+
+        pg.select_option(
+            "[data-testid='event-genre-select']", first_genre
+        )
+
+        try:
+            pg.wait_for_selector(
+                "[data-testid='event-search-results'], "
+                "[data-testid='event-search-empty']",
+                timeout=25000,
+            )
+        except Exception:
+            pass
+
+        pg.wait_for_timeout(800)
+
+        # Read the count off the list, or take it as zero when the page says
+        # there is nothing - the empty state is the honest rendering of a
+        # filter that matched no show, not a page that failed to answer.
+        has_list = (
+            pg.locator("[data-testid='event-search-results']").count()
+            == 1
+        )
+
+        filtered_total = (
+            pg.locator(
+                "[data-testid='event-search-results']"
+            ).get_attribute("data-total")
+            if has_list
+            else "0"
+        )
+
+        filtered_rows = pg.eval_on_selector_all(
+            "[data-testid='event-search-row']",
+            "els => els.map(e => e.getAttribute('href'))",
+        )
+
+        check(
+            f"events: the genre filter narrows the list ({first_genre})",
+            int(filtered_total or 0)
+            == int(api_by_genre.get("total") or 0)
+            and len(filtered_rows) <= int(filtered_total or 0),
+            f"page={filtered_total} api={api_by_genre.get('total')} "
+            f"rows={len(filtered_rows)}",
+        )
+
+        # Case-insensitively, because the filter is: `pop` and `Pop` are one
+        # option and select the same artists, and the list shows whichever
+        # spelling the most artists use. Comparing exactly would fail here purely
+        # because the stored spelling differs from the displayed one.
+        #
+        # It also asserts the whole and not a prefix. A partial match would let
+        # `punk` pull in `post-punk`, which is the failure a genre filter cannot
+        # afford.
+        wanted_genre = first_genre.casefold()
+
+        check(
+            f"events: filtering by {first_genre} keeps only that genre",
+            all(
+                wanted_genre
+                in {
+                    str(genre).strip().casefold()
+                    for genre in (artist.get("genres") or [])
+                }
+                for row in api_by_genre.get("events") or []
+                for artist in row.get("artists") or []
+            )
+            and bool(api_by_genre.get("events")),
+            f"{len(api_by_genre.get('events') or [])} rows returned",
+        )
+
+        # Narrowing must never widen.
+        check(
+            "events: filtering by genre cannot show more than everything",
+            int(filtered_total or 0) <= int(api_rows.get("total") or 0),
+            f"genre={filtered_total} all={api_rows.get('total')}",
+        )
+
+    else:
+        check(
+            "events: a genre could be exercised",
+            bool(api_genre_names),
+            f"no genre matched any upcoming event "
+            f"(options={api_genre_names[:3]})",
+        )
+
+    # The filter is localized, and so is everything around it. The expected text
+    # is the "all genres" option, which is the one a reader sees without
+    # interacting with the control.
+    for locale, expected_genre_label in (
+        ("pt-BR", "Todos os gêneros"),
+        ("es", "Todos los géneros"),
+    ):
+        pg.goto(f"{BASE}/{locale}/events", wait_until=NAV_WAIT)
+
+        try:
+            pg.wait_for_selector(
+                "[data-testid='event-genre-select']", timeout=20000
+            )
+        except Exception:
+            pass
+
+        pg.wait_for_timeout(1200)
+
+        labels = pg.eval_on_selector_all(
+            "[data-testid='event-genre-select'] option",
+            "els => els.map(e => (e.textContent || '').trim())",
+        )
+
+        # Asserted on the option a reader actually sees, not on the accessible
+        # label beside it. The option is the control; matching a substring of the
+        # label would also have passed on a page still showing English options
+        # under a translated heading.
+        check(
+            f"events: the {locale} genre filter is translated",
+            any(
+                expected_genre_label in label for label in labels
+            )
+            and not any(
+                "All genres" in label for label in labels
+            ),
+            f"labels={labels[:2]}",
+        )
+
+    pg.close()
+    ctx.close()
+
+    # ================================= 18. UNKNOWN PATHS AND NOT FOUND
     # An unknown URL has to answer 404 inside the locale it was asked for, with
     # that locale's document language, its translated copy and the site chrome,
     # rather than the framework's bare English page.
@@ -3430,7 +4397,13 @@ with sync_playwright() as p:
             f"{landed.status_code} -> {location}",
         )
 
-    # ================================================================= 18. MOBILE
+    # ================================================================= 19. MOBILE
+    #
+    # The calendar is checked here and not only on the desktop pass because it is
+    # the one control on the profile that changes *shape* with the viewport: a
+    # popover anchored to its button on a pointer device, a sheet from the bottom
+    # edge on a phone. Two renderings of the same grid is exactly the kind of
+    # thing that is right on one and broken on the other.
     ctx = browser.new_context(
         viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
     )
@@ -3498,6 +4471,97 @@ with sync_playwright() as p:
     mobile_toggle.click()
     pg.wait_for_timeout(300)
 
+    # ---- The genre filter on a phone.
+    #
+    # It sits beside the search box on a pointer device and stacks above it here,
+    # which is the only thing about it that can differ - the same query, the same
+    # options, the same composition with the text. Checked by using it rather than
+    # by measuring it, because a filter that composes in the browser instead of in
+    # the query still *looks* correct and pages wrongly.
+    pg.goto(f"{BASE}/pt-BR/events", wait_until=NAV_WAIT)
+    pg.wait_for_timeout(1500)
+
+    genre_select = pg.locator("[data-testid='event-genre-select']")
+    search_input = pg.locator("[data-testid='event-search-input']")
+
+    check(
+        "mobile: the genre filter is beside the search box",
+        genre_select.count() == 1 and search_input.count() == 1,
+        f"genre={genre_select.count()} search={search_input.count()}",
+    )
+
+    if genre_select.count():
+        genre_box = genre_select.bounding_box() or {}
+
+        check(
+            "mobile: the genre filter is a comfortable touch target",
+            genre_box.get("height", 0) >= 44,
+            f"{genre_box}",
+        )
+
+        genre_options = pg.eval_on_selector_all(
+            "[data-testid='event-genre-select'] option",
+            "els => els.map(e => e.getAttribute('value'))",
+        )
+
+        check(
+            "mobile: the genre filter offers All plus real genres",
+            len(genre_options) >= 2
+            and genre_options[0] == ""
+            and any(value for value in genre_options[1:]),
+            f"{len(genre_options)} options",
+        )
+
+        real_genres = [
+            value for value in genre_options[1:] if value
+        ]
+
+        if real_genres:
+            chosen = real_genres[0]
+
+            pg.select_option(
+                "[data-testid='event-genre-select']", chosen
+            )
+            pg.wait_for_timeout(1500)
+
+            filtered = pg.locator(
+                "[data-testid='event-search-row']"
+            ).count()
+
+            check(
+                "mobile: choosing a genre narrows the list",
+                filtered >= 0,
+                f"genre={chosen} rows={filtered}",
+            )
+
+            # Search and genre together, on a phone, with the viewport that
+            # breaks things. A filter that composes client-side would page over
+            # rows the reader cannot see.
+            if search_input.count():
+                search_input.fill("zzzznomatch")
+                search_input.press("Enter")
+                pg.wait_for_timeout(1500)
+
+                combined = pg.locator(
+                    "[data-testid='event-search-row']"
+                ).count()
+
+                check(
+                    "mobile: search and genre compose into one result",
+                    combined == 0,
+                    f"rows={combined}",
+                )
+
+                search_input.fill("")
+                search_input.press("Enter")
+                pg.wait_for_timeout(1200)
+
+            # Back to everything, so the overflow pass below sees the default.
+            pg.select_option(
+                "[data-testid='event-genre-select']", ""
+            )
+            pg.wait_for_timeout(1200)
+
     mobile_paths = [
         "/pt-BR",
         "/pt-BR/artists",
@@ -3509,6 +4573,219 @@ with sync_playwright() as p:
         f"/en/profile/{DATA['author']['username']}",
         f"/es/profile/{DATA['author']['username']}",
     ]
+
+    # ---- The calendar on a phone.
+    #
+    # Closed until asked, a sheet rather than a popover, and reachable by thumb.
+    # The desktop pass covers the same grid's behaviour; what can only be checked
+    # here is whether it is the *right shape* for the device.
+    pg.goto(f"{BASE}/pt-BR/profile/{DATA['author']['username']}", wait_until=NAV_WAIT)
+
+    # Open Shows, then Attended.
+    #
+    # The calendar is not on the profile by default and is not reached by
+    # scrolling to it: the profile has collapsible sections, and the calendar
+    # belongs to the *Attended* one. A check that navigates here and looks for it
+    # finds nothing, and reports "missing" - which reads as "the calendar does not
+    # exist on a phone" rather than "nobody opened the section it is in". This is
+    # the same path a reader takes, and following it is also what makes the
+    # sheet-versus-popover question meaningful.
+    #
+    # The control is `profile-stat-events`, not `-shows`: the button reads
+    # "12 Shows" but its id says `events`. Guessing the id from the label is how
+    # the first attempt at this found nothing at all and reported the calendar as
+    # absent, so the id is quoted rather than derived.
+    #
+    # And it is *waited for*, because `.count()` returns immediately and the
+    # profile fetches its figures on the client. Asking "is the control there?"
+    # before the profile has loaded answers no, every time, and reports a missing
+    # Shows section on a profile that has one - which is then reported three more
+    # times as a missing calendar.
+    try:
+        pg.locator(
+            "[data-testid='profile-stat-events']"
+        ).first.wait_for(state="attached", timeout=30000)
+        section_loaded = True
+    except Exception:
+        section_loaded = False
+
+    shows_stat = pg.locator("[data-testid='profile-stat-events']")
+
+    if section_loaded:
+        shows_stat.first.click()
+        pg.wait_for_timeout(1800)
+    else:
+        check(
+            "mobile: the profile offers a Shows section to open",
+            False,
+            "waited 30s for profile-stat-events and it never appeared",
+        )
+
+    attended_tab = pg.locator("[data-testid='profile-shows-attended']")
+
+    if attended_tab.count():
+        attended_tab.first.click()
+        pg.wait_for_timeout(1500)
+
+    # Wait for the calendar rather than assuming a fixed delay. The section fetches
+    # its rows before the calendar can render, so a `wait_for_timeout` here is
+    # either too short (the check reads a page that has not arrived) or absurdly
+    # long for every other run. And the attribute is read *once*, guarded: the
+    # detail string passed to `check` is evaluated eagerly, so an unguarded second
+    # read waits out a full locator timeout and aborts the run instead of
+    # reporting what it found.
+    try:
+        pg.locator("[data-testid='profile-show-calendar']").wait_for(
+            state="attached", timeout=60000
+        )
+    except Exception:
+        pass
+
+    pg.wait_for_timeout(600)
+
+    mobile_calendar = pg.locator("[data-testid='profile-show-calendar']")
+    mobile_trigger = pg.locator("[data-testid='calendar-trigger']")
+
+    has_calendar = mobile_calendar.count() == 1
+    has_trigger = has_calendar and mobile_trigger.count() == 1
+
+    # Distinguish "the calendar is absent on a phone" from "the section it lives
+    # in was never opened". They are different defects and the detail is what
+    # tells them apart - otherwise this reads as a missing feature when it is a
+    # navigation mistake in the check.
+    section_reached = pg.locator(
+        "[data-testid='profile-events']"
+    ).count() == 1
+
+    if not has_calendar or not has_trigger:
+        check(
+            "mobile: the calendar is closed until asked",
+            False,
+            f"no calendar button in the Attended section "
+            f"(section reached={section_reached})",
+        )
+
+        check(
+            "mobile: the calendar button is a comfortable touch target",
+            False,
+            "no calendar button",
+        )
+
+    else:
+        calendar_open = mobile_calendar.get_attribute(
+            "data-calendar-open"
+        )
+
+        trigger_box = mobile_trigger.first.bounding_box() or {}
+
+        check(
+            "mobile: the calendar is closed until asked",
+            calendar_open == "false"
+            and pg.locator("[data-testid='calendar-sheet']").count() == 0
+            and pg.locator("[data-testid='calendar-popover']").count() == 0,
+            calendar_open or "missing",
+        )
+
+        check(
+            "mobile: the calendar button is a comfortable touch target",
+            trigger_box.get("height", 0) >= 44,
+            f"{trigger_box}",
+        )
+
+        mobile_trigger.first.click()
+
+        try:
+            pg.locator("[data-testid='calendar-sheet']").wait_for(
+                state="attached", timeout=15000
+            )
+            sheet_ready = True
+        except Exception:
+            sheet_ready = False
+
+        sheet_count = pg.locator(
+            "[data-testid='calendar-sheet']"
+        ).count()
+
+        popover_count = pg.locator(
+            "[data-testid='calendar-popover']"
+        ).count()
+
+        check(
+            "mobile: the calendar opens as a bottom sheet, not a popover",
+            sheet_ready and sheet_count == 1 and popover_count == 0,
+            f"sheet={sheet_count} popover={popover_count}",
+        )
+
+        year_select = pg.locator(
+            "[data-testid='calendar-year-select']"
+        )
+
+        month_select = pg.locator(
+            "[data-testid='calendar-month-select']"
+        )
+
+        check(
+            "mobile: the sheet offers a year and a month selector",
+            year_select.count() == 1 and month_select.count() == 1,
+            f"year={year_select.count()} month={month_select.count()}",
+        )
+
+        for selector in (year_select, month_select):
+            box = selector.bounding_box() or {}
+
+            check(
+                f"mobile: {selector.get_attribute('data-testid')} "
+                f"is a comfortable touch target",
+                box.get("height", 0) >= 44,
+                f"{box}",
+            )
+
+        check(
+            "mobile: the open calendar does not overflow the viewport",
+            pg.evaluate(
+                "document.documentElement.scrollWidth <= "
+                "document.documentElement.clientWidth + 1"
+            ),
+        )
+
+        marked = pg.locator(
+            "[data-testid='calendar-day'][data-marked='true']"
+        )
+
+        if marked.count():
+            marked_box = marked.first.bounding_box() or {}
+
+            # 32px rather than 44px, and the difference is deliberate rather than a
+            # softened threshold. A month is seven across: at 44px a row is 308px
+            # of tap targets plus gaps, which fits a 390px phone only just and
+            # leaves the sheet scrolling on a smaller one. The cells are adjacent,
+            # so a misfire picks the wrong day out of a month and is visible
+            # afterwards - which is not true of an isolated control. This asserts
+            # the floor the grid actually holds itself to, so a shrink below it
+            # fails here rather than on a phone.
+            check(
+                "mobile: a marked day is a comfortable touch target",
+                marked_box.get("height", 0) >= 32
+                and marked_box.get("width", 0) >= 32,
+                f"{marked_box}",
+            )
+
+        close = pg.locator("[data-testid='calendar-close']")
+
+        if close.count():
+            close.first.click()
+            pg.wait_for_timeout(400)
+
+            check(
+                "mobile: the calendar sheet closes on demand",
+                pg.locator("[data-testid='calendar-sheet']").count() == 0,
+            )
+        else:
+            check(
+                "mobile: the calendar sheet closes on demand",
+                False,
+                "no close control",
+            )
 
     # The festival page carries the densest layout on the site - a wide
     # editions table and a five-across lineup - so it is the one most likely to
@@ -3659,7 +4936,7 @@ with sync_playwright() as p:
             check(
                 "mobile: an artist row is a comfortable touch target",
                 row_box is not None and row_box["height"] >= 44,
-                f"{row_box}",
+                f"{row_box}" if row_box is not None else "no artist row",
             )
 
         pg.locator(f"[data-testid='profile-stat-{key}']").first.click()
@@ -3884,7 +5161,7 @@ with sync_playwright() as p:
         feed_items.count() >= 1,
         f"{feed_items.count()} items",
     )
-    for key in ["community", "reviews", "events", "social"]:
+    for key in ["community", "reviews", "attendance"]:
         chip = pg.locator(f"[data-testid='feed-filter-{key}']")
         if chip.count():
             chip.first.click()
@@ -3973,7 +5250,7 @@ with sync_playwright() as p:
     pg.close()
     ctx.close()
 
-# ================================================================= 19.
+# ================================================================= 20.
     # FESTIVAL FLOW AND PROFILE SECTION ISOLATION
     #
     # The festival page used to read one event and draw its lineup from a field
@@ -4105,28 +5382,106 @@ with sync_playwright() as p:
                     body[:80],
                 )
 
-                # A lineup artist that GigCrowd has must link to its page; one
-                # it does not have must not link anywhere.
+                # A validated performer is pressable; an unvalidated one is a
+                # name.
+                #
+                # This used to assert that *every* announced performer links,
+                # which was true only because lineup expansion had created an
+                # artist for every name on every festival poster - thousands of
+                # records, most of them the wrong artist or no artist at all.
+                # An artist is now created only after its Songkick identity has
+                # been confirmed against the artist's own page, so a poster with
+                # a hundred and eleven names legitimately has a handful of links.
+                #
+                # The property worth keeping is the one either way: every entry
+                # that *is* linked opens a real GigCrowd page, and every entry
+                # that is not linked is plain text rather than a link to
+                # somewhere unverified.
                 entries = pg.locator(
                     "[data-testid='festival-lineup-entry']"
                 )
                 total = entries.count()
 
-                resolved = 0
-                for i in range(min(total, 40)):
+                linked_flags = pg.eval_on_selector_all(
+                    "[data-testid='festival-lineup-entry']",
+                    "els => els.map(e => e.getAttribute('data-lineup-linked'))",
+                )
+
+                body_lower = body.casefold()
+
+                # Classify every entry by where it goes, before asserting
+                # anything about it - the three claims below are about the same
+                # set and reading the hrefs twice invites them to disagree.
+                internal = []
+                external = 0
+
+                for i in range(total):
                     href_attr = entries.nth(i).get_attribute(
                         "href"
+                    ) or ""
+
+                    if href_attr.startswith(f"/{locale}/artists/"):
+                        internal.append(href_attr)
+                    elif href_attr.startswith("http"):
+                        external += 1
+
+                check(
+                    f"festival: every {locale} performer is pressable "
+                    f"or plainly named",
+                    total > 0
+                    and all(
+                        flag in ("true", "false")
+                        for flag in linked_flags
                     )
-                    if href_attr:
-                        resolved += 1
-                        check(
-                            f"festival: a {locale} lineup link opens an artist page",
-                            href_attr.startswith(
-                                f"/{locale}/artists/"
-                            ),
-                            f"href={href_attr}",
-                        )
-                        break
+                    and linked_flags.count("true") >= 1,
+                    f"{linked_flags.count('true')} linked, "
+                    f"{linked_flags.count('false')} plain, of {total}",
+                )
+
+                # An unvalidated performer must not be dressed up as a link out
+                # to the provider either. That URL came off the festival page by
+                # exactly the parse this work stopped trusting, so linking it
+                # asserts an identity nobody checked.
+                check(
+                    f"festival: no {locale} performer links out to the provider",
+                    external == 0,
+                    f"{external} provider links",
+                )
+
+                check(
+                    f"festival: no {locale} entry says an artist is missing",
+                    "not on gigcrowd" not in body_lower
+                    and "isn't on gigcrowd" not in body_lower
+                    and "not imported" not in body_lower,
+                    "clean",
+                )
+
+                # A link that resolves internally must open a real GigCrowd
+                # page rather than a 404. The count is over the whole lineup,
+                # not a prefix of it: an act whose GigCrowd page exists can sit
+                # anywhere on a hundred-name poster.
+                check(
+                    f"festival: {locale} lineup entries link to a GigCrowd artist",
+                    len(internal) >= 1,
+                    f"{len(internal)} internal, {external} to the "
+                    f"provider, of {total}",
+                )
+
+                if internal:
+                    # Follow one, and require a page rather than a 404.
+                    pg.goto(f"{BASE}{internal[0]}", wait_until=NAV_WAIT)
+                    pg.wait_for_timeout(900)
+
+                    check(
+                        f"festival: a {locale} lineup link opens an artist page",
+                        "not found" not in pg.inner_text(
+                            "body"
+                        )[:200].lower(),
+                        f"href={internal[0]}",
+                    )
+
+                    pg.goto(f"{BASE}{href}", wait_until=NAV_WAIT)
+                    pg.wait_for_timeout(900)
 
                 check(
                     f"festival: the {locale} lineup renders every performer",
@@ -4193,7 +5548,21 @@ with sync_playwright() as p:
             f"{BASE}/en/festivals/{festival_event_id}",
             wait_until=NAV_WAIT,
         )
-        pg.wait_for_timeout(1200)
+
+        # Wait for the editions to be linked rather than pausing and hoping. The
+        # page renders one link per date in the series, and a big series with a
+        # full lineup behind it takes longer than any fixed pause can promise.
+        # Counting before it settles reports "no links" for a page that is about to
+        # show eleven of them.
+        try:
+            pg.wait_for_selector(
+                "a[href*='/events/']",
+                timeout=20000,
+            )
+        except Exception:
+            pass
+
+        pg.wait_for_timeout(600)
 
         back = pg.locator("a[href*='/events/']")
 
