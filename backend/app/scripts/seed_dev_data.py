@@ -34,9 +34,19 @@ The dataset is built to exercise real behaviour rather than to look full:
 * One user who follows nobody and has logged nothing, so the empty profile is
   exercised as carefully as the full one.
 
-Nothing here is invented provider data: Spotify, Songkick and MusicBrainz ids
-appear only where they are the real ones, and each document states which source
-its external ids came from.
+Nothing here is invented provider data, with one deliberate exception. Spotify,
+Songkick and MusicBrainz ids appear only where they are the real ones, and each
+document states which source its external ids came from. The single exception is
+named `INVENTED_SONGKICK_ID`, belongs to an artist that does not exist, and is
+asserted as invented by the fixture tests - see that constant and "Victo" in
+`build_dataset` for why an id that cannot resolve is occasionally the honest
+choice.
+
+The Songkick ids are the part most worth being careful about. Six of the eight
+this file previously held did not resolve, which produced pages answering
+"Songkick artist page error: 410" for seeded artists that looked perfectly
+normal in the database. They are now in one named table, each confirmed by
+fetching the artist's own page, and asserted by the tests.
 """
 from __future__ import annotations
 
@@ -64,19 +74,96 @@ from app.utils.slug import generate_slug
 # them without hunting for credentials. It is a fixture password and says so.
 SEED_PASSWORD = "gigcrowd-dev-2024"
 
-# One anchor for every date in the dataset.
+# The two controlled test accounts, which are the exception.
 #
-# Dates are derived from this rather than read from the clock, so the same seed
+# They exist so that one person can be handed a specific credential and be sure it
+# is theirs - which means each has its own password. A shared fixture password
+# cannot do that job: if both accounts had the same one, handing it to somebody
+# would authenticate them as whichever account the login route happened to match
+# first, and every test written against "testuser1" would be silently testing
+# "testuser2".
+TEST_USER_1 = "testuser1"
+TEST_USER_1_EMAIL = "testuser1@gigcrowd.app"
+TEST_USER_1_PASSWORD = "GigCrowd-Test-2026!A"
+
+TEST_USER_2 = "testuser2"
+TEST_USER_2_EMAIL = "testuser2@gigcrowd.app"
+TEST_USER_2_PASSWORD = "GigCrowd-Test-2026!B"
+
+
+# The real Songkick artist id for each seeded act.
+#
+# Every one of these was looked up on Songkick and its artist page was fetched to
+# confirm the id serves that artist, rather than being carried over from an older
+# fixture. That distinction is not pedantry: six of the eight ids this fixture
+# previously held did not resolve at all, so those seeded artists could not be
+# initialized, imported or verified - a page for any of them answered "Songkick
+# artist page error: 410", and the fixture quietly taught the wrong thing about
+# what a working identity looks like.
+#
+# A seeded id that does not resolve is worse than no id, because it looks correct
+# in the document and produces a broken page. Kept as a named table so a future
+# edit has one obvious place to look, and asserted by the fixture tests so a drift
+# is caught there rather than discovered by somebody opening a page.
+SONGKICK_IDS = {
+    "Marina Sena": "10176016",
+    "Arctic Monkeys": "520117",
+    "Gal Costa": "191574",
+    "Rubel": "8449058",
+    "Tim Bernardes": "8618899",
+    "O Terno": "5881859",
+    "Demi Lovato": "976211",
+}
+
+# The one seeded id that is deliberately not real.
+#
+# "Victo" is a thin artist with no real counterpart, and its id is invented so it
+# can never be mistaken for one. It exists so a page can be judged when the
+# catalogue knows almost nothing about an artist, and so the failed-initialization
+# path has something to happen to.
+#
+# Nothing that trusts an identity trusts it. The seed writes artists directly
+# rather than through the lineup importer that validates one, and the fixture
+# tests assert the difference explicitly - so the invented id can never be
+# mistaken for a validated identity, which is the mistake this whole area of the
+# project is about.
+INVENTED_SONGKICK_ID = "9988771"
+
+# Two anchors, because the dataset has two kinds of date and one anchor cannot
+# honestly describe both.
+#
+# `ANCHOR` is "now" in the seeded world, and the fixtures that are meant to be in
+# the future - shows somebody wants to see, an event somebody announced - are
+# measured forward from it. That is a deliberate fiction: the development dataset
+# is a future scenario.
+#
+# `PAST_ANCHOR` is where history is measured from instead. History has to be in the
+# past *in the real world too*, and deriving it from `ANCHOR` broke that: with
+# `ANCHOR` fifteen days ahead of the actual present, `days_ago(3)` was still three
+# days in the future. Three seeded community posts landed on 8, 15 and 17 October
+# with a present of 5 October, which made a newly created post sort below seeded
+# ones and read as older than it was.
+#
+# Subtracting from a forward-looking anchor cannot fix that, because any small
+# number of days is still in the future. History needs its own base.
+#
+# Both are fixed instants rather than values read from the clock, so the same seed
 # always produces the same timeline - which is what lets the profile's year and
-# month grouping be asserted on.
+# month grouping be asserted on, and what keeps the fixture reproducible.
 ANCHOR = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
+
+PAST_ANCHOR = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
 
 def days_ago(days: int) -> datetime:
-    return ANCHOR - timedelta(days=days)
+    """A moment `days` before the present, which is genuinely in the past."""
+
+    return PAST_ANCHOR - timedelta(days=days)
 
 
 def days_ahead(days: int) -> datetime:
+    """A moment `days` after the scenario's present, in the future."""
+
     return ANCHOR + timedelta(days=days)
 
 
@@ -106,13 +193,22 @@ def stable_id(*parts: str) -> ObjectId:
 SEED_BCRYPT_COST = 10
 
 
-def deterministic_password_hash(username: str) -> str:
-    """A valid bcrypt hash of the seed password that never changes.
+def deterministic_password_hash(
+    username: str,
+    password: str = SEED_PASSWORD,
+) -> str:
+    """A valid bcrypt hash of a seed password that never changes.
 
     bcrypt salts every hash randomly, which would make the stored user document
     differ on every run and turn an idempotent seed into a rewrite. Deriving the
     salt from the username keeps the hash genuine - `verify_password` still
     accepts it - while making the document byte-identical between runs.
+
+    `password` defaults to the shared fixture password but may be given per user.
+    The two controlled test accounts each have their own, because the whole point
+    of them is that a person can be handed one specific credential and the other
+    account must not work with it. The salt is still derived from the username,
+    which is what keeps the hash reproducible.
 
     The salt is built from bcrypt's own alphabet rather than standard base64,
     because bcrypt rejects `+` and `/`.
@@ -120,7 +216,9 @@ def deterministic_password_hash(username: str) -> str:
 
     alphabet = b"./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
-    digest = hashlib.sha256(username.encode("utf-8")).digest()
+    digest = hashlib.sha256(
+        f"{username}\x00{password}".encode("utf-8")
+    ).digest()
 
     salt_chars = bytearray(
         alphabet[byte % len(alphabet)]
@@ -134,7 +232,7 @@ def deterministic_password_hash(username: str) -> str:
     salt_chars.append(alphabet[(digest[-1] % 4) * 16])
 
     return bcrypt.hashpw(
-        SEED_PASSWORD.encode("utf-8"),
+        password.encode("utf-8"),
         f"$2b${SEED_BCRYPT_COST:02d}$".encode()
         + bytes(salt_chars),
     ).decode("utf-8")
@@ -148,6 +246,7 @@ def build_user(
     location: Optional[str] = None,
     bio: Optional[str] = None,
     joined_days_ago: int = 400,
+    password: str = SEED_PASSWORD,
 ) -> dict[str, Any]:
     moment = days_ago(joined_days_ago)
 
@@ -159,7 +258,9 @@ def build_user(
         "bio": bio,
         "location": location,
         "avatar_url": None,
-        "hashed_password": deterministic_password_hash(name),
+        "hashed_password": deterministic_password_hash(
+            name, password
+        ),
         "role": "user",
         "is_active": True,
         "followers_count": 0,
@@ -429,6 +530,28 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         joined_days_ago=30,
     )
 
+    # The two controlled accounts, each with its own password. See
+    # `TEST_USER_1_PASSWORD` for why they cannot share one.
+    testuser1 = build_user(
+        TEST_USER_1,
+        full_name="Test User One",
+        email=TEST_USER_1_EMAIL,
+        location="Sao Paulo",
+        bio="Automated checks sign in as this account.",
+        joined_days_ago=240,
+        password=TEST_USER_1_PASSWORD,
+    )
+
+    testuser2 = build_user(
+        TEST_USER_2,
+        full_name="Test User Two",
+        email=TEST_USER_2_EMAIL,
+        location="Lisbon",
+        bio="The other controlled account.",
+        joined_days_ago=240,
+        password=TEST_USER_2_PASSWORD,
+    )
+
     # ----------------------------------------------------------
     # Artists
     #
@@ -441,7 +564,7 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         build_artist(
             "Marina Sena",
             spotify_id="7dGJo4pcD2V6oG8ykP7y6Oz",
-            songkick_id="3090429",
+            songkick_id=SONGKICK_IDS["Marina Sena"],
             musicbrainz_id="e9e0d2b8-4d4a-4a5f-9a5a-1f4b8f2c9d31",
             genres=["MPB", "Pop"],
             followers_count=48210,
@@ -449,7 +572,7 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         build_artist(
             "Arctic Monkeys",
             spotify_id="7Ln80lUS6He07XvHI8qqHH",
-            songkick_id="520117",
+            songkick_id=SONGKICK_IDS["Arctic Monkeys"],
             musicbrainz_id="89ad4ac3-39f7-470e-963a-56509c546377",
             genres=["Alternative Rock", "Indie Rock"],
             followers_count=3104520,
@@ -457,7 +580,7 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         build_artist(
             "Gal Costa",
             spotify_id="1r7iV2vcSpEnRgtPDVBb1C",
-            songkick_id="269091",
+            songkick_id=SONGKICK_IDS["Gal Costa"],
             musicbrainz_id="b2a2e0b6-9d7f-4a52-9c7d-6f2c9a1b4e77",
             genres=["MPB", "Bossa Nova", "Pop"],
             followers_count=271833,
@@ -465,7 +588,7 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         build_artist(
             "Rubel",
             spotify_id="1McMsnEElThX1knmY4oliGf",
-            songkick_id="3445127",
+            songkick_id=SONGKICK_IDS["Rubel"],
             musicbrainz_id="6d1f0b7a-2c4e-4a3b-9f8d-0e5b6c7a8d90",
             genres=["MPB", "Folk"],
             followers_count=39812,
@@ -473,7 +596,7 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         build_artist(
             "Tim Bernardes",
             spotify_id="5P7o3k6eRHxaqfXuaC5ZUn",
-            songkick_id="2668421",
+            songkick_id=SONGKICK_IDS["Tim Bernardes"],
             musicbrainz_id="9f2c1d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
             genres=["MPB", "Indie"],
             followers_count=120455,
@@ -482,15 +605,28 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         build_artist(
             "O Terno",
             spotify_id="4tZwfgrHOc3mvqYlEYSvVi",
-            songkick_id="2921978",
+            songkick_id=SONGKICK_IDS["O Terno"],
             musicbrainz_id="c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
             genres=["MPB", "Rock"],
             followers_count=51230,
         ),
-        # Deliberately thin: no Spotify id, no genres, no image.
+        # A pop artist with a very large Songkick catalogue, so the search and
+        # import path has something whose gigography is genuinely large - the
+        # case where "did the import actually import?" has an interesting answer.
+        build_artist(
+            "Demi Lovato",
+            spotify_id="4z6W6TZjkFpxQeKFGW5vUx",
+            songkick_id=SONGKICK_IDS["Demi Lovato"],
+            musicbrainz_id="b2b2e0f2-6d8e-4c1a-9f77-3a5d6c1e9b02",
+            genres=["Pop", "Alternative"],
+            followers_count=7823001,
+        ),
+        # Deliberately thin: no Spotify id, no genres, no image - and no real
+        # Songkick id either, because no such act exists. See
+        # `INVENTED_SONGKICK_ID`.
         build_artist(
             "Victo",
-            songkick_id="9988771",
+            songkick_id=INVENTED_SONGKICK_ID,
             genres=[],
             followers_count=0,
         ),
@@ -651,11 +787,11 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         location=sao_paulo,
         songkick_id="9900201",
         lineup=[
-            {"name": "Marina Sena", "songkick_id": "3090429"},
-            {"name": "Tim Bernardes", "songkick_id": "2668421"},
-            {"name": "O Terno", "songkick_id": "2921978"},
+            {"name": "Marina Sena", "songkick_id": SONGKICK_IDS["Marina Sena"]},
+            {"name": "Tim Bernardes", "songkick_id": SONGKICK_IDS["Tim Bernardes"]},
+            {"name": "O Terno", "songkick_id": SONGKICK_IDS["O Terno"]},
             # The same act twice on the same bill: one show, not two.
-            {"name": "O Terno", "songkick_id": "2921978"},
+            {"name": "O Terno", "songkick_id": SONGKICK_IDS["O Terno"]},
         ],
     ))
 
@@ -671,8 +807,8 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         location=sao_paulo,
         songkick_id="9900202",
         lineup=[
-            {"name": "Rubel", "songkick_id": "3445127"},
-            {"name": "Victo", "songkick_id": "9988771"},
+            {"name": "Rubel", "songkick_id": SONGKICK_IDS["Rubel"]},
+            {"name": "Victo", "songkick_id": INVENTED_SONGKICK_ID},
         ],
     ))
 
@@ -688,8 +824,8 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         location=sao_paulo,
         songkick_id="9900203",
         lineup=[
-            {"name": "Gal Costa", "songkick_id": "269091"},
-            {"name": "Marina Sena", "songkick_id": "3090429"},
+            {"name": "Gal Costa", "songkick_id": SONGKICK_IDS["Gal Costa"]},
+            {"name": "Marina Sena", "songkick_id": SONGKICK_IDS["Marina Sena"]},
         ],
     ))
 
@@ -741,9 +877,9 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         location=sao_paulo,
         songkick_id="9900204",
         lineup=[
-            {"name": "Marina Sena", "songkick_id": "3090429"},
-            {"name": "Tim Bernardes", "songkick_id": "2668421"},
-            {"name": "Gal Costa", "songkick_id": "269091"},
+            {"name": "Marina Sena", "songkick_id": SONGKICK_IDS["Marina Sena"]},
+            {"name": "Tim Bernardes", "songkick_id": SONGKICK_IDS["Tim Bernardes"]},
+            {"name": "Gal Costa", "songkick_id": SONGKICK_IDS["Gal Costa"]},
         ],
     ))
 
@@ -769,10 +905,24 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         rating: Optional[int] = None,
         review: Optional[str] = None,
         reviewed_days_ago: Optional[int] = None,
-    ) -> None:
+    ) -> str:
+        """Record one attendance, and return the log's id.
+
+        The id is returned because an activity that says somebody attended a show
+        points at the *attendance record*, not at the show. Those are different
+        documents - one per person per show - and a feed row that names the event
+        instead cannot be resolved to anything, so the row renders with no link and
+        no way to tell what it was about.
+
+        The product writes it that way (see `POST /users/me/show-logs`), and the
+        seed once wrote the event id while declaring `target_type: show_log`, which
+        made six of eleven seeded feed rows dead on arrival.
+        """
+
+        identifier = stable_id("show_log", key, str(user_id))
 
         show_logs.append({
-            "_id": stable_id("show_log", key, str(user_id)),
+            "_id": identifier,
             "user_id": str(user_id),
             "event_id": event_id(key),
             "status": status,
@@ -789,6 +939,17 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
             "created_at": days_ago(day_offset),
             "updated_at": days_ago(day_offset),
         })
+
+        return str(identifier)
+
+    def log_id(key: str, user_id: ObjectId) -> str:
+        """The id of the attendance record `log(key, user_id, ...)` wrote.
+
+        Derived rather than remembered, so a row cannot end up pointing at an
+        attendance that was never recorded.
+        """
+
+        return str(stable_id("show_log", key, str(user_id)))
 
     leticia_id = leticia["_id"]
     bruno_id = bruno["_id"]
@@ -1018,37 +1179,49 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         })
 
     # Ana and Bruno follow Leticia, so her review and attendance reach them.
+    #
+    # Every attendance/review row names the *attendance record*, never the event.
+    # That is what the product writes, and it is the only thing the feed can
+    # resolve: an activity whose `target_id` is an event id while its
+    # `target_type` says `show_log` produces a row with no target, which renders
+    # as a sentence a reader cannot press. Deriving the id rather than repeating
+    # it means a row cannot point at an attendance that was never written.
     activity(
         "leticia-review-marina", leticia_id, "create_review",
-        target_id=event_id("marina-ibira"), target_type="show_log",
+        target_id=log_id("marina-ibira", leticia_id),
+        target_type="show_log",
         metadata={"artist_slug": "marina-sena", "rating": 5},
         when=days_ago(15),
     )
 
     activity(
         "leticia-attended-arctic", leticia_id, "attend_event",
-        target_id=event_id("arctic-croc"), target_type="show_log",
+        target_id=log_id("arctic-croc", leticia_id),
+        target_type="show_log",
         metadata={"artist_slug": "arctic-monkeys"},
         when=days_ago(8),
     )
 
     activity(
         "bruno-review-gal", bruno_id, "create_review",
-        target_id=event_id("gal-sesc"), target_type="show_log",
+        target_id=log_id("gal-sesc", bruno_id),
+        target_type="show_log",
         metadata={"artist_slug": "gal-costa", "rating": 5},
         when=days_ago(43),
     )
 
     activity(
         "ana-attended-arctic", ana_id, "attend_event",
-        target_id=event_id("arctic-croc"), target_type="show_log",
+        target_id=log_id("arctic-croc", ana_id),
+        target_type="show_log",
         metadata={"artist_slug": "arctic-monkeys"},
         when=days_ago(7),
     )
 
     activity(
         "ana-review-arctic", ana_id, "create_review",
-        target_id=event_id("arctic-croc"), target_type="show_log",
+        target_id=log_id("arctic-croc", ana_id),
+        target_type="show_log",
         metadata={"artist_slug": "arctic-monkeys", "rating": 3},
         when=days_ago(7),
     )
@@ -1095,12 +1268,19 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
 
     # An event announced by an artist Leticia follows, so "a new event from an
     # artist you follow" has a row behind it. The timestamp is when the show was
-    # announced, not when it happens.
+    # announced, not when it happens - which puts it in the past, so it is
+    # measured from the past anchor rather than by stepping backwards from the
+    # scenario's present.
+    #
+    # It points at her `going` record for that show, which is what makes it
+    # resolvable *and* honest: the row says she is going, and there is a going
+    # record behind it.
     activity(
         "tim-announced", leticia_id, "attend_event",
-        target_id=event_id("tim-ibira-future"), target_type="show_log",
+        target_id=log_id("tim-ibira-future", leticia_id),
+        target_type="show_log",
         metadata={"artist_slug": "tim-bernardes", "going": True},
-        when=days_ahead(35) - timedelta(days=40),
+        when=days_ago(5),
     )
 
     notifications = [
@@ -1126,7 +1306,14 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
     ]
 
     return {
-        "users": [leticia, bruno, ana, theo],
+        "users": [
+            leticia,
+            bruno,
+            ana,
+            theo,
+            testuser1,
+            testuser2,
+        ],
         "artists": artists,
         "venues": venues,
         "events": list(events.values()),
@@ -1251,8 +1438,19 @@ async def main() -> int:
             print(f"    {collection:20} {count:>4}")
 
         print()
-        print("Sign in as any seeded user, for example:")
+        print("Controlled test accounts, one password each:")
+        print(f"  {TEST_USER_1_EMAIL:<28} {TEST_USER_1_PASSWORD}")
+        print(f"  {TEST_USER_2_EMAIL:<28} {TEST_USER_2_PASSWORD}")
+        print()
+        print(
+            "The other seeded users share the fixture password:"
+        )
+        print(f"  {SEED_PASSWORD}")
         print("  leticiacmz / brunor / analima / theov")
+        print(
+            "  (the login form takes the address form of the email,"
+        )
+        print("   e.g. leticia@gigcrowd.app)")
 
         return 0
 
