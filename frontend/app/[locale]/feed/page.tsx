@@ -64,8 +64,7 @@ const FILTERS: { key: FeedCategory; labelKey: string }[] = [
   { key: 'all', labelKey: 'filter.all' },
   { key: 'community', labelKey: 'filter.community' },
   { key: 'reviews', labelKey: 'filter.reviews' },
-  { key: 'events', labelKey: 'filter.events' },
-  { key: 'social', labelKey: 'filter.social' },
+  { key: 'attendance', labelKey: 'filter.attendance' },
 ];
 
 function FeedContent() {

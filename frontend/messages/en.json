@@ -61,8 +61,8 @@
       "all": "All",
       "community": "Community",
       "reviews": "Reviews",
-      "events": "Events",
-      "social": "Social"
+      "attendance": "Attendance",
+      "events": "Events"
     },
     "emptyTitle": "Nothing here yet",
     "emptyDescription": "Follow artists and people to fill your feed.",
@@ -130,7 +130,6 @@
   "event": {
     "about": "About",
     "artist": "Artist",
-    "artistNotImported": "Not on GigCrowd yet",
     "artists": "Artists",
     "artistsCount": "{count} artists",
     "attend": "Attend",
@@ -225,7 +224,7 @@
       "reviews": "Reviews",
       "events": "Shows",
       "festivals": "Festivals",
-      "artists": "Artists",
+      "artists": "Artists I Have Seen",
       "followers": "Followers",
       "following": "Following"
     },
@@ -235,14 +234,66 @@
     "noShowsHint": "The shows they marked as attended appear here.",
     "noFestivals": "No festivals yet",
     "noFestivalsHint": "Festivals they have been to appear here, one row per festival.",
-    "noArtists": "No artists followed yet",
-    "noArtistsHint": "The artists they follow are the communities they belong to.",
     "noFollowers": "No followers yet",
     "noFollowing": "Not following anyone yet",
     "loadingConnections": "Loading people...",
-    "communityPosts": "{count, plural, =0 {No posts yet} one {# post} other {# posts}} in this community",
     "festivalCounts": "{editions, plural, one {# edition} other {# editions}} · {shows, plural, one {# show} other {# shows}}",
-    "festivalEntry": "At {name}"
+    "festivalEntry": "At {name}",
+    "showsBreakdown": "Shows by state",
+    "showsMore": "Showing {shown} of {total}.",
+    "shows": {
+      "attended": "Attended",
+      "want-to-go": "Want to go",
+      "maybe": "Maybe",
+      "empty": {
+        "attended": "No shows attended yet",
+        "want-to-go": "Not planning any shows",
+        "maybe": "Nothing undecided"
+      },
+      "emptyHint": {
+        "attended": "The shows they marked as attended appear here.",
+        "want-to-go": "Shows they marked as going to appear here.",
+        "maybe": "Shows they could not decide about appear here."
+      }
+    },
+    "noArtistsSeen": "No artists seen yet",
+    "noArtistsSeenHint": "The artists they have stood in front of appear here, one row per artist.",
+    "seenShows": "{count, plural, =0 {No shows} one {# show} other {# shows}}",
+    "panelSubtitle": {
+      "reviews": "What you wrote about",
+      "events": "Your concert history",
+      "festivals": "Festivals you have been to",
+      "artists": "Artists you have seen live",
+      "followers": "People who follow you",
+      "following": "People you follow"
+    },
+    "reviewedBadge": "You reviewed this show",
+    "showsLoadMore": "Load earlier shows",
+    "showsLoadingMore": "Loading…",
+    "calendar": {
+      "heading": "Shows attended by month",
+      "previous": "Previous month",
+      "next": "Next month",
+      "emptyMonth": "No shows attended this month",
+      "noShowsThatDay": "No shows on that day",
+      "clearFilterHint": "Choose the day again to see the whole month.",
+      "filtering": "Showing {day} only",
+      "dayWithShows": "{shows} show(s) on day {day}",
+      "summary": "{shows} show(s) across {days} day(s)",
+      "open": "Show the calendar of shows attended",
+      "close": "Close",
+      "selectYear": "Year",
+      "selectMonth": "Month",
+      "weekdays": {
+        "mon": "Mon",
+        "tue": "Tue",
+        "wed": "Wed",
+        "thu": "Thu",
+        "fri": "Fri",
+        "sat": "Sat",
+        "sun": "Sun"
+      }
+    }
   },
   "review": {
     "writeTitle": "How was it?",
@@ -293,10 +344,13 @@
       "comment": "commented on your post in {artist}",
       "commentNoArtist": "commented on your post",
       "reply": "replied to your comment in {artist}",
-      "replyNoArtist": "replied to your comment"
+      "replyNoArtist": "replied to your comment",
+      "eventAttendanceCheck": "The show is over. Did you go?",
+      "eventReviewPrompt": "You saw this show. Tell us how it was."
     },
     "viewTarget": "View",
-    "signedOut": "Sign in to see your notifications."
+    "signedOut": "Sign in to see your notifications.",
+    "fromGigCrowd": "GigCrowd"
   },
   "common": {
     "loading": "Loading...",
@@ -404,20 +458,24 @@
     "noEvents": "No events found."
   },
   "festivals": {
-    "artistNotImported": "Not on GigCrowd yet",
     "artists": "Artists",
     "artistsCount": "{count} artists",
     "backToEvent": "← Back to event",
     "dateUnavailable": "Date unavailable",
     "dates": "Dates",
-    "editions": "Dates",
-    "editionsCount": "{count} dates",
+    "seriesLabel": "Festival series",
+    "seriesHint": "Everything below belongs to one festival, not to a single night.",
+    "editions": "Editions",
+    "editionsHeading": "Editions",
+    "editionsHint": "The same festival year after year. Each date below is one edition of it, not a separate festival.",
+    "editionsCount": "{count} editions",
     "goBack": "← Go back",
     "lineup": "Lineup",
     "lineupEmpty": "The festival lineup is not available yet.",
+    "lineupHint": "Who played on the edition you are viewing.",
     "loading": "Loading festival...",
     "location": "Location",
-    "noEditions": "No dates available yet",
+    "noEditions": "No editions available yet",
     "noSearchMatches": "No artists match your search.",
     "notFound": "Festival not found.",
     "officialWebsite": "Official website ↗",
@@ -446,5 +504,16 @@
     "title": "Page not found",
     "description": "That page does not exist, or it may have moved.",
     "backHome": "Back to home"
+  },
+  "eventSearch": {
+    "title": "What's on",
+    "subtitle": "Search the concerts and festivals GigCrowd knows about, and narrow them by genre.",
+    "searchLabel": "Search events and artists",
+    "genreLabel": "Genre",
+    "genreAll": "All genres",
+    "noResults": "No events match that search.",
+    "more": "Show more ({shown} of {total})",
+    "loadingMore": "Loading…",
+    "artistHint": "Looking for an act that isn't here yet? Search Songkick and import it."
   }
 }

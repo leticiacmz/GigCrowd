@@ -166,9 +166,20 @@ function NotificationRow({
 
   const message = describeType(notification.type, artistName, t);
 
+  /*
+    A prompt has no actor: nobody did anything, the show simply ended. Naming the
+    sender would be inventing one, so these read as a line from GigCrowd itself
+    and the unread marker stands in for the avatar slot a person would occupy.
+  */
+  const isPrompt =
+    notification.type === 'event_attendance_check' ||
+    notification.type === 'event_review_prompt';
+
   const actorLabel = notification.actor.username
     ? `@${notification.actor.username}`
-    : tCommon('unread');
+    : isPrompt
+      ? t('fromGigCrowd')
+      : tCommon('unread');
 
   const targetHref = buildTargetHref(notification, locale);
 
@@ -281,6 +292,17 @@ function describeType(
   t: TranslateFn
 ) {
   switch (type) {
+    /*
+      The two prompts. They ask a question rather than report something that
+      happened to the reader, so the copy is a question, and the event's name is
+      the subject of it.
+    */
+    case 'event_attendance_check':
+      return t('type.eventAttendanceCheck');
+
+    case 'event_review_prompt':
+      return t('type.eventReviewPrompt');
+
     case 'follow':
       return t('type.follow');
     case 'like':

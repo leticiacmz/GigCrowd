@@ -24,6 +24,7 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 import Avatar from '@/components/ui/Avatar';
+import SectionHeader from '@/components/ui/SectionHeader';
 import LoadingState from '@/components/LoadingState';
 import EmptyState from '@/components/EmptyState';
 
@@ -446,12 +447,17 @@ function ProfileView({
             aria-labelledby="latest-reviews-heading"
             data-testid="profile-latest-reviews"
           >
-            <h2
+            <SectionHeader
               id="latest-reviews-heading"
-              className="mb-4 text-xl font-bold"
-            >
-              {t('latestReviews')}
-            </h2>
+              title={t('latestReviews')}
+              count={
+                stats ? (
+                  <span className="text-sm text-muted-subtle">
+                    {stats.reviews_count ?? 0}
+                  </span>
+                ) : undefined
+              }
+            />
 
             {reviewsLoading ? (
               <LoadingState message={t('loading')} />
@@ -523,25 +529,48 @@ function GraphButton({
       onClick={onClick}
       aria-pressed={pressed}
       data-testid={testId}
-      className="
+      className={`
         flex
         min-h-[56px]
+        flex-1
         flex-col
         items-start
         rounded-lg
+        border
         px-3
-        py-1
+        py-1.5
         text-left
         transition-colors
-        hover:bg-card-hover
         focus-visible:outline-none
         focus-visible:ring-2
         focus-visible:ring-accent
-      "
+        ${
+          pressed
+            ? 'border-accent bg-accent/10'
+            : 'border-transparent hover:bg-card-hover'
+        }
+      `}
     >
-      <span className="text-[24px] font-bold">{value}</span>
+      <span
+        className={`
+          text-[22px]
+          font-bold
+          leading-none
+          ${pressed ? 'text-accent-text' : 'text-foreground'}
+        `}
+      >
+        {value}
+      </span>
 
-      <span className="text-muted">{label}</span>
+      <span
+        className={`
+          mt-1
+          text-sm
+          ${pressed ? 'text-foreground' : 'text-muted'}
+        `}
+      >
+        {label}
+      </span>
     </button>
   );
 }

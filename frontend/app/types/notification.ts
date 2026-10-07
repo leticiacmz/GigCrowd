@@ -1,4 +1,17 @@
-export type NotificationType = 'follow' | 'like' | 'comment' | 'reply';
+/**
+ * What a notification can be about.
+ *
+ * The first four are caused by one person acting on another's content. The last
+ * two are asked by GigCrowd itself once a show has finished: whether the reader
+ * went, or what they thought of it. Neither has an actor, because nobody acted.
+ */
+export type NotificationType =
+  | 'follow'
+  | 'like'
+  | 'comment'
+  | 'reply'
+  | 'event_attendance_check'
+  | 'event_review_prompt';
 
 /** Where a notification should take the user when they act on it. */
 export interface NotificationTarget {

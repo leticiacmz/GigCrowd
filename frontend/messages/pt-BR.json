@@ -61,8 +61,8 @@
       "all": "Tudo",
       "community": "Comunidade",
       "reviews": "Avaliações",
-      "events": "Eventos",
-      "social": "Social"
+      "attendance": "Presencas",
+      "events": "Eventos"
     },
     "emptyTitle": "Nada por aqui ainda",
     "emptyDescription": "Siga artistas e pessoas para preencher seu feed.",
@@ -130,7 +130,6 @@
   "event": {
     "about": "Sobre",
     "artist": "Artista",
-    "artistNotImported": "Ainda não está no GigCrowd",
     "artists": "Artistas",
     "artistsCount": "{count} artistas",
     "attend": "Participar",
@@ -225,7 +224,7 @@
       "reviews": "Avaliações",
       "events": "Shows",
       "festivals": "Festivais",
-      "artists": "Artistas",
+      "artists": "Artistas que eu vi",
       "followers": "Seguidores",
       "following": "Seguindo"
     },
@@ -235,14 +234,66 @@
     "noShowsHint": "Os shows marcados como frequentados aparecem aqui.",
     "noFestivals": "Nenhum festival ainda",
     "noFestivalsHint": "Os festivais em que esteve aparecem aqui, um por linha.",
-    "noArtists": "Nenhum artista seguido ainda",
-    "noArtistsHint": "Os artistas que segue são as comunidades das quais faz parte.",
     "noFollowers": "Nenhum seguidor ainda",
     "noFollowing": "Ainda não segue ninguém",
     "loadingConnections": "Carregando pessoas...",
-    "communityPosts": "{count, plural, =0 {Ainda sem posts} one {# post} other {# posts}} nesta comunidade",
     "festivalCounts": "{editions, plural, one {# edição} other {# edições}} · {shows, plural, one {# show} other {# shows}}",
-    "festivalEntry": "Em {name}"
+    "festivalEntry": "Em {name}",
+    "showsBreakdown": "Shows por situação",
+    "showsMore": "Exibindo {shown} de {total}.",
+    "shows": {
+      "attended": "Frequentados",
+      "want-to-go": "Quero ir",
+      "maybe": "Talvez",
+      "empty": {
+        "attended": "Nenhum show frequentado ainda",
+        "want-to-go": "Nenhum show planejado",
+        "maybe": "Nada em dúvida"
+      },
+      "emptyHint": {
+        "attended": "Os shows marcados como frequentados aparecem aqui.",
+        "want-to-go": "Os shows marcados como pretendidos aparecem aqui.",
+        "maybe": "Os shows sem decisão aparecem aqui."
+      }
+    },
+    "noArtistsSeen": "Nenhum artista visto ainda",
+    "noArtistsSeenHint": "Os artistas em que já esteve aparecem aqui, um por linha.",
+    "seenShows": "{count, plural, =0 {Nenhum show} one {# show} other {# shows}}",
+    "panelSubtitle": {
+      "reviews": "O que você escreveu sobre",
+      "events": "Seu histórico de shows",
+      "festivals": "Festivais em que você esteve",
+      "artists": "Artistas que você viu ao vivo",
+      "followers": "Pessoas que te seguem",
+      "following": "Pessoas que você segue"
+    },
+    "reviewedBadge": "Você avaliou este show",
+    "showsLoadMore": "Carregar shows anteriores",
+    "showsLoadingMore": "Carregando…",
+    "calendar": {
+      "heading": "Shows por mês",
+      "previous": "Mês anterior",
+      "next": "Próximo mês",
+      "emptyMonth": "Nenhum show neste mês",
+      "noShowsThatDay": "Nenhum show nesse dia",
+      "clearFilterHint": "Escolha o dia novamente para ver o mês inteiro.",
+      "filtering": "Mostrando apenas {day}",
+      "dayWithShows": "{shows} show(s) no dia {day}",
+      "summary": "{shows} show(s) em {days} dia(s)",
+      "open": "Mostrar o calendário de shows frequentados",
+      "close": "Fechar",
+      "selectYear": "Ano",
+      "selectMonth": "Mês",
+      "weekdays": {
+        "mon": "Seg",
+        "tue": "Ter",
+        "wed": "Qua",
+        "thu": "Qui",
+        "fri": "Sex",
+        "sat": "Sáb",
+        "sun": "Dom"
+      }
+    }
   },
   "review": {
     "writeTitle": "Como foi?",
@@ -293,10 +344,13 @@
       "comment": "comentou na sua publicação em {artist}",
       "commentNoArtist": "comentou na sua publicação",
       "reply": "respondeu ao seu comentário em {artist}",
-      "replyNoArtist": "respondeu ao seu comentário"
+      "replyNoArtist": "respondeu ao seu comentário",
+      "eventAttendanceCheck": "O show acabou. Você foi?",
+      "eventReviewPrompt": "Você viu este show. Conta pra gente como foi."
     },
     "viewTarget": "Ver",
-    "signedOut": "Entre para ver suas notificações."
+    "signedOut": "Entre para ver suas notificações.",
+    "fromGigCrowd": "GigCrowd"
   },
   "common": {
     "loading": "Carregando...",
@@ -404,20 +458,24 @@
     "noEvents": "Nenhum evento encontrado."
   },
   "festivals": {
-    "artistNotImported": "Ainda não está no GigCrowd",
     "artists": "Artistas",
     "artistsCount": "{count} artistas",
     "backToEvent": "← Voltar ao evento",
     "dateUnavailable": "Data indisponível",
     "dates": "Datas",
-    "editions": "Datas",
-    "editionsCount": "{count} datas",
+    "seriesLabel": "Série do festival",
+    "seriesHint": "Tudo abaixo pertence a um único festival, não a uma noite só.",
+    "editions": "Edições",
+    "editionsHeading": "Edições",
+    "editionsHint": "O mesmo festival, ano após ano. Cada data abaixo é uma edição dele, não um festival separado.",
+    "editionsCount": "{count} edições",
     "goBack": "← Voltar",
     "lineup": "Line-up",
     "lineupEmpty": "O lineup do festival ainda não está disponível.",
+    "lineupHint": "Quem se apresentou na edição que você está vendo.",
     "loading": "Carregando festival...",
     "location": "Cidade",
-    "noEditions": "Nenhuma data disponível ainda",
+    "noEditions": "Nenhuma edição disponível ainda",
     "noSearchMatches": "Nenhum artista corresponde à sua busca.",
     "notFound": "Festival não encontrado.",
     "officialWebsite": "Site oficial ↗",
@@ -446,5 +504,16 @@
     "title": "Página não encontrada",
     "description": "Essa página não existe ou pode ter sido movida.",
     "backHome": "Voltar para o início"
+  },
+  "eventSearch": {
+    "title": "O que tem",
+    "subtitle": "Busque os shows e festivais que o GigCrowd conhece e filtre por gênero.",
+    "searchLabel": "Buscar eventos e artistas",
+    "genreLabel": "Gênero",
+    "genreAll": "Todos os gêneros",
+    "noResults": "Nenhum evento corresponde a essa busca.",
+    "more": "Ver mais ({shown} de {total})",
+    "loadingMore": "Carregando…",
+    "artistHint": "Procurando um artista que ainda não está aqui? Busque no Songkick e importe."
   }
 }

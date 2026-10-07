@@ -13,9 +13,22 @@ import type {
 } from '../types/review';
 import type {
   ProfileArtist,
-  ProfileEvent,
+  ProfileArtistsSeenResponse,
+  ProfileEventsPageResponse,
+  ProfileEventsResponse,
+  ProfileShowCalendarResponse,
+  ProfileShowYearsResponse,
+} from '../types/profile';
+
+import type {
+  EventSearchGenre,
+  EventSearchResponse,
+} from '../types/eventSearch';
+
+import type {
   ProfileFestival,
   ProfileReview,
+  ProfileShowStatus,
 } from '../types/profile';
 
 const API_URL =
@@ -169,10 +182,51 @@ export const artistAPI = {
 };
 
 export const eventAPI = {
-  getEvents: async (params?: any) => {
-    const response = await api.get('/events', { params });
-    return response.data;
+  /**
+   * Search the events catalogue.
+   *
+   * `q` and `genre` compose server-side, inside the one query that also produces
+   * the page and the total. Filtering in the browser would make the header count
+   * wrong and "next page" jump, because the page would have been sliced before
+   * the filter ran.
+   *
+   * `before`/`beforeId` are opaque: pass back whatever `next_cursor` said and do
+   * not interpret it.
+   */
+  searchEvents: async (options: {
+    q?: string;
+    genre?: string;
+    limit?: number;
+    before?: string;
+    beforeId?: string;
+    includePast?: boolean;
+  } = {}) => {
+    const response = await api.get('/events', {
+      params: {
+        q: options.q || undefined,
+        genre: options.genre || undefined,
+        limit: options.limit,
+        before: options.before,
+        before_id: options.beforeId,
+        include_past: options.includePast || undefined,
+      },
+    });
+
+    return response.data as EventSearchResponse;
   },
+
+  /**
+   * Every genre the catalogue can be filtered by, with how many artists carry it.
+   *
+   * Read once and held by the caller. The list is derived from artist metadata
+   * and does not change as pages load, so re-reading it per keystroke would be a
+   * request that always returns the same answer.
+   */
+  getEventGenres: async () => {
+    const response = await api.get('/events/genres');
+    return response.data as { genres: EventSearchGenre[] };
+  },
+
   getArtistEvents: async (artistSlug: string) => {
     const response = await api.get(`/events/artist/${artistSlug}`);
     return response.data;
@@ -181,6 +235,7 @@ export const eventAPI = {
     const response = await api.get(`/artists/${artistSlug}/events/all`);
     return response.data;
   },
+
   getEvent: async (eventId: string) => {
     const response = await api.get(`/events/${eventId}`);
     return response.data;
@@ -205,15 +260,28 @@ export const eventAPI = {
   },
 };
 
-/** Categories the single feed filter can narrow the timeline to. */
-export type FeedCategory = 'all' | 'community' | 'reviews' | 'events' | 'social';
+/**
+ * Categories the single feed filter can narrow the timeline to.
+ *
+ * There is no `social` filter. A follow decides who may see what; it is not
+ * something a reader asked to read, so offering it as a card would fill the
+ * timeline with relationships nobody chose to publish.
+ *
+ * `events` is kept as the server-side alias for `attendance`, which is the name
+ * a reader recognises for having gone to something.
+ */
+export type FeedCategory =
+  | 'all'
+  | 'community'
+  | 'reviews'
+  | 'attendance'
+  | 'events';
 
 export const FEED_CATEGORIES: FeedCategory[] = [
   'all',
   'community',
   'reviews',
-  'events',
-  'social',
+  'attendance',
 ];
 
 export const feedAPI = {
@@ -469,20 +537,93 @@ export const userAPI = {
   },
 
   /**
-   * The shows a user says they attended, most recent first.
+   * The shows a user logged, in one of the three states a show can be in.
    *
-   * `limit` is the count the header links to, not a second statistic: the same
-   * collection backs the figure and this list.
+   * `status` selects the state - `attended`, `want-to-go` or `maybe` - and
+   * `all` returns every logged show. It defaults to `attended`, which is what
+   * the profile has always opened with.
+   *
+   * Every response carries the count for all three states, so the breakdown is
+   * drawn from the same rows as the list under it and one request is enough to
+   * fill the whole section.
    */
-  getProfileEvents: async (username: string, limit?: number) => {
+  getProfileEvents: async (
+    username: string,
+    limit?: number,
+    status: ProfileShowStatus | 'all' = 'attended',
+    skip?: number
+  ) => {
     const response = await api.get(`/users/profile/${username}/events`, {
-      params: limit ? { limit } : undefined,
+      params: {
+        ...(limit ? { limit } : {}),
+        ...(skip ? { skip } : {}),
+        status,
+      },
     });
-    return response.data as {
-      username: string;
-      events: ProfileEvent[];
-      total: number;
-    };
+    return response.data as ProfileEventsResponse;
+  },
+
+  /**
+   * One page of a user's show history, addressed by cursor.
+   *
+   * The diary is read by scrolling into the past, so paging by position would make
+   * every page re-read the pages before it. The cursor comes back from the server
+   * and is passed straight back; nothing here interprets it.
+   */
+  getProfileEventsPage: async (
+    username: string,
+    options: {
+      status?: ProfileShowStatus | 'all';
+      limit?: number;
+      before?: string;
+      beforeId?: string;
+    } = {}
+  ) => {
+    const response = await api.get(
+      `/users/profile/${username}/events/page`,
+      {
+        params: {
+          ...(options.status ? { status: options.status } : {}),
+          ...(options.limit ? { limit: options.limit } : {}),
+          ...(options.before ? { before: options.before } : {}),
+          ...(options.beforeId ? { before_id: options.beforeId } : {}),
+        },
+      }
+    );
+    return response.data as ProfileEventsPageResponse;
+  },
+
+  /**
+   * The days in one month on which this user says they went to a show.
+   *
+   * Only shows logged as `went` mark a day. Bounded to the month, so opening the
+   * calendar costs one month of history rather than all of it.
+   */
+  getProfileShowCalendar: async (
+    username: string,
+    year: number,
+    month: number
+  ) => {
+    const response = await api.get(
+      `/users/profile/${username}/shows/calendar`,
+      { params: { year, month } }
+    );
+    return response.data as ProfileShowCalendarResponse;
+  },
+
+  /**
+   * The years this user says they went to a show, newest first.
+   *
+   * Read once per profile and reused by the calendar's year selector, so reaching
+   * a year with shows in it costs one small request instead of a walk through
+   * the months. The current year is always present even when empty, so the
+   * selector can offer the year somebody opened the calendar in.
+   */
+  getProfileShowYears: async (username: string) => {
+    const response = await api.get(
+      `/users/profile/${username}/shows/years`
+    );
+    return response.data as ProfileShowYearsResponse;
   },
 
   /** The reviews a user wrote, most recently written first. */
@@ -522,6 +663,21 @@ export const userAPI = {
       artists: ProfileArtist[];
       total: number;
     };
+  },
+
+  /**
+   * The artists a user has actually been to a show of, most seen first.
+   *
+   * One request, and the counts come with it. Reading this as "fetch the
+   * attended events, then fetch each artist, then count them one at a time"
+   * would mean a profile with fifty shows makes a hundred requests.
+   */
+  getProfileArtistsSeen: async (username: string, limit?: number) => {
+    const response = await api.get(
+      `/users/profile/${username}/artists-seen`,
+      { params: limit ? { limit } : undefined }
+    );
+    return response.data as ProfileArtistsSeenResponse;
   },
 };
 

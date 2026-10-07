@@ -37,6 +37,9 @@ import Card from '../../../../components/ui/Card';
 import LoadingState from '../../../../components/LoadingState';
 import ReviewCard from '../../../../components/ReviewCard';
 import ReviewDialog from '../../../../components/ReviewDialog';
+import LineupPerformerCard, {
+  type LineupPerformer,
+} from '../../../../components/festival/LineupPerformerCard';
 import type {
   ReviewPayload,
   ShowLog,
@@ -77,20 +80,12 @@ interface Location {
   longitude?: number | null;
 }
 
-interface LineupArtist {
-  name: string;
-  /**
-   * The Songkick artist id, taken from the artist's own URL on the source
-   * page. Its absence means the source listed a performer without one, so the
-   * entry is still shown but cannot be matched to an artist.
-   */
-  songkick_id?: string | null;
-  slug?: string | null;
-  url?: string | null;
-  image?: string | null;
-  genres?: string[];
-  order?: number;
-}
+/**
+ * The Songkick artist id, taken from the artist's own URL on the source page.
+ * Its absence means the source listed a performer without one, so the entry is
+ * still shown but cannot be matched to an artist.
+ */
+type LineupArtist = LineupPerformer & { order?: number };
 
 interface Event {
   id: string;
@@ -952,37 +947,16 @@ export default function EventDetailPage() {
               ) : (
                 <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {lineup.map((artist) => (
-                    <div
+                    <LineupPerformerCard
                       key={
                         artist.songkick_id ||
                         artist.name
                       }
-                      data-testid="event-lineup-entry"
-                      className="flex items-center gap-3 rounded-xl border border-border bg-background/20 p-4 text-left"
-                    >
-                      {artist.image ? (
-                        <img
-                          src={artist.image}
-                          alt=""
-                          loading="lazy"
-                          className="h-12 w-12 rounded-full object-cover shrink-0"
-                        />
-                      ) : (
-                        <div className="h-12 w-12 rounded-full bg-card-hover flex items-center justify-center text-lg shrink-0">
-                          ♪
-                        </div>
-                      )}
-
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-medium truncate">
-                          {artist.name}
-                        </span>
-
-                        <span className="block text-xs text-muted-subtle mt-1">
-                          {t('artistNotImported')}
-                        </span>
-                      </span>
-                    </div>
+                      performer={artist}
+                      locale={locale}
+                      variant="row"
+                      testId="event-lineup-entry"
+                    />
                   ))}
                 </div>
               )}

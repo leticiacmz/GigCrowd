@@ -39,23 +39,14 @@ import {
   formatEventDateRange,
 } from '../../../lib/dates';
 
-import Card from '../../../../components/ui/Card';
+import SectionHeader from '../../../../components/ui/SectionHeader';
 import LoadingState from '../../../../components/LoadingState';
+import LineupPerformerCard, {
+  type LineupPerformer,
+} from '../../../../components/festival/LineupPerformerCard';
 
 
-interface LineupArtist {
-  name: string;
-  songkick_id?: string | null;
-  slug?: string | null;
-  url?: string | null;
-  image?: string | null;
-  genres?: string[];
-  order: number;
-
-  // Set by the API only when GigCrowd already has this artist. Its absence is
-  // meaningful: it means there is no page to link to.
-  artist_slug?: string | null;
-}
+type LineupArtist = LineupPerformer & { order: number };
 
 interface Venue {
   slug?: string | null;
@@ -229,15 +220,23 @@ export default function FestivalPage() {
             HEADER / OVERVIEW
             The festival as a series. It carries no single date, because a
             festival that runs over several days does not have one.
+
+            The eyebrow says "series" on purpose. Everything in this block
+            describes the festival across all of its editions, and a reader who
+            takes it for one night will misread every date below it.
             ============================================================ */}
         <section className="mt-6 rounded-2xl border border-border bg-card-bg p-6 md:p-8">
           <p className="text-xs uppercase tracking-wide text-accent mb-3">
-            {t('title')}
+            {t('seriesLabel')}
           </p>
 
           <h1 className="text-3xl md:text-5xl font-bold tracking-tight break-words">
             {festivalName}
           </h1>
+
+          <p className="mt-3 max-w-2xl text-sm text-muted">
+            {t('seriesHint')}
+          </p>
 
           <div className="mt-7 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
@@ -281,7 +280,21 @@ export default function FestivalPage() {
                 href={sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white hover:opacity-90 transition"
+                className="
+                  inline-flex
+                  items-center
+                  rounded-lg
+                  border
+                  border-border
+                  px-4
+                  py-2
+                  text-sm
+                  font-semibold
+                  text-muted
+                  transition-colors
+                  hover:bg-card-hover
+                  hover:text-foreground
+                "
               >
                 {t('officialWebsite')}
               </a>
@@ -294,79 +307,122 @@ export default function FestivalPage() {
             Each concrete date, as its own row linking to its own page. An
             edition is only listed when it was actually imported; none is
             inferred from a name or a year.
+
+            The heading and its hint are what stop this reading as a list of
+            separate festivals: the rows are editions of the one festival named
+            above, and the selected one is marked as such.
             ============================================================ */}
         {editions.length > 0 && (
           <section className="mt-8">
-            <Card className="p-6 md:p-8">
-              <h2 className="text-2xl font-bold">
-                {t('editions')}
-              </h2>
+            <SectionHeader
+              title={t('editionsHeading')}
+              count={
+                <span className="text-sm text-muted-subtle">
+                  {t('editionsCount', {
+                    count: editions.length,
+                  })}
+                </span>
+              }
+            />
 
-              <ul className="mt-6 divide-y divide-border">
-                {editions.map(({ event }) => {
-                  const isSelected =
-                    event.id === festival.selected_event_id;
+            <p className="mb-4 max-w-2xl text-sm text-muted-subtle">
+              {t('editionsHint')}
+            </p>
 
-                  const dateLabel =
-                    describeDates(event, locale) ??
-                    t('dateUnavailable');
+            <ul
+              className="divide-y divide-border rounded-2xl border border-border bg-card-bg px-4 md:px-6"
+              data-testid="festival-editions"
+            >
+              {editions.map(({ event }) => {
+                const isSelected =
+                  event.id === festival.selected_event_id;
 
-                  const place =
-                    placeOf(event) ?? t('unknownCity');
+                const dateLabel =
+                  describeDates(event, locale) ??
+                  t('dateUnavailable');
 
-                  const lineupCount =
-                    editions.find(
-                      (entry) =>
-                        entry.event.id === event.id
-                    )?.lineup.length ?? 0;
+                const place =
+                  placeOf(event) ?? t('unknownCity');
 
-                  return (
-                    <li key={event.id}>
-                      <Link
-                        href={`/${locale}/events/${event.id}`}
-                        data-testid={`festival-edition-${event.id}`}
-                        aria-current={
+                const lineupCount =
+                  editions.find(
+                    (entry) => entry.event.id === event.id
+                  )?.lineup.length ?? 0;
+
+                return (
+                  <li key={event.id}>
+                    <Link
+                      href={`/${locale}/events/${event.id}`}
+                      data-testid={`festival-edition-${event.id}`}
+                      aria-current={
+                        isSelected ? 'true' : undefined
+                      }
+                      className={`
+                        flex
+                        flex-col
+                        gap-2
+                        rounded-lg
+                        px-2
+                        py-4
+                        transition-colors
+                        sm:flex-row
+                        sm:items-center
+                        sm:justify-between
+                        sm:-mx-2
+                        ${
                           isSelected
-                            ? 'true'
-                            : undefined
+                            ? 'bg-accent/10'
+                            : 'hover:bg-card-hover'
                         }
-                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-4 hover:bg-card-hover transition rounded-lg px-2 -mx-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="font-semibold truncate">
-                            {event.title}
-                          </p>
+                      `}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">
+                          {event.title}
+                        </p>
 
-                          <p className="text-sm text-muted-subtle mt-1">
-                            {place}
-                            {lineupCount > 0 && (
-                              <>
-                                {' • '}
-                                {t('artistsCount', {
-                                  count: lineupCount,
-                                })}
-                              </>
-                            )}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-3 shrink-0">
-                          {isSelected && (
-                            <span className="text-xs font-semibold text-accent">
-                              {t('selectedEdition')}
-                            </span>
+                        <p className="mt-1 text-sm text-muted-subtle">
+                          {place}
+                          {lineupCount > 0 && (
+                            <>
+                              {' • '}
+                              {t('artistsCount', {
+                                count: lineupCount,
+                              })}
+                            </>
                           )}
+                        </p>
+                      </div>
 
-                          <span className="text-sm text-foreground">
-                            {dateLabel}
+                      <div className="flex shrink-0 items-center gap-3">
+                        {isSelected && (
+                          <span
+                            className={`
+                              rounded-full
+                              bg-accent-solid
+                              px-2
+                              py-0.5
+                              text-[11px]
+                              font-semibold
+                              uppercase
+                              tracking-wide
+                              text-white
+                            `}
+                            data-testid="festival-edition-selected"
+                          >
+                            {t('selectedEdition')}
                           </span>
-                        </div>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </Card>
+                        )}
+
+                        <span className="text-sm text-foreground">
+                          {dateLabel}
+                        </span>
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           </section>
         )}
 
@@ -374,26 +430,22 @@ export default function FestivalPage() {
             LINEUP
             The lineup of the edition being viewed. Entries that GigCrowd has
             an artist page for link to it; the rest are shown as names.
+
+            A lineup is the one place a festival page reads as a poster rather
+            than a record, so the names lead and the grid stays dense. The hint
+            says which edition the names belong to, because a festival's lineup
+            genuinely differs per edition.
             ============================================================ */}
-        <section className="mt-8">
-          <Card className="p-6 md:p-8">
-            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-accent mb-2">
-                  {t('lineup')}
-                </p>
-
-                <h2 className="text-2xl font-bold">
-                  {lineup.length > 0
-                    ? t('artistsCount', {
-                        count: lineup.length,
-                      })
-                    : t('artists')}
-                </h2>
-              </div>
-
-              {lineup.length > 0 && (
-                <div className="w-full md:w-72">
+        <section className="mt-10">
+          <SectionHeader
+            title={
+              lineup.length > 0
+                ? t('artistsCount', { count: lineup.length })
+                : t('lineup')
+            }
+            action={
+              lineup.length > 0 ? (
+                <div className="w-44 md:w-64">
                   <input
                     value={query}
                     onChange={(event) =>
@@ -401,130 +453,61 @@ export default function FestivalPage() {
                     }
                     placeholder={t('searchPlaceholder')}
                     aria-label={t('searchPlaceholder')}
-                    className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-accent"
+                    className="
+                      w-full
+                      rounded-lg
+                      border
+                      border-border
+                      bg-background
+                      px-3
+                      py-2
+                      text-sm
+                      text-foreground
+                      outline-none
+                      focus:border-accent
+                    "
                   />
                 </div>
-              )}
-            </div>
+              ) : undefined
+            }
+          />
 
-            {filteredLineup.length === 0 ? (
-              <div
-                className="py-16 text-center"
-                data-testid="festival-lineup"
-              >
-                <p className="text-muted-subtle">
-                  {lineup.length === 0
-                    ? t('lineupEmpty')
-                    : t('noSearchMatches')}
-                </p>
-              </div>
-            ) : (
-              <div
-                className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-                data-testid="festival-lineup"
-              >
-                {filteredLineup.map((artist) => (
-                  <LineupCard
-                    key={
-                      artist.songkick_id ||
-                      artist.artist_slug ||
-                      artist.name
-                    }
-                    artist={artist}
-                    locale={locale}
-                  />
-                ))}
-              </div>
-            )}
-          </Card>
+          <p className="mb-5 max-w-2xl text-sm text-muted-subtle">
+            {t('lineupHint')}
+          </p>
+
+          {filteredLineup.length === 0 ? (
+            <div
+              className="rounded-2xl border border-border bg-card-bg py-16 text-center"
+              data-testid="festival-lineup"
+            >
+              <p className="text-muted-subtle">
+                {lineup.length === 0
+                  ? t('lineupEmpty')
+                  : t('noSearchMatches')}
+              </p>
+            </div>
+          ) : (
+            <div
+              className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+              data-testid="festival-lineup"
+            >
+              {filteredLineup.map((artist) => (
+                <LineupPerformerCard
+                  key={
+                    artist.songkick_id ||
+                    artist.artist_slug ||
+                    artist.name
+                  }
+                  performer={artist}
+                  locale={locale}
+                />
+              ))}
+            </div>
+          )}
         </section>
       </main>
     </div>
-  );
-}
-
-/**
- * One performer. A link when GigCrowd has the artist, plain text when it does
- * not - the alternative, an artist created on click, would put records in the
- * catalogue that nobody curated.
- */
-function LineupCard({
-  artist,
-  locale,
-}: {
-  artist: LineupArtist;
-  locale: Locale;
-}) {
-  const t = useTranslations('festivals');
-
-  const content = (
-    <>
-      <div className="flex items-center gap-4">
-        {artist.image ? (
-          <img
-            src={artist.image}
-            alt=""
-            loading="lazy"
-            className="h-14 w-14 rounded-full object-cover shrink-0"
-          />
-        ) : (
-          <div className="h-14 w-14 rounded-full bg-card-hover flex items-center justify-center text-xl shrink-0">
-            ♪
-          </div>
-        )}
-
-        <div className="min-w-0 flex-1">
-          <p
-            className={`font-semibold truncate ${
-              artist.artist_slug
-                ? 'group-hover:text-accent transition'
-                : ''
-            }`}
-          >
-            {artist.name}
-          </p>
-
-          <p className="text-xs text-muted-subtle mt-1">
-            {artist.artist_slug
-              ? t('openArtist')
-              : t('artistNotImported')}
-          </p>
-        </div>
-
-        {artist.artist_slug && (
-          <span
-            className="text-accent shrink-0"
-            aria-hidden="true"
-          >
-            →
-          </span>
-        )}
-      </div>
-    </>
-  );
-
-  const className =
-    'block rounded-xl border border-border bg-background/20 p-4 text-left transition';
-
-  if (!artist.artist_slug) {
-    return (
-      <div
-        className={className}
-        data-testid="festival-lineup-entry"
-      >
-        {content}
-      </div>
-    );
-  }
-
-  return (
-    <Link
-      href={`/${locale}/artists/${artist.artist_slug}`}
-      data-testid="festival-lineup-entry"
-      className={`${className} hover:border-accent hover:bg-card-hover`}
-    >
-      {content}
-    </Link>
   );
 }
 
