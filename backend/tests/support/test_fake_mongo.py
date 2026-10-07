@@ -14,6 +14,8 @@ from bson import ObjectId
 
 from tests.support.fake_mongo import FakeDatabase, matches
 
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
+
 
 class TestMatcher:
     def test_empty_query_matches_everything(self):
@@ -47,8 +49,45 @@ class TestMatcher:
         with pytest.raises(NotImplementedError):
             matches({"a": 1}, {"$where": "true"})
 
+        # Still unsupported, so that raising remains the signal that this double
+        # has drifted behind the operators production queries actually use.
         with pytest.raises(NotImplementedError):
-            matches({"a": 1}, {"a": {"$regex": "b"}})
+            matches({"a": 1}, {"a": {"$mod": [2, 0]}})
+
+    def test_comparison_operators(self):
+        assert matches({"a": 5}, {"a": {"$gt": 4}}) is True
+        assert matches({"a": 5}, {"a": {"$gte": 5}}) is True
+        assert matches({"a": 5}, {"a": {"$lt": 6}}) is True
+        assert matches({"a": 5}, {"a": {"$lte": 5}}) is True
+
+        assert matches({"a": 5}, {"a": {"$gt": 5}}) is False
+        assert matches({"a": 5}, {"a": {"$gte": 6}}) is False
+        assert matches({"a": 5}, {"a": {"$lt": 5}}) is False
+        assert matches({"a": 5}, {"a": {"$lte": 4}}) is False
+
+    def test_comparison_on_a_missing_field_does_not_match(self):
+        # Mongo does not satisfy a bound against an absent field.
+        assert matches({}, {"a": {"$gte": 1}}) is False
+
+    def test_comparison_between_incomparable_types_does_not_match(self):
+        # Should decide rather than raise, so a type mistake surfaces as a
+        # failed assertion naming the query.
+        assert matches({"a": "2026-01-01"}, {"a": {"$gte": NOW}}) is False
+
+    def test_regex_is_a_search_not_a_full_match(self):
+        # Matches Mongo: unanchored, so `^` is what anchors a pattern.
+        assert matches({"a": "abc9900def"}, {"a": {"$regex": "9900"}})
+        assert not matches({"a": "abc"}, {"a": {"$regex": "9900"}})
+        assert matches({"a": "9900abc"}, {"a": {"$regex": "^9900"}})
+        assert not matches({"a": "x9900"}, {"a": {"$regex": "^9900"}})
+
+    def test_regex_against_a_missing_field_does_not_match(self):
+        assert matches({}, {"a": {"$regex": "x"}}) is False
+
+    def test_not_negates_the_operator(self):
+        assert matches({"a": "x"}, {"a": {"$not": {"$regex": "^y"}}})
+        assert not matches({"a": "y"}, {"a": {"$not": {"$regex": "^y"}}})
+        assert not matches({"a": "y"}, {"a": {"$not": {"$exists": True}}})
 
 
 class TestCollection:
@@ -139,11 +178,122 @@ class TestCollection:
         assert original["score"] == 5
 
 
+class TestDeletes:
+    @pytest.mark.asyncio
+    async def test_delete_one_removes_only_the_first_match(self):
+        database = FakeDatabase(
+            {
+                "verdicts": [
+                    {"songkick_id": "1", "valid": False},
+                    {"songkick_id": "2", "valid": False},
+                    {"songkick_id": "3", "valid": True},
+                ]
+            }
+        )
+
+        result = await database.verdicts.delete_one({"valid": False})
+
+        assert result.deleted_count == 1
+
+        kept = await database.verdicts.find({}).to_list(length=None)
+
+        assert [row["songkick_id"] for row in kept] == ["2", "3"]
+
+    @pytest.mark.asyncio
+    async def test_delete_many_removes_every_match(self):
+        """An audit that discards refusals needs this, and a partial
+        implementation would leave the very rows it meant to clear."""
+
+        database = FakeDatabase(
+            {
+                "verdicts": [
+                    {"songkick_id": "1", "valid": False},
+                    {"songkick_id": "2", "valid": True},
+                    {"songkick_id": "3", "valid": False},
+                ]
+            }
+        )
+
+        result = await database.verdicts.delete_many({"valid": False})
+
+        assert result.deleted_count == 2
+
+        kept = await database.verdicts.find({}).to_list(length=None)
+
+        assert [row["songkick_id"] for row in kept] == ["2"]
+
+    @pytest.mark.asyncio
+    async def test_delete_many_with_no_query_empties_the_collection(self):
+        database = FakeDatabase({"verdicts": [{"_id": 1}, {"_id": 2}]})
+
+        result = await database.verdicts.delete_many({})
+
+        assert result.deleted_count == 2
+        assert await database.verdicts.count_documents({}) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_many_reports_zero_rather_than_raising(self):
+        database = FakeDatabase({"verdicts": [{"_id": 1}]})
+
+        result = await database.verdicts.delete_many({"_id": 999})
+
+        assert result.deleted_count == 0
+        assert await database.verdicts.count_documents({}) == 1
+
+
 class TestDatabase:
     def test_attribute_and_item_access_return_the_same_collection(self):
         database = FakeDatabase()
 
         assert database.activities is database["activities"]
+
+    @pytest.mark.asyncio
+    async def test_list_collection_names_reports_what_exists(self):
+        """Scripts read this to learn which tables are present.
+
+        It matters that a collection is *absent* rather than empty: a fresh
+        database has no `artist_follows`, and a caller that assumes the table is
+        there fails on exactly the deployment it was written for.
+        """
+
+        database = FakeDatabase({"artists": [], "events": []})
+
+        names = await database.list_collection_names()
+
+        assert set(names) == {"artists", "events"}
+        assert "artist_follows" not in names
+
+    @pytest.mark.asyncio
+    async def test_reading_a_collection_does_not_make_it_exist(self):
+        """`__getattr__` hands back a handle; it must not create the table.
+
+        Otherwise asking what exists would be enough to make the answer true,
+        and a caller checking for a table would find one the moment it looked.
+        """
+
+        database = FakeDatabase({"artists": []})
+
+        _ = database.events
+
+        assert "events" not in await database.list_collection_names()
+
+    @pytest.mark.asyncio
+    async def test_writing_to_a_collection_makes_it_exist(self):
+        """The other half: reaching it is not enough, but writing is.
+
+        A seed script that inserts into a fresh database leaves collections
+        behind, and a later reader must see them.
+        """
+
+        database = FakeDatabase()
+
+        await database.artists.insert_one({"name": "Tim Bernardes"})
+
+        assert "artists" in await database.list_collection_names()
+
+    @pytest.mark.asyncio
+    async def test_an_empty_database_lists_nothing(self):
+        assert await FakeDatabase().list_collection_names() == []
 
     def test_datetimes_sort(self):
         database = FakeDatabase(
