@@ -60,8 +60,16 @@ async def test_synchronization_service_defaults_to_songkick():
 
 
 @pytest.mark.asyncio
-async def test_artist_service_uses_songkick_for_sync():
-    """Verify ArtistService uses Songkick for synchronization"""
+async def test_artist_service_never_synchronizes():
+    """Reading an artist profile must not synchronize anything.
+
+    This test used to assert the opposite: that `get_artist_profile` called
+    `synchronize_artist` with `provider="songkick"`. That was the bug - a GET
+    request scraping Songkick and inserting events - not a requirement, so the
+    assertion is inverted rather than deleted. Songkick remains the provider for
+    artist synchronization; that is pinned where the work now happens, in
+    `tests/jobs/test_artist_sync_job.py`.
+    """
     mock_artist_repo = AsyncMock()
     mock_artist_repo.get_by_slug = AsyncMock(return_value=Artist(
         id="test_id",
@@ -71,16 +79,10 @@ async def test_artist_service_uses_songkick_for_sync():
         external_ids={"songkick": "Artist123"},
         last_synced_at=None
     ))
-    
+
     mock_event_repo = AsyncMock()
     mock_event_repo.count_upcoming_by_artist_slug = AsyncMock(return_value=0)
     mock_event_repo.count_by_artist_slug = AsyncMock(return_value=0)
-    
-    mock_sync_service = AsyncMock()
-    mock_sync_service.synchronize_artist = AsyncMock(return_value={
-        "artist": MagicMock(name="Test Artist"),
-        "synced": True
-    })
 
     mock_follow_repo = AsyncMock()
     mock_follow_repo.count_followers = AsyncMock(return_value=5)
@@ -89,15 +91,19 @@ async def test_artist_service_uses_songkick_for_sync():
         artist_repository=mock_artist_repo,
         event_repository=mock_event_repo,
         artist_follow_repository=mock_follow_repo,
-        synchronization_service=mock_sync_service
     )
-    
-    await artist_service.get_artist_profile("test-artist")
-    
-    # Verify sync was called
-    mock_sync_service.synchronize_artist.assert_called_once()
-    call_args = mock_sync_service.synchronize_artist.call_args
-    assert call_args[1]["provider"] == "songkick"
+
+    profile = await artist_service.get_artist_profile("test-artist")
+
+    assert profile.slug == "test-artist"
+
+    # One read, no second one. The old implementation re-read the artist after
+    # synchronizing to pick up enriched fields.
+    mock_artist_repo.get_by_slug.assert_awaited_once_with("test-artist")
+
+    # Nothing on this path may write synchronization state. The service does not
+    # even hold a synchronization service to write with.
+    assert not hasattr(artist_service, "synchronization_service")
 
 
 @pytest.mark.asyncio

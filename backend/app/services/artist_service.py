@@ -1,7 +1,5 @@
 from fastapi import HTTPException
 
-from app.core.logger import get_logger
-
 from app.repositories.artist_repository import (
     ArtistRepository,
 )
@@ -14,10 +12,6 @@ from app.repositories.artist_follow_repository import (
     ArtistFollowRepository,
 )
 
-from app.services.synchronization_service import (
-    SynchronizationService,
-)
-
 from app.schemas.artist_profile_response import (
     ArtistProfileResponse,
     ArtistEventStats,
@@ -28,9 +22,6 @@ from app.schemas.artist_list_response import (
 )
 
 
-logger = get_logger("artist_service")
-
-
 class ArtistService:
 
     def __init__(
@@ -38,8 +29,14 @@ class ArtistService:
         artist_repository: ArtistRepository,
         event_repository: EventRepository,
         artist_follow_repository: ArtistFollowRepository,
-        synchronization_service: SynchronizationService,
     ):
+        """A reader. It deliberately holds no synchronization service.
+
+        Keeping that dependency out of the constructor is the point rather than a
+        tidy-up: a read path that cannot see `SynchronizationService` cannot grow
+        a write side effect later without someone noticing they have to add the
+        dependency back on purpose.
+        """
 
         self.artist_repository = artist_repository
 
@@ -49,14 +46,28 @@ class ArtistService:
             artist_follow_repository
         )
 
-        self.synchronization_service = (
-            synchronization_service
-        )
-
     async def get_artist_profile(
         self,
         slug: str,
     ) -> ArtistProfileResponse:
+
+        # --------------------------------------------------
+        # READ ONLY
+        # --------------------------------------------------
+        #
+        # This method used to call `synchronize_artist`, so opening an artist
+        # page scraped Songkick, inserted events and wrote `last_synced_at`.
+        # A GET that writes is not a slow read, it is a side effect wearing a
+        # read's clothes: it made the catalogue depend on who happened to look
+        # at a page, spent outbound requests nobody asked for, and left imported
+        # events with no `created_at` because the import path predates it.
+        #
+        # Synchronization now belongs to `ArtistSyncJob`, on the scheduler's
+        # clock, where it is bounded, observable and attributable.
+        #
+        # Songkick is still the canonical provider; that is a question of which
+        # source to trust, not of when to ask it.
+        # --------------------------------------------------
 
         artist = await self.artist_repository.get_by_slug(
             slug
@@ -68,50 +79,6 @@ class ArtistService:
                 status_code=404,
                 detail="Artist not found.",
             )
-
-        # --------------------------------------------------
-        # Synchronization
-        # --------------------------------------------------
-        #
-        # Songkick is the canonical provider for artists
-        # and events.
-        #
-        # Spotify is only used as enrichment.
-        # --------------------------------------------------
-
-        sync = (
-            await self.synchronization_service
-            .synchronize_artist(
-                artist,
-                provider="songkick",
-            )
-        )
-
-        logger.info(
-            f"{artist.name} | {sync}"
-        )
-
-        # --------------------------------------------------
-        # IMPORTANT:
-        # Reload the artist after synchronization.
-        #
-        # The synchronization process may update:
-        # image,
-        # genres,
-        # external_ids,
-        # popularity,
-        # etc.
-        # --------------------------------------------------
-
-        refreshed_artist = (
-            await self.artist_repository.get_by_slug(
-                slug
-            )
-        )
-
-        if refreshed_artist:
-
-            artist = refreshed_artist
 
         # --------------------------------------------------
         # Event statistics

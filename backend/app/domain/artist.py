@@ -31,4 +31,12 @@ class Artist(Entity):
 
     last_synced_at: datetime | None = None
 
+    #: When this record was last written.
+    #: 
+    #: Carried on the domain object because it is the only record of when a
+    #: *failed* fetch was attempted - `last_synced_at` is deliberately not written
+    #: on failure, since a timestamp is what makes an artist look initialized. It
+    #: is what lets a retry back off instead of happening on every page view.
+    updated_at: datetime | None = None
+
     followers_count: int = Field(default=0)
