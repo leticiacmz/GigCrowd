@@ -539,6 +539,56 @@ class TestEnrichment:
         assert review["target"]["artist_slug"] == ARTIST_A
 
     @pytest.mark.asyncio
+    async def test_attendance_never_carries_the_review_that_came_later(
+        self, db
+    ):
+        """An attendance row shows attendance, and only attendance.
+
+        Both activities can point at the same show log, and that log is
+        filled in a second time when the review lands - so enriching both
+        rows from the live document is what once made the attendance repeat
+        the stars and the words the review row was already showing. Two
+        rows, two facts: the status on the attendance, the rating and the
+        review text on the review.
+        """
+        [attendance, review] = await ActivityService._enrich_activities(
+            db,
+            [
+                {
+                    "_id": "act-attend-then-review",
+                    "user_id": ALICE,
+                    "activity_type": ActivityType.ATTEND_EVENT.value,
+                    "target_id": "show-1",
+                    "target_type": "show_log",
+                    "metadata": {"artist_slug": ARTIST_A},
+                    "created_at": datetime.now(UTC) - timedelta(minutes=10),
+                },
+                {
+                    "_id": "act-review",
+                    "user_id": ALICE,
+                    "activity_type": ActivityType.CREATE_REVIEW.value,
+                    "target_id": "show-1",
+                    "target_type": "show_log",
+                    "metadata": {"artist_slug": ARTIST_A},
+                    "created_at": datetime.now(UTC) - timedelta(minutes=5),
+                },
+            ],
+        )
+
+        # The attendance row: the status and the event, and nothing that
+        # belongs to the review.
+        assert attendance["attendance_status"] == "went"
+        assert attendance.get("rating") is None
+        assert attendance.get("content") is None
+        assert attendance["target"]["title"] == "Nova at Warehouse"
+
+        # The review row: the words and the stars, and nothing that
+        # belongs to the attendance.
+        assert review["rating"] == 5
+        assert review["content"] == "Incredible night"
+        assert "attendance_status" not in review
+
+    @pytest.mark.asyncio
     async def test_comment_target_points_at_its_post(self, db):
         activities = await ActivityService.get_feed_activities(
             ALICE, category="community"
