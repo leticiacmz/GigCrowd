@@ -268,6 +268,31 @@ def songkick_artist_reference(
     )
 
 
+def event_source_url(
+    event: Any,
+) -> Optional[str]:
+    """The address the event itself was imported from.
+
+    Provenance rather than festival metadata: every imported event records
+    where it came from, and a festival date's Songkick address carries the
+    series (`/festivals/{series}/id/{event}`) whether or not a festival block
+    was stored beside it. An ordinary concert's address has no series segment,
+    so this widens nothing for events that are not festival dates.
+    """
+
+    if isinstance(event, dict):
+        source = event.get("source")
+    else:
+        source = getattr(event, "source", None)
+
+    if isinstance(source, dict):
+        url = source.get("url")
+    else:
+        url = getattr(source, "url", None)
+
+    return str(url) if url else None
+
+
 def festival_identity(
     event: Any,
 ) -> Optional[dict[str, Any]]:
@@ -278,28 +303,37 @@ def festival_identity(
     left out, so a page cannot mistake one night for the whole festival.
 
     The series id always comes from structured source data - the event's own
-    metadata or the series segment of its Songkick URL. A name is carried
-    through for display but never used to decide that two events are the same
-    festival, because two festivals can share a name across cities and years.
+    metadata, or the series segment of a Songkick URL: the metadata's own URL
+    first, then the event's own source address, which states the series even
+    when no festival block was ever written beside the event. A name is
+    carried through for display but never used to decide that two events are
+    the same festival, because two festivals can share a name across cities
+    and years.
     """
 
     metadata = festival_metadata(event)
 
-    if not isinstance(
-        metadata,
-        dict,
-    ):
-        return None
+    series_id = None
+    name = None
+    url = None
+    official_url = None
+    edition = None
+    tracking = None
 
-    series_id = metadata.get(
-        "series_id"
-    )
+    if isinstance(metadata, dict):
+
+        series_id = metadata.get("series_id")
+        name = metadata.get("name")
+        url = metadata.get("url")
+        official_url = metadata.get("official_url")
+        edition = metadata.get("edition")
+        tracking = metadata.get("tracking_count")
 
     if not series_id:
 
         for candidate in (
-            metadata.get("url"),
-            metadata.get("official_url"),
+            url,
+            official_url,
         ):
 
             from_url = festival_data_from_url(
@@ -312,22 +346,39 @@ def festival_identity(
                 )
                 break
 
+    # The event's own address answers the case this function used to refuse:
+    # an imported festival date whose festival block was never written still
+    # states its series in its own Songkick URL. It is the same parse the
+    # candidates above go through, so the rule remains "a series id parsed
+    # from source data" - never a name, never a title, never a guess about
+    # which festivals are the same. The address is remembered as the URL of
+    # record so the page it powers still links back to where it came from.
+    if not series_id:
+
+        own_url = event_source_url(
+            event
+        )
+
+        from_url = festival_data_from_url(
+            own_url
+        )
+
+        if from_url:
+            series_id = from_url.get(
+                "series_id"
+            )
+            url = url or own_url
+
     if not series_id:
         return None
 
     identity: dict[str, Any] = {
         "series_id": str(series_id),
-        "name": metadata.get("name"),
-        "url": metadata.get("url"),
-        "official_url": metadata.get(
-            "official_url"
-        ),
-        "edition": metadata.get("edition"),
+        "name": name,
+        "url": url,
+        "official_url": official_url,
+        "edition": edition,
     }
-
-    tracking = metadata.get(
-        "tracking_count"
-    )
 
     if tracking is not None:
         identity["tracking_count"] = tracking

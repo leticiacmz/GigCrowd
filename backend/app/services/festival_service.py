@@ -29,12 +29,16 @@ from app.domain.event_schedule import (
     event_reference_date,
 )
 from app.domain.festival import festival_identity
+from app.domain.event_provenance import (
+    trusted_listing_filter,
+)
 from app.mappers.event_document_mapper import (
     EventDocumentMapper,
 )
 from app.mappers.event_response_mapper import (
     EventResponseMapper,
 )
+from app.repositories.event_repository import EventRepository
 from app.schemas.festival_response import (
     FestivalEventResponse,
     FestivalIdentityResponse,
@@ -153,12 +157,17 @@ class FestivalService:
         series_id = identity["series_id"]
 
         editions = await self._editions_for(
-            series_id
+            series_id,
+            # The record the reader arrived from. It is part of the query rather
+            # than assumed to match, because the list applies the provenance
+            # rule and this page has to render for whichever record was opened.
+            document["_id"],
         )
 
-        # The event the reader arrived from is always among the editions: the
-        # series id came from this very document, so the query that lists the
-        # series necessarily matches it. Finding it by id rather than assuming it
+        # The event the reader arrived from is always among the editions: it
+        # is returned by id, because its identity - read from its stored block
+        # or from its own address when no block was written - is what named the
+        # series in the first place. Finding it by id rather than assuming it
         # is first keeps the selection correct without depending on sort order.
         selected = next(
             document
@@ -306,6 +315,7 @@ class FestivalService:
     async def _editions_for(
         self,
         series_id: str,
+        arrived_at,
     ) -> list[dict]:
         """Every stored date of one festival series.
 
@@ -313,15 +323,49 @@ class FestivalService:
 
         Editions are found by the stored series id, which is what identifies the
         festival. An event whose series id was never recorded is not listed as
-        an edition: enrichment writes that field from the series id on the
-        event's own Songkick URL, so a second, fuzzier way of guessing the same
-        thing would only risk grouping events that are not the same festival.
+        another date of the series: that field is written from the series
+        segment of the event's own Songkick URL, so a second, fuzzier way of
+        guessing the same thing would only risk grouping events that are not
+        the same festival. The record the reader arrived on is the one
+        exception, and it is matched by id below.
+
+        The provenance clause is the same one every other listing of future
+        events applies. An edition list reaches into the future, and a fixture
+        edition dated next year would otherwise sit here looking exactly like an
+        announcement. Past editions are kept, because a festival's history is
+        part of what the page is for.
+
+        `arrived_at` is the record the reader came from, and it is always
+        returned. The whole page - its span, its edition count, and the lineup
+        beside the reader's own date - is read from this one list, so a record
+        that is filtered out of discovery must not also disappear from the page
+        somebody is already standing on. That record was reached deliberately;
+        what the clause stops is the rest of the future being sold as announced.
         """
 
         documents = await (
             self.event_repository.collection.find(
                 {
-                    "festival.series_id": str(series_id),
+                    "$or": [
+                        # The record the reader arrived from, matched by id.
+                        # Its identity may have been read from its own address
+                        # while no festival block was ever written beside it,
+                        # so the series field alone would drop the very record
+                        # the page is standing on.
+                        {
+                            "_id": arrived_at,
+                        },
+                        {
+                            "$and": [
+                                {
+                                    "festival.series_id": str(series_id),
+                                },
+                                trusted_listing_filter(
+                                    EventRepository._still_ahead_dates_filter()
+                                ),
+                            ]
+                        },
+                    ]
                 }
             ).to_list(length=None)
         )

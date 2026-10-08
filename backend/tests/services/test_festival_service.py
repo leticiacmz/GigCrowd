@@ -11,7 +11,7 @@ because it was imported rather than because a title looked like a year.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from bson import ObjectId
@@ -356,6 +356,93 @@ class TestEditions:
         )
         assert festival.lineup[0].name == "Arctic Monkeys"
 
+    @pytest.mark.asyncio
+    async def test_a_future_fixture_is_not_listed_as_an_edition(self):
+        """An edition list reaches into the future, so it has to be believable.
+
+        This listing applied no provenance rule at all: a development fixture
+        dated next year sat here looking exactly like an announced festival,
+        while the events page refused to show the same row. Past editions stay -
+        a festival's history is part of what the page is for.
+        """
+
+        fixture = festival_document(
+            "507f1f77bcf86cd799430160",
+            "Primavera Sound 2027",
+            starts_at=datetime.now(UTC) + timedelta(days=90),
+            ends_at=datetime.now(UTC) + timedelta(days=93),
+            source={
+                "provider": "songkick",
+                "external_id": "40385599",
+                "url": CANONICAL,
+                "provenance": "fixture",
+            },
+        )
+
+        service = build([DAY_ONE, fixture])
+
+        festival = await service.get_festival(
+            "507f1f77bcf86cd799439011"
+        )
+
+        assert festival.identity.editions_count == 1
+        assert [entry.event.id for entry in festival.editions] == [
+            "507f1f77bcf86cd799439011"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_edition_you_arrived_on_is_never_hidden(self):
+        """A hidden record must not become a broken page or a blank date.
+
+        The provenance rule stops an unverifiable future edition from being
+        discovered *in the list*. It says nothing about a record somebody has
+        already opened, and dropping this one would take the festival's span and
+        its edition count with it: the page would answer "date to be announced"
+        for a date the catalogue holds.
+        """
+
+        arrived = festival_document(
+            "507f1f77bcf86cd799430161",
+            "Primavera Sound 2027",
+            starts_at=datetime.now(UTC) + timedelta(days=90),
+            ends_at=datetime.now(UTC) + timedelta(days=93),
+            source={
+                "provider": "songkick",
+                "external_id": "40385599",
+                "url": CANONICAL,
+                "provenance": "fixture",
+            },
+        )
+
+        sibling = festival_document(
+            "507f1f77bcf86cd799430162",
+            "Primavera Sound 2028",
+            starts_at=datetime.now(UTC) + timedelta(days=455),
+            source={
+                "provider": "songkick",
+                "external_id": "40385600",
+                "url": CANONICAL,
+                "provenance": "fixture",
+            },
+        )
+
+        service = build([arrived, sibling])
+
+        festival = await service.get_festival(
+            "507f1f77bcf86cd799430161"
+        )
+
+        assert festival is not None
+        assert festival.selected_event_id == (
+            "507f1f77bcf86cd799430161"
+        )
+        assert festival.identity.editions_count == 1
+        assert festival.identity.first_date is not None
+        assert festival.identity.last_date is not None
+        assert [
+            entry.event.id for entry in festival.editions
+        ] == ["507f1f77bcf86cd799430161"]
+
 
 class TestLineup:
     """The lineup belongs to one date, and links only where a page exists."""
@@ -559,3 +646,102 @@ class TestLineup:
         # put the act in.
         assert festival.lineup[0].name == LINEUP_DAY_ONE[0]["name"]
         assert festival.lineup[0].order == 0
+
+
+class TestAnEditionImportedWithoutItsFestivalBlock:
+    """A festival date whose `festival` block was never written.
+
+    The listing that imported it gave a date, a title and a source address -
+    and no festival metadata - so the stored block is absent while the event
+    is still the same edition of the same series. The series in the edition's
+    own Songkick address is what must open the page, exactly as it does for
+    an edition that carries the block.
+    """
+
+    ARRIVAL_ID = "507f1f77bcf86cd799439021"
+
+    ARRIVAL_TITLE = "São Paulo, Brazil Primavera Sound"
+
+    def arrival(self) -> dict:
+        return festival_document(
+            self.ARRIVAL_ID,
+            self.ARRIVAL_TITLE,
+            starts_at=datetime(2026, 10, 1, 20, tzinfo=UTC),
+            festival=None,
+            source={
+                "provider": "songkick",
+                "external_id": "40385599",
+                "url": (
+                    "https://www.songkick.com/festivals/"
+                    "3441108-primavera/id/40385599-primavera-2026"
+                ),
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_page_opens_from_the_address_of_the_edition_itself(self):
+        service = build([DAY_ONE, self.arrival()])
+
+        festival = await service.get_festival(self.ARRIVAL_ID)
+
+        assert festival is not None
+        assert festival.identity.series_id == SERIES
+        assert festival.selected_event_id == self.ARRIVAL_ID
+
+        # The stored editions of the same series appear beside the one the
+        # reader arrived on, and the arrival is among them.
+        assert {
+            entry.event.id
+            for entry in festival.editions
+        } == {
+            "507f1f77bcf86cd799439011",
+            self.ARRIVAL_ID,
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_display_name_falls_back_to_the_editions_own_title(self):
+        """The address states the series id, not a name.
+
+        Nothing is invented for the header: with no stored name to show, the
+        page shows the edition the reader is standing on.
+        """
+
+        service = build([DAY_ONE, self.arrival()])
+
+        festival = await service.get_festival(self.ARRIVAL_ID)
+
+        assert festival.identity.name == self.ARRIVAL_TITLE
+
+    @pytest.mark.asyncio
+    async def test_a_concert_whose_address_is_not_a_festival_has_no_page(self):
+        """A show at a place named after a festival stays a show.
+
+        Only a festival address carries the series segment, so an ordinary
+        event cannot be pulled into the festival route by sharing a name with
+        one.
+        """
+
+        concert = festival_document(
+            "507f1f77bcf86cd799439022",
+            "Agnes Nunes @ Rock in Rio Hall",
+            starts_at=datetime(2026, 10, 2, 20, tzinfo=UTC),
+            festival=None,
+            event_type="Concert",
+            source={
+                "provider": "songkick",
+                "external_id": "39116370",
+                "url": (
+                    "https://www.songkick.com/concerts/"
+                    "39116370-agnes-nunes-at-rock-in-rio-hall"
+                ),
+            },
+        )
+
+        service = build([concert])
+
+        assert (
+            await service.get_festival(
+                "507f1f77bcf86cd799439022"
+            )
+            is None
+        )
