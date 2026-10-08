@@ -2,7 +2,10 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.event import Event
-from app.domain.event_schedule import parse_source_datetime
+from app.domain.event_schedule import (
+    parse_source_datetime,
+    valid_interval_end,
+)
 from app.domain.lineup import LineupEntry
 from app.domain.venue import Venue
 
@@ -82,6 +85,17 @@ class SongkickEventMapper:
                     "end_date"
                 )
             )
+        )
+
+        # A date-only end parses to midnight of its own calendar day, which
+        # sits before a start time on that same day. The two are read together
+        # here, which is the one place an interval can be judged, so an end
+        # that does not reach the start is never stored - see
+        # `valid_interval_end`. A later calendar day is kept as stated, so a
+        # multi-day festival range survives intact.
+        ends_at = valid_interval_end(
+            starts_at,
+            ends_at,
         )
 
         # ========================================================

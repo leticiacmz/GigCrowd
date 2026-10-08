@@ -111,6 +111,41 @@ def parse_source_datetime(value: Any) -> Optional[datetime]:
     return as_utc(parsed)
 
 
+def valid_interval_end(
+    starts_at: Optional[datetime],
+    ends_at: Optional[datetime],
+) -> Optional[datetime]:
+    """The end that may be stored beside this start, or `None`.
+
+    An interval never runs backwards, and a date-only end is where that goes
+    wrong. `"2026-10-10"` is a calendar day, so it parses to midnight of that
+    day: an event starting at 15:00 that ends on the day it starts would
+    otherwise store `15:00 -> 00:00`. The source did not say the event ends
+    before it begins - it said the event ends on the day it began, and
+    `starts_at` already carries that day. Storing no end is the honest reading
+    of a same-day date-only end; inventing an end-of-day instant would be
+    stating a time the source never gave.
+
+    An end on a later calendar day is kept exactly as the source gave it, so a
+    multi-day range still reads as the range it is - `2026-10-10T15:00` with an
+    end of `2026-10-11` stays a range reaching into the next day.
+
+    With nothing to compare against - no start yet, or a value that is not a
+    date - the end is returned unchanged: a lone end is the source's own claim
+    and is not second-guessed here.
+    """
+    if ends_at is None or starts_at is None:
+        return ends_at
+
+    end = as_utc(ends_at)
+    start = as_utc(starts_at)
+
+    if end is None or start is None:
+        return ends_at
+
+    return ends_at if end >= start else None
+
+
 def event_date(event: Any) -> Optional[datetime]:
     """The event's own date: when it starts, or when it ends if it has no start.
 

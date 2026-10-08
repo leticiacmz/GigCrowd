@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from app.mappers.songkick_event_mapper import SongkickEventMapper
 from app.domain.event import Event
@@ -209,6 +211,68 @@ class TestAFestivalEditionOwnsItsOwnDates:
 
         # A concert has no range, so none is invented for it.
         assert event.ends_at is None
+
+
+class TestAnEndNeverPrecedesItsStart:
+    """A date-only end is a calendar day, not an instant.
+
+    `endDate = 2026-10-10` says the event ends on 10 October, and it parses to
+    midnight of that day - which is before an afternoon start on the same day,
+    an interval running backwards. The day the source stated is already the
+    start's day, so no end is stored rather than one that precedes the start.
+    A later calendar day is kept exactly as stated, and an end the source gave
+    as a real instant is never touched.
+    """
+
+    @staticmethod
+    def _map(start_date: str, end_date: str) -> Event:
+        event, _ = SongkickEventMapper.to_domain(
+            {
+                "id": "43047625",
+                "name": "Coala Festival 2026",
+                "event_type": "FestivalInstance",
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            ["marina-sena"],
+        )
+
+        return event
+
+    def test_a_same_day_date_only_end_stores_no_end(self):
+        event = self._map(
+            "2026-05-30T15:00:00+00:00",
+            "2026-05-30",
+        )
+
+        assert event.starts_at == datetime(
+            2026, 5, 30, 15, 0, tzinfo=UTC
+        )
+        assert event.ends_at is None
+
+    def test_a_multi_day_date_only_end_reaches_the_following_day(self):
+        """The next calendar day is what the source stated, so it survives."""
+
+        event = self._map(
+            "2026-10-10T15:00:00+00:00",
+            "2026-10-11",
+        )
+
+        assert event.ends_at == datetime(
+            2026, 10, 11, tzinfo=UTC
+        )
+        assert event.ends_at > event.starts_at
+
+    def test_an_explicit_datetime_end_is_kept_exactly(self):
+        event = self._map(
+            "2026-10-10T15:00:00+00:00",
+            "2026-10-10T23:59:00+00:00",
+        )
+
+        assert event.ends_at == datetime(
+            2026, 10, 10, 23, 59, tzinfo=UTC
+        )
+        assert event.ends_at > event.starts_at
 
 
 def test_to_domain_malformed_date():

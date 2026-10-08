@@ -192,6 +192,167 @@ class TestCalendarPage:
         assert events == []
 
 
+class TestAListingStatesTheWholeRange:
+    """A calendar entry writes its full range into `title`.
+
+    The `<time>` element carries only the first day, so reading it alone threw
+    the closing day away on extraction - and a festival edition was stored as
+    its opening day with no end beside it, even though the listing had said the
+    second day out loud. What the listing states is kept; what it does not
+    state is left missing.
+    """
+
+    @staticmethod
+    def _parse(html: str) -> list[dict]:
+        return SongkickClient._parse_calendar_page(
+            html,
+            "https://www.songkick.com/artists/10176016-marina-sena/calendar",
+        )
+
+    def test_a_multi_day_listing_keeps_its_second_calendar_day(self):
+        """16-17 October must arrive as 16-17 October, not as 16 October."""
+
+        html = """
+        <html><body>
+          <ul class="event-listings">
+            <li class="event-listing-item"
+                title="Friday 16 October 2026 \u2013 Saturday 17 October 2026">
+              <time datetime="2026-10-16"></time>
+              <a href="/festivals/298683-mada/id/43047624-mada-2026">Mada 2026</a>
+            </li>
+          </ul>
+        </body></html>
+        """
+
+        events = self._parse(html)
+
+        assert len(events) == 1
+        assert events[0]["start_date"] == "2026-10-16"
+        assert events[0]["end_date"] == "2026-10-17"
+        assert events[0]["is_festival"] is True
+
+    def test_the_multi_day_range_reaches_the_event(self):
+        """The whole chain: listing payload to domain, start to end.
+
+        This is the shape that was being lost - an edition whose source states
+        two days and whose event ends up storing one - so the assertion is on
+        the dates the domain object carries, not on the payload.
+        """
+
+        from datetime import UTC, datetime
+
+        from app.mappers.songkick_event_mapper import SongkickEventMapper
+
+        html = """
+        <html><body>
+          <ul class="event-listings">
+            <li class="event-listing-item"
+                title="Friday 16 October 2026 \u2013 Saturday 17 October 2026">
+              <time datetime="2026-10-16"></time>
+              <a href="/festivals/298683-mada/id/43047624-mada-2026">Mada 2026</a>
+            </li>
+          </ul>
+        </body></html>
+        """
+
+        payload = self._parse(html)[0]
+
+        event, _ = SongkickEventMapper.to_domain(
+            payload,
+            ["marina-sena"],
+        )
+
+        assert event.starts_at == datetime(2026, 10, 16, tzinfo=UTC)
+        assert event.ends_at == datetime(2026, 10, 17, tzinfo=UTC)
+        assert event.event_type == "FestivalInstance"
+
+    def test_a_single_day_listing_states_no_end(self):
+        """A concert names one day, so no second day exists to keep."""
+
+        html = """
+        <html><body>
+          <ul class="event-listings">
+            <li class="event-listing-item" title="Friday 30 October 2026">
+              <time datetime="2026-10-30T18:30:00+0000"></time>
+              <a href="/concerts/43224865-marina-sena-at-electric-brixton">
+                Marina Sena at Electric Brixton
+              </a>
+            </li>
+          </ul>
+        </body></html>
+        """
+
+        events = self._parse(html)
+
+        assert events[0]["start_date"] == "2026-10-30T18:30:00+0000"
+        assert events[0]["end_date"] is None
+
+    def test_a_one_day_edition_states_no_end(self):
+        """A range whose two dates are the same day states no second day.
+
+        Songkick repeats the day for a single-day edition. Copying it would
+        store an end identical to the start, which says nothing the start has
+        not already said.
+        """
+
+        html = """
+        <html><body>
+          <ul class="event-listings">
+            <li class="event-listing-item"
+                title="Saturday 07 November 2026 \u2013 Saturday 07 November 2026">
+              <time datetime="2026-11-07"></time>
+              <a href="/festivals/3790726-amae/id/43263609-ama-festival-2026">
+                Amae Festival 2026
+              </a>
+            </li>
+          </ul>
+        </body></html>
+        """
+
+        events = self._parse(html)
+
+        assert events[0]["start_date"] == "2026-11-07"
+        assert events[0]["end_date"] is None
+
+    def test_a_title_that_cannot_be_read_leaves_the_end_missing(self):
+        """No parseable range, no end - a guessed one is worse than none."""
+
+        html = """
+        <html><body>
+          <ul class="event-listings">
+            <li class="event-listing-item" title="Tickets on sale now">
+              <time datetime="2026-10-16"></time>
+              <a href="/festivals/298683-mada/id/43047624-mada-2026">Mada 2026</a>
+            </li>
+          </ul>
+        </body></html>
+        """
+
+        events = self._parse(html)
+
+        assert events[0]["start_date"] == "2026-10-16"
+        assert events[0]["end_date"] is None
+
+    def test_a_range_without_a_start_keeps_no_end(self):
+        """An interval is ordered against a start, so a lone end is not taken."""
+
+        html = """
+        <html><body>
+          <ul class="event-listings">
+            <li class="event-listing-item"
+                title="Friday 16 October 2026 \u2013 Saturday 17 October 2026">
+              <a href="/festivals/298683-mada/id/43047624-mada-2026">Mada 2026</a>
+            </li>
+          </ul>
+        </body></html>
+        """
+
+        events = self._parse(html)
+
+        assert events[0]["start_date"] is None
+        assert events[0]["end_date"] is None
+
+
 # ============================================================
 # Festival Lineup Tests
 # ============================================================

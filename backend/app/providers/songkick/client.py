@@ -564,7 +564,10 @@ class SongkickClient:
                 "name": text or None,
                 "original_name": text or None,
                 "start_date": start_date,
-                "end_date": None,
+                "end_date": cls._extract_listing_end_date(
+                    item,
+                    start_date,
+                ),
                 "event_status": None,
                 "event_attendance_mode": None,
                 "description": None,
@@ -588,6 +591,69 @@ class SongkickClient:
             events.append(event)
 
         return events
+
+    @staticmethod
+    def _extract_listing_end_date(
+        item: Any,
+        start_date: Optional[str],
+    ) -> Optional[str]:
+        """The second calendar day a listing states, when it states one.
+
+        Songkick writes an entry's whole range into its `title` attribute -
+        "Friday 16 October 2026 – Saturday 17 October 2026" - while the
+        `<time>` element carries only the first day. Reading the time element
+        alone therefore threw the second day away on extraction, and a
+        festival edition was stored as its opening day with no end beside it
+        even though the listing had said the closing day out loud.
+
+        Only what is written down is taken. The second date has to be part of
+        that one range rather than a later phrase that happens to hold a date,
+        and it has to fall after the start's own calendar day: an entry that
+        names a single day - a concert, or a one-day edition - states no
+        second day, and an end equal to the start would add nothing. Anything
+        unreadable stays missing, because a missing end is honest and a
+        guessed one is not.
+        """
+
+        title = item.get("title")
+
+        if not title or not start_date:
+            return None
+
+        match = re.search(
+            # "16 October 2026 – Saturday 17 October 2026": the range's own
+            # dates, joined by the dash Songkick writes between them, with the
+            # closing day's optional weekday in between.
+            r"\d{1,2}\s+[A-Za-z]+\s+\d{4}"
+            r"\s*[–—-]\s*"
+            r"(?:[A-Za-z]+\s+)?"
+            r"(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+            str(title),
+        )
+
+        if not match:
+            return None
+
+        try:
+            # The listing's own calendar day, straight from the string: the
+            # start carries a timezone and converting it could move it to the
+            # neighbouring day, which would change what "after" means.
+            start_day = datetime.strptime(
+                str(start_date)[:10],
+                "%Y-%m-%d",
+            ).date()
+
+            end_day = datetime.strptime(
+                match.group(1),
+                "%d %B %Y",
+            ).date()
+        except ValueError:
+            return None
+
+        if end_day <= start_day:
+            return None
+
+        return end_day.isoformat()
 
     # ============================================================
     # FESTIVAL LINEUP

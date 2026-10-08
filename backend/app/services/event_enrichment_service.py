@@ -915,6 +915,11 @@ class EventEnrichmentService:
                 await self._update_event(
                     plan.event_id,
                     patch,
+                    # The patch usually carries only the end, so the start it
+                    # must sit after comes from the document just read.
+                    stored_starts_at=document.get(
+                        "starts_at",
+                    ),
                 )
 
             if venue_updates:
@@ -949,11 +954,20 @@ class EventEnrichmentService:
         self,
         event_id: str,
         patch: dict,
+        stored_starts_at: Any = None,
     ):
-        """Write only the fields enrichment decided were safe."""
+        """Write only the fields enrichment decided were safe.
+
+        `stored_starts_at` is the start already on the document, because a
+        patch commonly carries only the end while the start it has to sit after
+        was written long ago. Both are normalised here, which is the one place
+        this service sees the pair, so an end that does not reach its start is
+        never stored - see `valid_interval_end`.
+        """
 
         from app.domain.event_schedule import (
             parse_source_datetime,
+            valid_interval_end,
         )
 
         update: dict[str, Any] = {}
@@ -987,6 +1001,31 @@ class EventEnrichmentService:
                 continue
 
             update[field_name] = value
+
+        # The interval rule, applied after both dates are known. A date-only
+        # end parses to midnight of its own day, which is before a start time
+        # on that same day; the source then said only that the event ends on
+        # the day it began, and that day is already the start's.
+        if "ends_at" in update:
+
+            start = update.get(
+                "starts_at"
+            )
+
+            if start is None:
+                start = parse_source_datetime(
+                    stored_starts_at
+                )
+
+            end = valid_interval_end(
+                start,
+                update["ends_at"],
+            )
+
+            if end is None:
+                del update["ends_at"]
+            else:
+                update["ends_at"] = end
 
         # `date_status` is decided last so it reflects what was actually
         # written, rather than what the source appeared to offer.

@@ -299,6 +299,112 @@ class TestApplyingDates:
         assert stored["starts_at"] is None
         assert stored["date_status"] == DATE_PARSER_FAILED
 
+    @pytest.mark.asyncio
+    async def test_a_date_only_end_before_the_start_is_not_written(self):
+        """The end must never precede the start, however the source said it.
+
+        The stored start is 15:00 and the source says the event ends on the
+        day it started. Midnight of that day is before the start, so nothing
+        end-shaped is written: the start's own day already carries what the
+        source stated, and inventing a later instant would be inventing a time.
+        """
+
+        document = undated_event(
+            date_status=DATE_FROM_SOURCE,
+            starts_at=datetime(2026, 5, 30, 15, 0, tzinfo=UTC),
+        )
+
+        service, database = build(
+            [document],
+            client=FakeClient(
+                source={
+                    "start_date": "2026-05-30T15:00:00+00:00",
+                    "end_date": "2026-05-30",
+                    "date_status": DATE_FROM_SOURCE,
+                }
+            ),
+        )
+
+        result = await service.enrich_one(
+            plan_for(service, document)
+        )
+
+        stored = await database["events"].find_one(
+            {"_id": document["_id"]}
+        )
+
+        assert stored["starts_at"] == datetime(
+            2026, 5, 30, 15, 0, tzinfo=UTC
+        )
+        assert stored["ends_at"] is None
+
+        # The page was read all the same, and the read is recorded - refusing
+        # the end is not the same as never having looked.
+        assert stored["date_source_checked_at"] is not None
+        assert result["outcome"] == "updated"
+
+    @pytest.mark.asyncio
+    async def test_a_multi_day_date_only_end_is_written(self):
+        """10 October 15:00 to 11 October is a real range, and stays one."""
+
+        document = undated_event(
+            date_status=DATE_FROM_SOURCE,
+            starts_at=datetime(2026, 10, 10, 15, 0, tzinfo=UTC),
+        )
+
+        service, database = build(
+            [document],
+            client=FakeClient(
+                source={
+                    "start_date": "2026-10-10T15:00:00+00:00",
+                    "end_date": "2026-10-11",
+                    "date_status": DATE_FROM_SOURCE,
+                }
+            ),
+        )
+
+        await service.enrich_one(plan_for(service, document))
+
+        stored = await database["events"].find_one(
+            {"_id": document["_id"]}
+        )
+
+        assert stored["ends_at"] == datetime(
+            2026, 10, 11, tzinfo=UTC
+        )
+        assert stored["ends_at"] > stored["starts_at"]
+
+    @pytest.mark.asyncio
+    async def test_an_explicit_datetime_end_is_kept_exactly(self):
+        """An end the source gave as an instant is written as that instant."""
+
+        document = undated_event(
+            date_status=DATE_FROM_SOURCE,
+            starts_at=datetime(2026, 10, 10, 15, 0, tzinfo=UTC),
+        )
+
+        service, database = build(
+            [document],
+            client=FakeClient(
+                source={
+                    "start_date": "2026-10-10T15:00:00+00:00",
+                    "end_date": "2026-10-10T23:59:00+00:00",
+                    "date_status": DATE_FROM_SOURCE,
+                }
+            ),
+        )
+
+        await service.enrich_one(plan_for(service, document))
+
+        stored = await database["events"].find_one(
+            {"_id": document["_id"]}
+        )
+
+        assert stored["ends_at"] == datetime(
+            2026, 10, 10, 23, 59, tzinfo=UTC
+        )
+        assert stored["ends_at"] > stored["starts_at"]
+
 
 class TestIdempotency:
     """A run must be safe to repeat, which is what makes it resumable."""
