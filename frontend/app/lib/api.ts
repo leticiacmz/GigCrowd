@@ -603,6 +603,12 @@ export const userAPI = {
     full_name?: string;
     bio?: string;
     location?: string;
+    /**
+     * Where the photo ended up after the upload to `/media/images`.
+     * Saved like any other profile field: the backend validates the
+     * scheme and persists it on the caller's own document.
+     */
+    avatar_url?: string;
   }) => {
     const response = await api.put('/users/me', userData);
     return response.data;

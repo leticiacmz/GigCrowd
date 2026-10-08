@@ -205,6 +205,8 @@
     "avatar": "Avatar",
     "changeAvatar": "Change Avatar",
     "removeAvatar": "Remove Avatar",
+    "photoUploading": "Uploading…",
+    "photoFailed": "The photo could not be uploaded. Try again.",
     "notFound": "User not found.",
     "followLabel": "Follow",
     "followingLabel": "Following",

@@ -179,6 +179,13 @@ class UserProfileService:
             "full_name",
             "bio",
             "location",
+            # The avatar is an ordinary profile field set from the same place
+            # as the rest: the owner's own update of their own document
+            # (`/users/me`). The path carries no other user id to aim at, so
+            # "only the owner may modify" holds by construction rather than by
+            # an extra check. The value itself was validated at the schema -
+            # http(s) only.
+            "avatar_url",
         }
 
 

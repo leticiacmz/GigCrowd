@@ -205,6 +205,8 @@
     "avatar": "Avatar",
     "changeAvatar": "Cambiar Avatar",
     "removeAvatar": "Eliminar Avatar",
+    "photoUploading": "Subiendo…",
+    "photoFailed": "No se pudo subir la foto. Inténtalo de nuevo.",
     "notFound": "Usuario no encontrado.",
     "followLabel": "Seguir",
     "followingLabel": "Siguiendo",

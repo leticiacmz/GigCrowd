@@ -162,10 +162,24 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
               <div ref={userMenuRef} className="relative hidden md:block">
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex h-11 items-center gap-1 rounded-lg px-2 text-sm text-muted transition-colors hover:bg-card-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="flex h-11 items-center gap-2 rounded-lg px-2 text-sm text-muted transition-colors hover:bg-card-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-haspopup="menu"
                   aria-expanded={userMenuOpen}
                 >
+                  {/*
+                    The same photo the profile saved - the stored session
+                    copy, refreshed by the `auth-changed` event the save
+                    fires. Decorative: the button already names who it is.
+                  */}
+                  {currentUser.avatar_url && (
+                    <img
+                      src={currentUser.avatar_url}
+                      alt=""
+                      aria-hidden="true"
+                      className="h-7 w-7 shrink-0 rounded-full object-cover"
+                      data-testid="navbar-avatar"
+                    />
+                  )}
                   @{currentUser.username}
                   <span aria-hidden="true" className="text-xs">
                     ▾
@@ -282,8 +296,16 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
                 <Link
                   href={`/${locale}/profile/${currentUser.username}`}
                   onClick={handleNavigation}
-                  className="flex min-h-[44px] items-center rounded-lg px-3 py-2 text-muted hover:bg-card-hover"
+                  className="flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 text-muted hover:bg-card-hover"
                 >
+                  {currentUser.avatar_url && (
+                    <img
+                      src={currentUser.avatar_url}
+                      alt=""
+                      aria-hidden="true"
+                      className="h-6 w-6 shrink-0 rounded-full object-cover"
+                    />
+                  )}
                   @{currentUser.username}
                 </Link>
 

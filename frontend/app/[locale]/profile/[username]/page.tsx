@@ -7,8 +7,8 @@ import Link from 'next/link';
 
 import type { Locale } from '@/app/i18n';
 
-import { userAPI } from '@/app/lib/api';
-import { isAuthenticated } from '@/app/lib/auth';
+import { mediaAPI, userAPI } from '@/app/lib/api';
+import { isAuthenticated, patchStoredUser } from '@/app/lib/auth';
 import { useAuthAction } from '@/app/lib/use-auth-action';
 import {
   resolveLocale,
@@ -110,6 +110,17 @@ function ProfileView({
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  /*
+    The avatar is saved on its own, the moment a file is picked, rather than
+    waiting for the rest of the form: a photo is its own action with its own
+    upload, and seeing it appear immediately is the whole point of having
+    chosen one. The error stays next to the avatar, because that is what
+    failed - the rest of the profile is untouched by it.
+  */
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarInput = useRef<HTMLInputElement | null>(null);
 
   /*
     Which list is open, if any. Tapping the same figure a second time closes it,
@@ -257,6 +268,47 @@ function ProfileView({
     setEditing(false);
   }
 
+  function handleAvatarFile(file: File | null) {
+    if (!file || !user) {
+      return;
+    }
+
+    /*
+      Uploading the file and saving its URL are two legs of one action, and
+      both need the caller's session - the same wrapper the sign-in gate
+      uses, so an expired session is offered a login rather than a stack
+      trace mid-upload.
+    */
+    void runAuthAction(async () => {
+      setUploadingAvatar(true);
+      setAvatarError(null);
+
+      try {
+        const uploaded = await mediaAPI.uploadImage(file);
+
+        const response = await userAPI.updateMe({
+          avatar_url: uploaded.url,
+        });
+
+        setUser({ ...user, ...response.user });
+
+        /*
+          Every surface showing the *signed-in* user - the Navbar above all
+          - reads the stored copy, not this page's state. Patching it (and
+          firing the event login fires) is what makes the new photo appear
+          there at once instead of at the next login.
+        */
+        patchStoredUser({ avatar_url: uploaded.url });
+      } catch {
+        // The avatar keeps what it had: the failure is said in place
+        // rather than clearing a photo that may have worked before.
+        setAvatarError(t('photoFailed'));
+      } finally {
+        setUploadingAvatar(false);
+      }
+    });
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -286,12 +338,70 @@ function ProfileView({
         <Card className="p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 gap-4">
-              <Avatar
-                src={user.avatar_url ?? undefined}
-                alt={user.username}
-                fallback={user.username.charAt(0).toUpperCase()}
-                size="lg"
-              />
+              <div className="flex shrink-0 flex-col items-center gap-2">
+                <div className="relative">
+                  <Avatar
+                    src={user.avatar_url ?? undefined}
+                    alt={user.username}
+                    fallback={user.username.charAt(0).toUpperCase()}
+                    size="lg"
+                  />
+
+                  {/*
+                    Own profile only: nobody else gets a control that would
+                    403 anyway. The button reaches the hidden file input the
+                    same way the review editor's photo button does.
+                  */}
+                  {isOwnProfile && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => avatarInput.current?.click()}
+                        disabled={uploadingAvatar}
+                        aria-label={
+                          uploadingAvatar
+                            ? t('photoUploading')
+                            : t('changeAvatar')
+                        }
+                        title={t('changeAvatar')}
+                        data-testid="profile-avatar-button"
+                        className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-card-bg text-xs shadow-sm transition-colors hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+                      >
+                        <span aria-hidden="true">
+                          {uploadingAvatar ? '⏳' : '📷'}
+                        </span>
+                      </button>
+
+                      <input
+                        ref={avatarInput}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        data-testid="profile-avatar-input"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] ?? null;
+
+                          handleAvatarFile(file);
+
+                          // Cleared so the same photo can be re-picked after
+                          // a failure without the input staying silent.
+                          event.target.value = '';
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+
+                {avatarError && (
+                  <p
+                    role="alert"
+                    className="w-24 text-center text-xs text-accent-text"
+                    data-testid="profile-avatar-error"
+                  >
+                    {avatarError}
+                  </p>
+                )}
+              </div>
 
               <div className="min-w-0">
                 <h1 className="break-anywhere text-2xl font-bold sm:text-[28px]">
