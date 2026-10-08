@@ -10,6 +10,7 @@ import RequireAuth from '@/components/auth/RequireAuth';
 import Avatar from '@/components/ui/Avatar';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
+import Select from '@/components/ui/Select';
 import LoadingState from '@/components/LoadingState';
 import EmptyState from '@/components/EmptyState';
 import { feedAPI, type FeedCategory } from '@/app/lib/api';
@@ -59,12 +60,23 @@ interface FeedItem {
 /**
  * The feed is one timeline with one filter. Each category narrows the same
  * list of activities; there are no per-category views.
+ *
+ * Four options, offered as one dropdown rather than a row of pills: it is a
+ * single choice, not four places to visit, and a row of tabs took more of the
+ * page than the timeline it was choosing between. A native `<select>` also
+ * opens the platform's own picker on a phone, which is the one control a
+ * thumb already knows.
+ *
+ * `attendance` is no longer an option of its own. Presence did not leave the
+ * feed: it arrives under "all", and under "following" when it comes from
+ * somebody the reader follows. It simply is not a category of its own any
+ * more, which is what keeps this list at four.
  */
 const FILTERS: { key: FeedCategory; labelKey: string }[] = [
   { key: 'all', labelKey: 'filter.all' },
   { key: 'community', labelKey: 'filter.community' },
   { key: 'reviews', labelKey: 'filter.reviews' },
-  { key: 'attendance', labelKey: 'filter.attendance' },
+  { key: 'following', labelKey: 'filter.following' },
 ];
 
 function FeedContent() {
@@ -147,35 +159,28 @@ function FeedContent() {
         <p className="mt-1 text-sm text-muted">{t('subtitle')}</p>
       </header>
 
-      <div
-        className="mb-6 flex flex-wrap items-center gap-2"
-        role="group"
-        aria-label={t('filterLabel')}
-      >
-        <span className="mr-1 text-sm text-muted">{t('filterLabel')}</span>
+      <div className="mb-6 flex flex-wrap items-center gap-2 sm:gap-3">
+        <label
+          htmlFor="feed-filter-select"
+          className="text-sm text-muted"
+        >
+          {t('filterLabel')}
+        </label>
 
-        {FILTERS.map((filter) => {
-          const isActive = filter.key === category;
-
-          return (
-            <button
-              key={filter.key}
-              type="button"
-              onClick={() => onFilterChange(filter.key)}
-              aria-pressed={isActive}
-              data-testid={`feed-filter-${filter.key}`}
-              className={[
-                'min-h-[40px] rounded-full border px-4 text-sm transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-                isActive
-                  ? 'border-transparent bg-accent-solid text-on-accent font-semibold'
-                  : 'border-border bg-card-bg text-muted hover:bg-card-hover hover:text-foreground',
-              ].join(' ')}
-            >
-              {t(filter.labelKey)}
-            </button>
-          );
-        })}
+        <Select
+          id="feed-filter-select"
+          value={category}
+          onChange={(event) =>
+            onFilterChange(event.target.value as FeedCategory)
+          }
+          className="sm:w-56"
+          data-testid="feed-filter-select"
+          aria-label={t('filterLabel')}
+          options={FILTERS.map((filter) => ({
+            key: filter.key,
+            label: t(filter.labelKey),
+          }))}
+        />
       </div>
 
       {loading ? (

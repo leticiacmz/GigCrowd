@@ -105,7 +105,7 @@ class TestFeedEndpoint:
 
     @pytest.mark.parametrize(
         "category",
-        ["all", "community", "reviews", "attendance", "events"],
+        ["all", "community", "reviews", "following", "attendance", "events"],
     )
     def test_every_advertised_category_is_accepted(self, app, db, category):
         with TestClient(app) as client:

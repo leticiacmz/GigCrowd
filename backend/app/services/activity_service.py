@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 #
 # `attendance` is the name a reader recognises for what used to be called `events`;
 # the old name is kept as an alias so a bookmark or a habit does not break.
+#
+# `following` is not an activity type: it is the same timeline scoped to the
+# relationships the reader chose - the people they follow and the artist
+# communities they follow - so it holds every kind of content, from whoever
+# they follow. See `get_feed_activities` for how the scope is expressed.
 FEED_CATEGORIES: dict[str, tuple[ActivityType, ...]] = {
     "all": (),
     "community": (
@@ -47,6 +52,7 @@ FEED_CATEGORIES: dict[str, tuple[ActivityType, ...]] = {
     "reviews": (ActivityType.CREATE_REVIEW,),
     "attendance": (ActivityType.ATTEND_EVENT,),
     "events": (ActivityType.ATTEND_EVENT,),
+    "following": (),
 }
 
 # Activity types that may never appear on the timeline, whatever was asked for.
@@ -156,6 +162,13 @@ class ActivityService:
         users they follow, and actions inside the artist communities they
         follow. `category` narrows the very same timeline, it never switches
         to a different dataset.
+
+        `following` is that timeline with the reader's own actions dropped,
+        which leaves exactly what they follow: the people they follow, and
+        the artist communities they follow. It is a scope over the same
+        activities rather than a kind of them, so no activity type is added
+        for it - attendance from a followed friend and a review under a
+        followed artist's show arrive here on their own.
         """
         db = get_database()
 
@@ -173,6 +186,12 @@ class ActivityService:
         skip = max(0, min(skip, 10_000))
         limit = max(1, min(limit, 100))
 
+        activity_types = FEED_CATEGORIES.get(category)
+
+        if activity_types is None:
+
+            raise ValueError(f"Unknown feed category: {category}")
+
         followed_user_ids = await ActivityService._get_followed_user_ids(
             db, viewer
         )
@@ -180,9 +199,15 @@ class ActivityService:
             await ActivityService._get_followed_artist_slugs(db, viewer)
         )
 
-        visibility: list[dict] = [
-            {"user_id": {"$in": object_id_variants(viewer)}},
-        ]
+        # The reader's own actions are the first clause of the `all` timeline
+        # and the deliberate omission of `following`: what they did is not
+        # something they chose to follow.
+        visibility: list[dict] = []
+
+        if category != "following":
+            visibility.append(
+                {"user_id": {"$in": object_id_variants(viewer)}}
+            )
 
         if followed_user_ids:
             visibility.append(
@@ -202,13 +227,14 @@ class ActivityService:
                 {"metadata.artist_slug": {"$in": followed_artist_slugs}}
             )
 
+        if not visibility:
+            # Follows nobody and no artist, so this scope has nothing to
+            # return. Answered rather than queried: an empty `$or` is a query
+            # error in Mongo, and a reader who follows nobody should get a
+            # quiet empty timeline instead of a broken one.
+            return []
+
         query: dict[str, Any] = {"$or": visibility}
-
-        activity_types = FEED_CATEGORIES.get(category)
-
-        if activity_types is None:
-
-            raise ValueError(f"Unknown feed category: {category}")
 
         if activity_types:
             query["activity_type"] = {

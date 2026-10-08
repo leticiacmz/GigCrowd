@@ -389,6 +389,110 @@ class TestCategories:
             )
 
 
+class TestFollowing:
+    """`Seguindo`: the same timeline, scoped to the relationships chosen.
+
+    A scope rather than a kind of content, which is the claim behind it:
+    everything here came from somebody the reader follows or some artist they
+    follow, and the reader's own unrelated actions are not part of it. It also
+    carries every kind of activity, because what puts a row here is who it
+    came from, not what it is.
+    """
+
+    @pytest.mark.asyncio
+    async def test_following_holds_what_the_reader_follows(self, db):
+        found = await _feed(category="following")
+
+        # Bob is followed, so his comment is in.
+        assert "act-bob-comment" in found
+
+        # Carol is not followed, and neither is the artist she wrote about.
+        assert not found & {
+            "act-carol-like",
+            "act-carol-attend",
+            "act-carol-follow",
+        }
+
+    @pytest.mark.asyncio
+    async def test_following_leaves_out_the_readers_own_actions(self, db):
+        """What a reader did is not something they follow.
+
+        An own action *about a followed artist* stays, because it is about
+        something followed. The case that has to disappear is an own action
+        about nothing the reader follows - without it, `following` and `all`
+        would be the same list wearing two labels.
+        """
+        await db.activities.insert_one(
+            {
+                "_id": "act-own-elsewhere",
+                "user_id": ALICE,
+                "activity_type": ActivityType.LIKE_POST.value,
+                "target_id": "post-b",
+                "target_type": "community_post",
+                "metadata": {},
+                "created_at": datetime.now(UTC),
+            }
+        )
+
+        on_all = await _feed(category="all")
+        on_following = await _feed(category="following")
+
+        assert "act-own-elsewhere" in on_all
+        assert "act-own-elsewhere" not in on_following
+
+    @pytest.mark.asyncio
+    async def test_following_carries_every_kind_of_content(self, db):
+        """It is a scope, not a type: a review and a comment both arrive."""
+        types = {
+            activity["activity_type"]
+            for activity in await ActivityService.get_feed_activities(
+                ALICE, category="following"
+            )
+        }
+
+        assert ActivityType.CREATE_REVIEW.value in types
+        assert ActivityType.COMMENT_POST.value in types
+
+    @pytest.mark.asyncio
+    async def test_a_reader_who_follows_nobody_gets_a_quiet_empty_list(
+        self, db
+    ):
+        """Bob follows nobody, so the scope is empty - and it is not an error.
+
+        Answered before the query runs rather than by running it: an empty
+        `$or` is a query error in Mongo, which would report a broken feed to a
+        reader whose honest answer is simply "nothing yet".
+        """
+        assert await _feed(user_id=BOB, category="following") == set()
+        assert "act-bob-comment" in await _feed(
+            user_id=BOB, category="all"
+        )
+
+    @pytest.mark.asyncio
+    async def test_presence_survives_losing_its_own_filter(self, db):
+        """Attendance is no longer a filter, and has not gone missing.
+
+        It stays on `all`, and reaches `following` when it comes from somebody
+        the reader follows - which is the whole case for dropping it as a
+        filter of its own rather than for deleting it from the feed.
+        """
+        await db.activities.insert_one(
+            {
+                "_id": "act-bob-attend",
+                "user_id": BOB,
+                "activity_type": ActivityType.ATTEND_EVENT.value,
+                "target_id": "show-2",
+                "target_type": "show_log",
+                "metadata": {"artist_slug": ARTIST_B},
+                "created_at": datetime.now(UTC),
+            }
+        )
+
+        assert "act-bob-attend" in await _feed(category="all")
+        assert "act-bob-attend" in await _feed(category="following")
+        assert "act-bob-attend" not in await _feed(category="community")
+
+
 class TestEnrichment:
     @pytest.mark.asyncio
     async def test_actor_is_resolved(self, db):

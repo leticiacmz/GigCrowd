@@ -1342,22 +1342,29 @@ with sync_playwright() as p:
     pg.wait_for_timeout(1200)
 
     check("feed: requires authentication and is reachable", "/en/feed" in pg.url, pg.url)
-    filters = pg.locator("[data-testid^='feed-filter-']")
-    filter_keys = [
-        filters.nth(i).get_attribute("data-testid").replace("feed-filter-", "")
-        for i in range(filters.count())
-    ]
+    # One control, four options. The feed offers a single choice, not a row of
+    # tabs, so the keys are read off the control itself: what the reader can
+    # pick is exactly what is in the list.
+    filter_select = pg.locator("[data-testid='feed-filter-select']")
+    filter_keys = pg.eval_on_selector_all(
+        "[data-testid='feed-filter-select'] option",
+        "els => els.map(e => e.value)",
+    )
     check(
-        "feed: exactly one filter row",
-        filters.count() == 4,
+        "feed: exactly one filter control",
+        filter_select.count() == 1,
         str(filter_keys),
     )
     check(
         # No Social filter. A follow decides who may see what; it is not something
         # a reader asked to read, and a card saying "Ana followed Bruno" fills the
         # timeline with relationships nobody chose to publish.
-        "feed: filters are All, Community, Reviews and Attendance",
-        filter_keys == ["all", "community", "reviews", "attendance"],
+        #
+        # `following` is not that filter under another name: it holds the
+        # activities of what the reader follows, which is a scope over the
+        # timeline rather than a feed of relationships.
+        "feed: filters are All, Community, Reviews and Following",
+        filter_keys == ["all", "community", "reviews", "following"],
         str(filter_keys),
     )
     check(
@@ -1365,14 +1372,24 @@ with sync_playwright() as p:
         pg.locator("[data-testid='feed-filter-social']").count() == 0,
     )
     check(
-        "feed: no legacy tab set",
+        # `attendance` left the control: presence stays on the timeline (under
+        # "all", and under "following" when it comes from somebody followed),
+        # it is simply no longer a choice of its own.
+        "feed: no legacy tab set, and no attendance filter",
         pg.locator("[role='tablist']").count() == 0
         and pg.locator("[role='tab']").count() == 0
         and not any(
-            (chip.inner_text() or "").strip() in {"Liked", "Following", "Posts"}
-            for chip in pg.locator("[data-testid^='feed-filter-']").all()
+            (label or "").strip()
+            in {"Liked", "Posts", "Attendance", "Presenças", "Presencas"}
+            for label in pg.eval_on_selector_all(
+                "[data-testid='feed-filter-select'] option",
+                "els => els.map(e => e.textContent)",
+            )
         ),
-        pg.locator("[data-testid^='feed-filter-']").all_inner_texts(),
+        pg.eval_on_selector_all(
+            "[data-testid='feed-filter-select'] option",
+            "els => els.map(e => e.textContent)",
+        ),
     )
 
     timeline = pg.locator("[data-testid='feed-item']")
@@ -1394,10 +1411,10 @@ with sync_playwright() as p:
     for key in filter_keys:
         pg.goto(f"{BASE}/en/feed", wait_until=NAV_WAIT)
         pg.wait_for_timeout(1200)
-        # The active filter is client state, so drive it through the chip.
-        chip = pg.locator(f"[data-testid='feed-filter-{key}']")
-        check(f"feed: filter '{key}' exists", chip.count() == 1)
-        chip.first.click()
+        # The active filter is client state, so drive it through the control.
+        select = pg.locator("[data-testid='feed-filter-select']")
+        check(f"feed: filter '{key}' exists", select.count() == 1)
+        select.first.select_option(key)
         # Wait for the refetch to settle rather than guessing a duration.
         try:
             pg.wait_for_selector(
@@ -1410,8 +1427,8 @@ with sync_playwright() as p:
 
         check(
             f"feed: filter '{key}' becomes the active one",
-            chip.first.get_attribute("aria-pressed") == "true",
-            f"aria-pressed={chip.first.get_attribute('aria-pressed')}",
+            select.first.input_value() == key,
+            f"value={select.first.input_value()}",
         )
 
         items = pg.locator("[data-testid='feed-item']")
@@ -1585,14 +1602,14 @@ with sync_playwright() as p:
         "a follow rendered as content",
     )
 
-    for key in ["all", "community", "reviews", "attendance"]:
+    for key in ["all", "community", "reviews", "following"]:
 
-        chip = pg.locator(f"[data-testid='feed-filter-{key}']")
+        select = pg.locator("[data-testid='feed-filter-select']")
 
-        if not chip.count():
+        if not select.count():
             continue
 
-        chip.first.click()
+        select.first.select_option(key)
         pg.wait_for_timeout(900)
 
         verbs = pg.locator("[data-testid='feed-verb']").all_inner_texts()
@@ -1610,7 +1627,9 @@ with sync_playwright() as p:
         )
 
     # A community row links to that artist's community, in this locale.
-    pg.locator("[data-testid='feed-filter-community']").click()
+    pg.locator("[data-testid='feed-filter-select']").first.select_option(
+        "community"
+    )
     pg.wait_for_timeout(1500)
     community_target = pg.locator("[data-testid='feed-target-link']").first
     community_href = (
@@ -5161,17 +5180,28 @@ with sync_playwright() as p:
         feed_items.count() >= 1,
         f"{feed_items.count()} items",
     )
-    for key in ["community", "reviews", "attendance"]:
-        chip = pg.locator(f"[data-testid='feed-filter-{key}']")
-        if chip.count():
-            chip.first.click()
-            pg.wait_for_timeout(700)
-            box = chip.first.bounding_box()
-            check(
-                f"mobile: the '{key}' filter is a usable touch target",
-                box and box["height"] >= 36,
-                f"{box}",
-            )
+    filter_control = pg.locator("[data-testid='feed-filter-select']")
+    check(
+        "mobile: the feed filter is present at 390px",
+        filter_control.count() == 1,
+        f"{filter_control.count()} controls",
+    )
+    if filter_control.count():
+        box = filter_control.first.bounding_box()
+        check(
+            "mobile: the filter is a usable touch target",
+            box and box["height"] >= 36,
+            f"{box}",
+        )
+        # On a phone the dropdown is the whole interaction: it has to take a
+        # choice there, not just be there.
+        filter_control.first.select_option("reviews")
+        pg.wait_for_timeout(700)
+        check(
+            "mobile: the filter takes a choice at 390px",
+            filter_control.first.input_value() == "reviews",
+            filter_control.first.input_value(),
+        )
 
     # A review written on a phone has to read on a phone: the stars stay
     # legible and the text wraps instead of stretching the page.

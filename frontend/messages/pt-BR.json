@@ -60,9 +60,8 @@
     "filter": {
       "all": "Tudo",
       "community": "Comunidade",
-      "reviews": "Avaliações",
-      "attendance": "Presencas",
-      "events": "Eventos"
+      "reviews": "Resenhas",
+      "following": "Seguindo"
     },
     "emptyTitle": "Nada por aqui ainda",
     "emptyDescription": "Siga artistas e pessoas para preencher seu feed.",

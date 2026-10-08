@@ -61,8 +61,7 @@
       "all": "Todo",
       "community": "Comunidad",
       "reviews": "Reseñas",
-      "attendance": "Asistencia",
-      "events": "Eventos"
+      "following": "Siguiendo"
     },
     "emptyTitle": "Aquí no hay nada todavía",
     "emptyDescription": "Sigue artistas y personas para llenar tu feed.",

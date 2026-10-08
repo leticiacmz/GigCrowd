@@ -306,21 +306,30 @@ export const searchAPI = {
  * something a reader asked to read, so offering it as a card would fill the
  * timeline with relationships nobody chose to publish.
  *
- * `events` is kept as the server-side alias for `attendance`, which is the name
- * a reader recognises for having gone to something.
+ * `following` is a scope rather than a kind of content: the same timeline with
+ * the reader's own actions taken out, leaving the people and artists they
+ * follow. It carries every kind of activity, because what makes a row belong
+ * there is who it came from, not what it is.
+ *
+ * `attendance`/`events` are still accepted by the API and still hold what a
+ * reader recognises as having gone to something; they are simply no longer a
+ * filter of their own, since attendance arrives on `all` and, when it comes
+ * from somebody followed, on `following`.
  */
 export type FeedCategory =
   | 'all'
   | 'community'
   | 'reviews'
+  | 'following'
   | 'attendance'
   | 'events';
 
+/** What the feed's filter offers, in the order it is offered. */
 export const FEED_CATEGORIES: FeedCategory[] = [
   'all',
   'community',
   'reviews',
-  'attendance',
+  'following',
 ];
 
 export const feedAPI = {

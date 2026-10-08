@@ -61,8 +61,7 @@
       "all": "All",
       "community": "Community",
       "reviews": "Reviews",
-      "attendance": "Attendance",
-      "events": "Events"
+      "following": "Following"
     },
     "emptyTitle": "Nothing here yet",
     "emptyDescription": "Follow artists and people to fill your feed.",
