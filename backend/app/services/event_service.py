@@ -6,6 +6,7 @@ from app.mappers.event_response_mapper import EventResponseMapper
 from app.services.lineup_artist_resolver import (
     LineupArtistResolver,
 )
+from app.services.lineup_images import lineup_images
 
 
 class EventService:
@@ -45,12 +46,23 @@ class EventService:
         if not venue:
             return None
 
+        lineup_slugs = await self._lineup_slugs(
+            event.lineup
+        )
+
+        # The photos for exactly the ids that resolved above, so a face and
+        # the link beneath it always name the same artist. One query for the
+        # whole bill, and none at all when nothing resolves.
+        lineup_photos = await lineup_images(
+            self.artist_repository,
+            lineup_slugs,
+        )
+
         return EventResponseMapper.from_domain(
             event=event,
             venue=venue,
-            lineup_slugs=await self._lineup_slugs(
-                event.lineup
-            ),
+            lineup_slugs=lineup_slugs,
+            lineup_images=lineup_photos,
         )
 
     async def _lineup_slugs(

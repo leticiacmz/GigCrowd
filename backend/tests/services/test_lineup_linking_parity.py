@@ -236,6 +236,114 @@ class TestTheEventPageLinksItsLineup:
         assert list(event.lineup) == []
 
 
+class TestThePhotosFollowTheIdentity:
+    """A photo claims *who* this is, exactly as the link beside it does.
+
+    The lineup entry never carried a photo (import filled only the artist
+    document), so the page has to look it up - and the lookup must agree with
+    the link on every point: resolved ids only, never a name, ambiguity
+    dropping both together, and an image that already exists left alone.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_saved_photo_reaches_both_pages(self):
+        database = a_world()
+
+        for artist in database.artists.documents:
+            if artist["slug"] == "marina-sena":
+                artist["image"] = (
+                    "https://cdn.example/marina.jpg"
+                )
+
+        event_service, festival_service = services(database)
+
+        event = await event_service.get_event(event_id())
+        festival = await festival_service.get_festival(event_id())
+
+        for payload in (event, festival):
+            entries = by_name(payload.lineup)
+
+            assert (
+                entries["Marina Sena"].image
+                == "https://cdn.example/marina.jpg"
+            )
+
+            # No stored photo stays no photo - it never borrows a face from
+            # another entry just to fill the slot.
+            assert entries["Tim Bernardes"].image is None
+            assert entries["Victo"].image is None
+
+    @pytest.mark.asyncio
+    async def test_an_entries_own_photo_is_never_replaced(self):
+        """A photo chosen for this bill outranks the document's."""
+
+        database = a_world()
+
+        for artist in database.artists.documents:
+            if artist["slug"] == "marina-sena":
+                artist["image"] = (
+                    "https://cdn.example/document.jpg"
+                )
+
+        document = database.events.documents[0]
+        document["lineup"] = [
+            {
+                **entry,
+                "image": "https://cdn.example/the-bill.jpg",
+            }
+            if entry["name"] == "Marina Sena"
+            else entry
+            for entry in LINEUP
+        ]
+
+        event_service, festival_service = services(database)
+
+        event = await event_service.get_event(event_id())
+        festival = await festival_service.get_festival(event_id())
+
+        for payload in (event, festival):
+            assert (
+                by_name(payload.lineup)["Marina Sena"].image
+                == "https://cdn.example/the-bill.jpg"
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_duplicated_import_gets_no_photo_either(self):
+        """Ambiguity drops the link and the face together.
+
+        Two documents claiming one Songkick id means the resolver cannot say
+        which artist this is; showing either one's photo would be the same
+        coin flip as linking, dressed up as decoration.
+        """
+
+        database = a_world()
+
+        for artist in database.artists.documents:
+            if artist["slug"] == "marina-sena":
+                artist["image"] = (
+                    "https://cdn.example/marina.jpg"
+                )
+
+        database.artists.documents.append(
+            {
+                **database.artists.documents[0],
+                "_id": ObjectId("64b7f0c0a1b2c3d4e5f60009"),
+                "slug": "marina-sena-duplicate",
+            }
+        )
+
+        event_service, festival_service = services(database)
+
+        event = await event_service.get_event(event_id())
+        festival = await festival_service.get_festival(event_id())
+
+        for payload in (event, festival):
+            entry = by_name(payload.lineup)["Marina Sena"]
+
+            assert entry.artist_slug is None
+            assert entry.image is None
+
+
 class TestTheTwoPagesAgree:
     @pytest.mark.asyncio
     async def test_the_same_entry_is_pressable_on_both(self):

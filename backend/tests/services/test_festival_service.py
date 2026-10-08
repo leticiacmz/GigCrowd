@@ -570,7 +570,13 @@ class TestLineup:
 
         await service.get_festival("507f1f77bcf86cd799439011")
 
-        assert len(queries) == 1
+        # Two batched reads of the artists collection, and no more: one
+        # resolves which performers have pages, one fetches their photos.
+        # Both stay a single `$in` however long the bill is - the failure
+        # this test exists to catch is a query *per performer*, and the
+        # photo lookup must not reintroduce it.
+        assert len(queries) == 2
+        assert all("$in" in str(query) for query in queries)
 
     @pytest.mark.asyncio
     async def test_a_festival_without_a_lineup_returns_an_empty_one(self):
@@ -646,6 +652,110 @@ class TestLineup:
         # put the act in.
         assert festival.lineup[0].name == LINEUP_DAY_ONE[0]["name"]
         assert festival.lineup[0].order == 0
+
+
+class TestLineupImages:
+    """The photo on a performer card, read from the artist document.
+
+    The lineup entry's own `image` slot has never been filled by import, so a
+    card with a face needs the lookup this suite pins: batched, keyed by the
+    same Songkick id the link uses, and never overwriting a photo that
+    already exists.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_imported_artists_photo_reaches_the_card(self):
+        artists = [
+            {
+                "_id": 1,
+                "slug": "arctic-monkeys-gigcrowd",
+                "external_ids": {"songkick": "Artist520117"},
+                "image": (
+                    "https://images.example/arctic-monkeys.jpg"
+                ),
+            }
+        ]
+
+        service = build([DAY_ONE], artists=artists)
+
+        festival = await service.get_festival(
+            "507f1f77bcf86cd799439011"
+        )
+
+        by_id = {
+            entry.songkick_id: entry
+            for entry in festival.lineup
+        }
+
+        assert (
+            by_id["520117"].image
+            == "https://images.example/arctic-monkeys.jpg"
+        )
+
+        # The second entry has no imported artist at all: it gets no face
+        # either, because there is no artist whose face it could be.
+        assert by_id["999999"].image is None
+
+    @pytest.mark.asyncio
+    async def test_an_imported_artist_without_a_photo_stays_plain(self):
+        artists = [
+            {
+                "_id": 1,
+                "slug": "arctic-monkeys-gigcrowd",
+                "external_ids": {"songkick": "Artist520117"},
+                "image": None,
+            }
+        ]
+
+        service = build([DAY_ONE], artists=artists)
+
+        festival = await service.get_festival(
+            "507f1f77bcf86cd799439011"
+        )
+
+        assert festival.lineup[0].image is None
+
+    @pytest.mark.asyncio
+    async def test_an_entries_own_image_is_never_replaced(self):
+        """A photo chosen for this bill outranks the document's."""
+
+        lineup = [
+            {
+                **LINEUP_DAY_ONE[0],
+                "image": "https://bill.example/day-one.jpg",
+            },
+            LINEUP_DAY_ONE[1],
+        ]
+
+        artists = [
+            {
+                "_id": 1,
+                "slug": "arctic-monkeys-gigcrowd",
+                "external_ids": {"songkick": "Artist520117"},
+                "image": "https://images.example/document.jpg",
+            }
+        ]
+
+        service = build(
+            [
+                festival_document(
+                    "507f1f77bcf86cd799439019",
+                    "Primavera Sound Dia 7 2022",
+                    starts_at=datetime(2022, 11, 7, tzinfo=UTC),
+                    lineup=lineup,
+                )
+            ],
+            artists=artists,
+        )
+
+        festival = await service.get_festival(
+            "507f1f77bcf86cd799439019"
+        )
+
+        assert (
+            festival.lineup[0].image
+            == "https://bill.example/day-one.jpg"
+        )
 
 
 class TestAnEditionImportedWithoutItsFestivalBlock:
