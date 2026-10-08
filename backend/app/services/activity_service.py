@@ -334,6 +334,11 @@ class ActivityService:
             artist["slug"]: {
                 "slug": artist["slug"],
                 "name": artist.get("name") or artist["slug"],
+                # The artist's own stored photograph, carried along by the
+                # query that is already running for their name. It is what a
+                # row falls back to when the thing it points at has no image
+                # of its own, which is most of the time.
+                "image": artist.get("image"),
             }
             for artist in artists
         }
@@ -374,6 +379,13 @@ class ActivityService:
                 "artist_slugs": document.get("artist_slugs") or [],
                 "starts_at": document.get("starts_at"),
                 "venue_slug": document.get("venue_slug"),
+                # Events have two image fields and only one of them is ever
+                # written: `image_url` is the shape the API speaks, and the
+                # enrichment pass patches Songkick's artwork in as
+                # `songkick_image`. Reading both here keeps the response
+                # field honest without teaching the feed about either source.
+                "image_url": document.get("image_url")
+                or document.get("songkick_image"),
             }
             for document in documents
         }
@@ -485,6 +497,11 @@ class ActivityService:
                     "artist_slug": document.get("artist_slug"),
                     "likes_count": document.get("likes_count", 0),
                     "comments_count": document.get("comments_count", 0),
+                    # The post's own uploaded image, read off the document
+                    # this branch already holds. No extra query either way:
+                    # when the post has none, the row falls back to the
+                    # artist's photograph.
+                    "image_url": document.get("image_url"),
                 }
 
             elif activity_type == ActivityType.COMMENT_POST.value and document:
@@ -494,6 +511,10 @@ class ActivityService:
                     "id": str(document["_id"]),
                     "post_id": str(document.get("post_id")),
                     "artist_slug": document.get("artist_slug"),
+                    # A comment has no image of its own, and the post it
+                    # answers is a second lookup the timeline does not need:
+                    # the row falls back to the artist's photograph instead.
+                    "image_url": None,
                 }
 
             elif activity_type == ActivityType.LIKE_POST.value and document:
@@ -504,6 +525,7 @@ class ActivityService:
                     "artist_slug": document.get("artist_slug"),
                     "likes_count": document.get("likes_count", 0),
                     "comments_count": document.get("comments_count", 0),
+                    "image_url": document.get("image_url"),
                 }
 
             elif activity_type in (
@@ -522,6 +544,10 @@ class ActivityService:
                     "title": event.get("title"),
                     "starts_at": event.get("starts_at"),
                     "venue_slug": event.get("venue_slug"),
+                    # Resolved from the event this branch already loaded, so
+                    # attendance and reviews cost no more queries than the
+                    # name they were already showing.
+                    "image_url": event.get("image_url"),
                 }
 
             elif activity_type == ActivityType.FOLLOW.value:

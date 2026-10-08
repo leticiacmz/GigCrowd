@@ -512,7 +512,14 @@ class TestEnrichment:
             item for item in activities if item["id"] == "act-own-post"
         )
 
-        assert post_activity["artist"] == {"slug": ARTIST_A, "name": "Nova"}
+        # The artist block is exactly what the row needs to render: identity,
+        # name, and the photograph they already have. Nothing else from the
+        # artist document rides along.
+        assert post_activity["artist"] == {
+            "slug": ARTIST_A,
+            "name": "Nova",
+            "image": None,
+        }
         assert post_activity["target"]["kind"] == "community_post"
         assert post_activity["target"]["id"] == "post-a"
         assert post_activity["content"] == "Nova rules"
@@ -610,3 +617,127 @@ class TestEnrichment:
         assert calls.count("community_posts") <= 1
         assert calls.count("comments") <= 1
         assert calls.count("artists") == 1
+        # The event behind the review - and with it that event's artwork - is
+        # read in the single pass it has always had. Images resolved from
+        # documents already loaded cost no extra round trip.
+        assert calls.count("events") == 1
+
+
+class TestImages:
+    """The feed shows a picture it already has, and claims none it does not.
+
+    Every URL asserted here was on a document the enrichment pass was already
+    reading: the artist lookup, the event lookup, and the target documents
+    themselves. Nothing is fetched, generated or stored for the feed's sake.
+    """
+
+    @pytest.mark.asyncio
+    async def test_artist_image_travels_with_the_artist(self, db):
+        await db.artists.update_one(
+            {"slug": ARTIST_A},
+            {"$set": {"image": "https://images.test/nova.jpg"}},
+        )
+
+        activities = await ActivityService.get_feed_activities(
+            ALICE, category="community"
+        )
+        post_activity = next(
+            item for item in activities if item["id"] == "act-own-post"
+        )
+
+        assert post_activity["artist"]["image"] == "https://images.test/nova.jpg"
+
+    @pytest.mark.asyncio
+    async def test_an_uploaded_post_image_is_exposed_on_its_target(self, db):
+        await db["community_posts"].update_one(
+            {"_id": "post-a"},
+            {"$set": {"image_url": "https://images.test/post-a.jpg"}},
+        )
+
+        activities = await ActivityService.get_feed_activities(
+            ALICE, category="community"
+        )
+        post_activity = next(
+            item for item in activities if item["id"] == "act-own-post"
+        )
+
+        assert post_activity["target"]["image_url"] == (
+            "https://images.test/post-a.jpg"
+        )
+
+    @pytest.mark.asyncio
+    async def test_event_artwork_is_exposed_on_a_review(self, db):
+        await db.events.update_one(
+            {"_id": "event-1"},
+            {"$set": {"image_url": "https://images.test/warehouse.jpg"}},
+        )
+
+        activities = await ActivityService.get_feed_activities(
+            ALICE, category="reviews"
+        )
+        review = activities[0]
+
+        assert review["target"]["kind"] == "event"
+        assert review["target"]["image_url"] == (
+            "https://images.test/warehouse.jpg"
+        )
+
+    @pytest.mark.asyncio
+    async def test_enrichment_artwork_is_read_when_the_primary_field_is_empty(
+        self, db
+    ):
+        """The pass that enriches an event writes `songkick_image`.
+
+        `image_url` is the field the API speaks, and it is the one that is
+        normally empty. Reading both here is what makes an enriched event's
+        artwork reach the feed at all.
+        """
+        await db.events.update_one(
+            {"_id": "event-1"},
+            {"$set": {"songkick_image": "https://images.test/sk.jpg"}},
+        )
+
+        activities = await ActivityService.get_feed_activities(
+            ALICE, category="reviews"
+        )
+
+        assert activities[0]["target"]["image_url"] == "https://images.test/sk.jpg"
+
+    @pytest.mark.asyncio
+    async def test_a_comment_target_claims_no_image(self, db):
+        """A comment has no picture, and the feed says so instead of guessing.
+
+        The post it answers would be a second lookup, so the row falls back to
+        the artist's photograph - which the caller already has.
+        """
+        activities = await ActivityService.get_feed_activities(
+            ALICE, category="community"
+        )
+        comment_activity = next(
+            item for item in activities if item["id"] == "act-bob-comment"
+        )
+
+        assert comment_activity["target"]["image_url"] is None
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_invented_when_the_data_has_no_image(self, db):
+        """Absent images stay absent rather than becoming a placeholder URL."""
+        protocols = ("http://", "https://")
+
+        activities = await ActivityService.get_feed_activities(ALICE)
+
+        assert activities, "the fixture feed must not be empty"
+
+        for activity in activities:
+            artist = activity["artist"]
+            if artist is not None:
+                assert "image" in artist
+                assert artist["image"] is None or str(
+                    artist["image"]
+                ).startswith(protocols)
+
+            target = activity["target"] or {}
+            if "image_url" in target:
+                assert target["image_url"] is None or str(
+                    target["image_url"]
+                ).startswith(protocols)

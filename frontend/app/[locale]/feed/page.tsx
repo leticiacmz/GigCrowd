@@ -27,6 +27,13 @@ interface FeedUser {
 interface FeedArtist {
   slug: string;
   name: string;
+  /**
+   * The artist's stored photograph, when they have one.
+   *
+   * It is also the fallback image for a row whose own target has none, which
+   * is why it rides along on the artist the activity already resolved.
+   */
+  image?: string | null;
 }
 
 interface FeedTarget {
@@ -43,6 +50,11 @@ interface FeedTarget {
   starts_at?: string | null;
   likes_count?: number;
   comments_count?: number;
+  /**
+   * The target's own stored image: the uploaded post picture, or the event's
+   * artwork. `null` when it has none - never a guess, and never a live lookup.
+   */
+  image_url?: string | null;
 }
 
 interface FeedItem {
@@ -237,6 +249,14 @@ function FeedRow({ item, locale }: { item: FeedItem; locale: string }) {
     [item, locale, t]
   );
 
+  /*
+   * One thumbnail, from data the API already resolved: the picture that
+   * belongs to whatever the row points at, and otherwise the artist's own.
+   * Nothing here searches or fetches on the client's behalf - the same
+   * batched queries that produced the sentence produced the URL.
+   */
+  const image = feedImage(item);
+
   const actorName = item.user.username
     ? `@${item.user.username}`
     : t('activity.followNoUsername');
@@ -312,9 +332,52 @@ function FeedRow({ item, locale }: { item: FeedItem; locale: string }) {
             </time>
           </div>
         </div>
+
+        {/*
+          The picture is last in the row so the sentence keeps the width it
+          had: a card that shows one gains a column, a card that shows none
+          does not move.
+        */}
+        {image && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={image.src}
+            alt={image.alt}
+            loading="lazy"
+            data-testid="feed-image"
+            className="h-12 w-12 shrink-0 self-center rounded-lg object-cover sm:h-14 sm:w-14"
+          />
+        )}
       </div>
     </Card>
   );
+}
+
+/**
+ * The image a row shows, and what it is called.
+ *
+ * The target's own picture wins because that is what the row is about - the
+ * show someone is going to, or the post they wrote - and the artist's
+ * photograph fills in when the target has none, which is the common case.
+ * Both URLs arrive on the same payload; nothing is resolved here.
+ */
+function feedImage(item: FeedItem): { src: string; alt: string } | null {
+  const targetImage = item.target?.image_url;
+
+  if (targetImage) {
+    const alt =
+      item.target?.kind === 'event'
+        ? item.target.title || item.artist?.name || ''
+        : item.artist?.name || '';
+
+    return { src: targetImage, alt };
+  }
+
+  if (item.artist?.image) {
+    return { src: item.artist.image, alt: item.artist.name };
+  }
+
+  return null;
 }
 
 /**
