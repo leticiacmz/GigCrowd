@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * The events catalogue: find what is on, by text and by genre.
+ * The events catalogue, and the one search box.
  *
  * Two things this page deliberately does not do.
  *
@@ -15,10 +15,20 @@
  * filter ran would show a count that disagrees with the list under it and would
  * make "next page" skip rows.
  *
- * The artist search that used to be the whole of this page is still here, below
- * the event results. Finding an act that GigCrowd has never heard of is how it
- * gets imported, and it is a different question from "what is on" - so it keeps
- * its own search rather than pretending the two are one.
+ * It also does not ask the reader which source to search. "Marina Sena", "Mada"
+ * and "Espaço Unimed" are one question, so the box asks it once and the answer
+ * says what each result is: an act from Songkick, a show from the catalogue,
+ * and among the shows, festival editions. One request reaches the server for
+ * that answer, and the reader never has to know it is two questions underneath.
+ *
+ * An empty box lists what is on, exactly as before: upcoming shows, genre
+ * filter and cursor included. A typed query is a *lookup rather than a browse*
+ * - it reaches shows that have already happened, because searching "Mada" and
+ * being told "nothing" when the editions are held here would be the box lying
+ * about what it can see.
+ *
+ * Searching imports nothing. Picking an act is what imports it, and that is a
+ * separate, deliberate action.
  */
 
 import {
@@ -31,11 +41,12 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
-import { artistAPI, eventAPI } from '../../lib/api';
+import { artistAPI, eventAPI, searchAPI } from '../../lib/api';
 import type {
   EventSearchCursor,
   EventSearchRow,
 } from '@/app/types/eventSearch';
+import type { ArtistSearchResult } from '@/app/types/unifiedSearch';
 
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
@@ -44,18 +55,6 @@ import ArtistCard from '../../../components/ArtistCard';
 import LoadingState from '../../../components/LoadingState';
 
 import { formatEventDateRange } from '../../lib/dates';
-
-interface ArtistSearchResult {
-  provider: string;
-  provider_artist_id: string;
-  name: string;
-  followers?: number;
-  image?: string;
-  genres?: string[];
-  is_imported: boolean;
-  slug?: string;
-  id?: string;
-}
 
 const PAGE_SIZE = 20;
 
@@ -81,16 +80,23 @@ export default function EventsPage() {
   const [hasSearched, setHasSearched] = useState(false);
 
   /*
-    The artist half of the page, unchanged in behaviour: Songkick search for an
-    act, then import it.
+    The artist half of the box: the acts found for the query, and import when
+    one is picked. Searching never imports; picking is the deliberate action.
   */
   const [artists, setArtists] = useState<ArtistSearchResult[]>([]);
-  const [artistLoading, setArtistLoading] = useState(false);
   const [importingArtistId, setImportingArtistId] = useState<string | null>(
     null
   );
   const [artistError, setArtistError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+    What the list on screen is answering: the empty string for "what is on",
+    the submitted text for a lookup. Held apart from `query` - what is in the
+    box - because a reader may type without submitting, and the empty state
+    must describe the answer they got rather than the words never sent.
+  */
+  const [activeQuery, setActiveQuery] = useState('');
 
   /*
     Read once. The genre list comes from artist metadata and does not change as
@@ -121,6 +127,16 @@ export default function EventsPage() {
     };
   }, []);
 
+  /*
+    One list, two questions behind it.
+
+    With text, the box is a lookup: one request to the unified search returns
+    the catalogue's matches and Songkick's acts together, and the type of each
+    result is read from which field it arrived in. Without text it is the
+    browse list it has always been - upcoming shows, upcoming-only, cursor
+    and all - so "what is on" does not start reporting last year's dates
+    because somebody cleared the box.
+  */
   const runSearch = useCallback(
     async (options: {
       q?: string;
@@ -128,27 +144,63 @@ export default function EventsPage() {
       before?: string;
       beforeId?: string;
     }) => {
-      try {
-        const data = await eventAPI.searchEvents({
-          q: options.q,
-          genre: options.genre,
-          limit: PAGE_SIZE,
-          before: options.before,
-          beforeId: options.beforeId,
-        });
+      const text = (options.q ?? '').trim();
+      const isLookup = text.length > 0;
 
-        setRows(data.events ?? []);
-        setTotal(data.total ?? 0);
-        setCursor(data.next_cursor ?? null);
+      try {
+        if (isLookup) {
+          const data = await searchAPI.unifiedSearch({
+            q: text,
+            genre: options.genre,
+            limit: PAGE_SIZE,
+            before: options.before,
+            beforeId: options.beforeId,
+          });
+
+          setRows(data.events ?? []);
+          setTotal(data.total ?? 0);
+          setCursor(data.next_cursor ?? null);
+
+          /*
+            The acts are taken only from a first page. Paging is not a new
+            question about who is playing, and re-asking would swap the cards
+            under the reader while they are reading dates.
+          */
+          if (!options.before) {
+            setArtists(data.artists ?? []);
+            setArtistError(
+              data.artists_unavailable ? t('searchError') : null
+            );
+          }
+        } else {
+          const data = await eventAPI.searchEvents({
+            genre: options.genre,
+            limit: PAGE_SIZE,
+            before: options.before,
+            beforeId: options.beforeId,
+          });
+
+          setRows(data.events ?? []);
+          setTotal(data.total ?? 0);
+          setCursor(data.next_cursor ?? null);
+          setArtists([]);
+          setArtistError(null);
+        }
       } catch {
         setRows([]);
         setTotal(0);
         setCursor(null);
+
+        if (isLookup) {
+          setArtists([]);
+          setArtistError(t('searchError'));
+        }
       } finally {
+        setActiveQuery(text);
         setHasSearched(true);
       }
     },
-    []
+    [t]
   );
 
   /*
@@ -199,13 +251,25 @@ export default function EventsPage() {
     setLoadingMore(true);
 
     try {
-      const data = await eventAPI.searchEvents({
-        q: query.trim() || undefined,
-        genre: genre || undefined,
-        limit: PAGE_SIZE,
-        before: cursor.date,
-        beforeId: cursor.id,
-      });
+      /*
+        The *submitted* query decides the endpoint, not what is in the box
+        now: paging continues the list on screen, so a word typed but never
+        sent may not change where the next page comes from.
+      */
+      const data = activeQuery
+        ? await searchAPI.unifiedSearch({
+            q: activeQuery,
+            genre: genre || undefined,
+            limit: PAGE_SIZE,
+            before: cursor.date,
+            beforeId: cursor.id,
+          })
+        : await eventAPI.searchEvents({
+            genre: genre || undefined,
+            limit: PAGE_SIZE,
+            before: cursor.date,
+            beforeId: cursor.id,
+          });
 
       /*
         Merged by identity. Two pages can overlap if an event is imported between
@@ -224,26 +288,6 @@ export default function EventsPage() {
       // rather than skipping them.
     } finally {
       setLoadingMore(false);
-    }
-  }
-
-  async function searchArtists() {
-    const trimmed = query.trim();
-
-    if (!trimmed) {
-      return;
-    }
-
-    try {
-      setArtistLoading(true);
-      setArtistError(null);
-
-      setArtists(await artistAPI.searchArtists(trimmed));
-    } catch {
-      setArtists([]);
-      setArtistError(t('searchError'));
-    } finally {
-      setArtistLoading(false);
     }
   }
 
@@ -316,7 +360,7 @@ export default function EventsPage() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('searchPlaceholder')}
+              placeholder={tEvents('unifiedPlaceholder')}
               aria-label={tEvents('searchLabel')}
               className="flex-1"
               disabled={isImporting}
@@ -366,6 +410,52 @@ export default function EventsPage() {
           </div>
         )}
 
+        {artistError && (
+          <div
+            role="alert"
+            className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+            data-testid="artist-search-error"
+          >
+            {artistError}
+          </div>
+        )}
+
+        {/*
+          The acts the query named, ahead of the shows: "Marina Sena" is a
+          person first and a list of dates second, and the act is what a reader
+          opens - or imports, when GigCrowd has never heard of them.
+
+          Shown only when there are any. A grid of nothing above a list of
+          shows would be noise, and "no artists found" is not the interesting
+          half of a search that found events.
+        */}
+        {artists.length > 0 && (
+          <section className="mb-8" data-testid="artist-search-section">
+            <h2 className="mb-3 text-lg font-semibold">
+              {tEvents('artistsResults')}
+            </h2>
+
+            <div
+              className={[
+                'grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3',
+                isImporting ? 'pointer-events-none opacity-60' : '',
+              ].join(' ')}
+              data-testid="artist-search-results"
+            >
+              {artists.map((artist) => (
+                <ArtistCard
+                  key={`${artist.provider}-${artist.provider_artist_id}`}
+                  artist={artist}
+                  basePath={`/${locale}`}
+                  onClick={() => selectArtist(artist)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {isImporting && <LoadingState message={t('importing')} />}
+
         {searchLoading && rows.length === 0 ? (
           <LoadingState message={t('searching')} />
         ) : rows.length === 0 && hasSearched ? (
@@ -374,6 +464,17 @@ export default function EventsPage() {
             data-testid="event-search-empty"
           >
             <p className="text-muted">{tEvents('noResults')}</p>
+
+            {/*
+              Said only for a query that found nothing at all, and only for a
+              query: "what is on" with no shows ahead is a different answer,
+              and neither case is helped by a note about venues.
+            */}
+            {activeQuery && artists.length === 0 && !artistError && (
+              <p className="mt-2 text-sm text-muted-subtle">
+                {tEvents('noResultsHint')}
+              </p>
+            )}
           </div>
         ) : (
           <ul
@@ -410,98 +511,6 @@ export default function EventsPage() {
             </Button>
           </div>
         )}
-
-        {/* ============================================================
-            ARTISTS
-
-            Songkick search and import. A separate section because it answers a
-            different question: not "what is on" but "is this act on GigCrowd
-            yet", and if not, how does it get here.
-            ============================================================ */}
-        <section className="mt-14 border-t border-hairline pt-10">
-          <h2 className="mb-1 text-xl font-bold">
-            {t('searchTitle')}
-          </h2>
-
-          <p className="mb-4 text-sm text-muted">
-            {tEvents('artistHint')}
-          </p>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              searchArtists();
-            }}
-            className="mb-6"
-          >
-            <div className="flex gap-3">
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t('searchPlaceholder')}
-                aria-label={t('searchPlaceholder')}
-                className="flex-1"
-                disabled={isImporting}
-              />
-
-              <Button
-                type="submit"
-                disabled={artistLoading || isImporting}
-                data-testid="artist-search-submit"
-              >
-                {artistLoading ? t('searching') : t('search')}
-              </Button>
-            </div>
-          </form>
-
-          {artistError && (
-            <div
-              role="alert"
-              className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
-              data-testid="artist-search-error"
-            >
-              {artistError}
-            </div>
-          )}
-
-          {artistLoading && (
-            <LoadingState message={t('searching')} />
-          )}
-
-          {!artistLoading && isImporting && (
-            <LoadingState message={t('importing')} />
-          )}
-
-          {!artistLoading &&
-            !isImporting &&
-            artists.length === 0 &&
-            artistError && (
-              <div className="py-12 text-center">
-                <p className="text-muted">
-                  {t('noSearchResults')}
-                </p>
-              </div>
-            )}
-
-          {!artistLoading && (
-            <div
-              className={[
-                'grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3',
-                isImporting ? 'pointer-events-none opacity-60' : '',
-              ].join(' ')}
-              data-testid="artist-search-results"
-            >
-              {artists.map((artist) => (
-                <ArtistCard
-                  key={`${artist.provider}-${artist.provider_artist_id}`}
-                  artist={artist}
-                  basePath={`/${locale}`}
-                  onClick={() => selectArtist(artist)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
       </main>
     </div>
   );

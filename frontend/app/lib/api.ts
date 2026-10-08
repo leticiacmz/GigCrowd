@@ -26,6 +26,11 @@ import type {
 } from '../types/eventSearch';
 
 import type {
+  ArtistSearchResult,
+  UnifiedSearchResponse,
+} from '../types/unifiedSearch';
+
+import type {
   ProfileFestival,
   ProfileReview,
   ProfileShowStatus,
@@ -151,7 +156,7 @@ export const artistAPI = {
     const response = await api.get('/artists', { params });
     return response.data;
   },
-  searchArtists: async (query: string) => {
+  searchArtists: async (query: string): Promise<ArtistSearchResult[]> => {
     const response = await api.get('/artists/search', { params: { q: query } });
     return response.data;
   },
@@ -256,6 +261,40 @@ export const eventAPI = {
   },
   getAttendance: async (eventId: string) => {
     const response = await api.get(`/events/${eventId}/attendance`);
+    return response.data;
+  },
+};
+
+/**
+ * One box, one query, both answers.
+ *
+ * The reader does not choose a source before asking, so neither does this call:
+ * it sends the text once and the server answers with what the catalogue holds
+ * and what Songkick says, each in its own field. Asking changes nothing on the
+ * server - no artist is imported, no gigography synchronized - because search
+ * and import are separate actions, as they have always been.
+ *
+ * `before`/`beforeId` page the *events* half; the artist half is only ever
+ * asked on the first page, since paging is not a new question about who acts.
+ */
+export const searchAPI = {
+  unifiedSearch: async (options: {
+    q: string;
+    genre?: string;
+    limit?: number;
+    before?: string;
+    beforeId?: string;
+  }): Promise<UnifiedSearchResponse> => {
+    const response = await api.get('/search', {
+      params: {
+        q: options.q,
+        genre: options.genre || undefined,
+        limit: options.limit,
+        before: options.before,
+        before_id: options.beforeId,
+      },
+    });
+
     return response.data;
   },
 };

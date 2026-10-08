@@ -507,11 +507,14 @@
   },
   "eventSearch": {
     "title": "What's on",
-    "subtitle": "Search the concerts and festivals GigCrowd knows about, and narrow them by genre.",
+    "subtitle": "One box for events, artists and festivals - and a genre filter for what is on.",
     "searchLabel": "Search events and artists",
+    "unifiedPlaceholder": "Search events, artists, festivals, venues...",
     "genreLabel": "Genre",
     "genreAll": "All genres",
+    "artistsResults": "Artists",
     "noResults": "No events match that search.",
+    "noResultsHint": "This box searches event titles, artist names and festival editions; venue search is not available yet.",
     "more": "Show more ({shown} of {total})",
     "loadingMore": "Loading…",
     "artistHint": "Looking for an act that isn't here yet? Search Songkick and import it."

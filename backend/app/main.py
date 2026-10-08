@@ -34,6 +34,7 @@ from app.routes import (
     auth,
     users,
     events,
+    search,
     posts,
     feed,
     follows,
@@ -273,6 +274,8 @@ app.include_router(users.router)
 app.include_router(artists.router)
 
 app.include_router(events.router)
+
+app.include_router(search.router)
 
 app.include_router(posts.router)
 
