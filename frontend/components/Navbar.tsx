@@ -137,7 +137,7 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
           </span>
         </Link>
 
-        <div className="hidden flex-1 items-center gap-7 md:flex">
+        <div className="hidden flex-1 items-center justify-center gap-7 md:flex">
           {navLinks.map((link) => (
             <Link
               key={link.href}
