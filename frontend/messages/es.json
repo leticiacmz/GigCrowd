@@ -513,6 +513,7 @@
     "genreAll": "Todos los géneros",
     "artistsResults": "Artistas",
     "eventsResults": "Eventos",
+    "followingResults": "Mantente atento a las próximas fechas de los artistas que amas.",
     "noResults": "Ningún evento coincide con esa búsqueda.",
     "noResultsHint": "Esta búsqueda cubre títulos de eventos, nombres de artistas y ediciones de festivales; la búsqueda de recintos aún no está disponible.",
     "more": "Ver más ({shown} de {total})",

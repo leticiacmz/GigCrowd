@@ -221,6 +221,30 @@ export const eventAPI = {
   },
 
   /**
+   * The upcoming shows by the artists this reader follows.
+   *
+   * Signed-in only, and the page decides what to do with an empty answer:
+   * following nobody is not an error, it is the moment to show general
+   * discovery instead. Same row shape and same cursor as `searchEvents`, so
+   * the list on screen pages exactly like the one it stands in for.
+   */
+  followingEvents: async (options: {
+    limit?: number;
+    before?: string;
+    beforeId?: string;
+  } = {}) => {
+    const response = await api.get('/events/following', {
+      params: {
+        limit: options.limit,
+        before: options.before,
+        before_id: options.beforeId,
+      },
+    });
+
+    return response.data as EventSearchResponse;
+  },
+
+  /**
    * Every genre the catalogue can be filtered by, with how many artists carry it.
    *
    * Read once and held by the caller. The list is derived from artist metadata

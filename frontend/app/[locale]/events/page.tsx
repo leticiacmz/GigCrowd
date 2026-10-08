@@ -42,8 +42,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
 import { artistAPI, eventAPI, searchAPI } from '../../lib/api';
+import { isAuthenticated } from '../../lib/auth';
 import type {
   EventSearchCursor,
+  EventSearchResponse,
   EventSearchRow,
 } from '@/app/types/eventSearch';
 import type { ArtistSearchResult } from '@/app/types/unifiedSearch';
@@ -99,6 +101,15 @@ export default function EventsPage() {
   const [activeQuery, setActiveQuery] = useState('');
 
   /*
+    Whether the list on screen is the followed-artists list rather than the
+    general one - it picks the heading above the rows and where "more" pages
+    from. Set only once rows arrived: a personalized list with nothing in it
+    is not the experience this page should open on, so an empty answer falls
+    back to general discovery instead.
+  */
+  const [personalized, setPersonalized] = useState(false);
+
+  /*
     Read once. The genre list comes from artist metadata and does not change as
     pages load, so fetching it per keystroke would be a request that always
     returns the same answer.
@@ -149,6 +160,10 @@ export default function EventsPage() {
 
       try {
         if (isLookup) {
+          // A lookup is a question about the catalogue, not about who the
+          // reader follows; the heading must name the list actually shown.
+          setPersonalized(false);
+
           const data = await searchAPI.unifiedSearch({
             q: text,
             genre: options.genre,
@@ -173,12 +188,48 @@ export default function EventsPage() {
             );
           }
         } else {
-          const data = await eventAPI.searchEvents({
-            genre: options.genre,
-            limit: PAGE_SIZE,
-            before: options.before,
-            beforeId: options.beforeId,
-          });
+          /*
+            "What is on", asked in two steps for a signed-in reader.
+
+            The first ask is the artists they follow - the same rows, same
+            provenance rules, same cursor as this list, narrowed to who they
+            care about - and an empty answer (following nobody, or no shows
+            ahead yet) falls through to the general list everyone gets. The
+            page therefore never opens on an empty primary experience, and no
+            event is kept in two copies to drift apart.
+          */
+          let data: EventSearchResponse | null = null;
+
+          const wantsFollowing =
+            !options.genre && !options.before && !options.beforeId;
+
+          if (wantsFollowing && isAuthenticated()) {
+            try {
+              const followed = await eventAPI.followingEvents({
+                limit: PAGE_SIZE,
+              });
+
+              if ((followed.events ?? []).length > 0) {
+                data = followed;
+                setPersonalized(true);
+              }
+            } catch {
+              // The general list below is the answer that works either way -
+              // signed out mid-session, or the call failing entirely.
+              data = null;
+            }
+          }
+
+          if (!data) {
+            setPersonalized(false);
+
+            data = await eventAPI.searchEvents({
+              genre: options.genre,
+              limit: PAGE_SIZE,
+              before: options.before,
+              beforeId: options.beforeId,
+            });
+          }
 
           setRows(data.events ?? []);
           setTotal(data.total ?? 0);
@@ -190,6 +241,7 @@ export default function EventsPage() {
         setRows([]);
         setTotal(0);
         setCursor(null);
+        setPersonalized(false);
 
         if (isLookup) {
           setArtists([]);
@@ -254,7 +306,9 @@ export default function EventsPage() {
       /*
         The *submitted* query decides the endpoint, not what is in the box
         now: paging continues the list on screen, so a word typed but never
-        sent may not change where the next page comes from.
+        sent may not change where the next page comes from. The same holds
+        for the followed-artists list - it pages from its own endpoint, since
+        it is a different result set rather than a filter over this one.
       */
       const data = activeQuery
         ? await searchAPI.unifiedSearch({
@@ -264,12 +318,18 @@ export default function EventsPage() {
             before: cursor.date,
             beforeId: cursor.id,
           })
-        : await eventAPI.searchEvents({
-            genre: genre || undefined,
-            limit: PAGE_SIZE,
-            before: cursor.date,
-            beforeId: cursor.id,
-          });
+        : personalized
+          ? await eventAPI.followingEvents({
+              limit: PAGE_SIZE,
+              before: cursor.date,
+              beforeId: cursor.id,
+            })
+          : await eventAPI.searchEvents({
+              genre: genre || undefined,
+              limit: PAGE_SIZE,
+              before: cursor.date,
+              beforeId: cursor.id,
+            });
 
       /*
         Merged by identity. Two pages can overlap if an event is imported between
@@ -490,8 +550,11 @@ export default function EventsPage() {
             <h2
               className="mb-3 text-lg font-semibold"
               data-testid="event-search-section"
+              data-personalized={personalized ? 'true' : 'false'}
             >
-              {tEvents('eventsResults')}
+              {personalized
+                ? tEvents('followingResults')
+                : tEvents('eventsResults')}
             </h2>
 
             <ul
