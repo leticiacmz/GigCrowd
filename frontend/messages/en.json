@@ -512,6 +512,7 @@
     "genreLabel": "Genre",
     "genreAll": "All genres",
     "artistsResults": "Artists",
+    "eventsResults": "Events",
     "noResults": "No events match that search.",
     "noResultsHint": "This box searches event titles, artist names and festival editions; venue search is not available yet.",
     "more": "Show more ({shown} of {total})",

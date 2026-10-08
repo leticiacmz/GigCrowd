@@ -477,20 +477,38 @@ export default function EventsPage() {
             )}
           </div>
         ) : (
-          <ul
-            className="space-y-3"
-            data-testid="event-search-results"
-            data-total={total}
-          >
-            {rows.map((row) => (
-              <li key={row.id}>
-                <EventResultRow
-                  row={row}
-                  locale={locale}
-                />
-              </li>
-            ))}
-          </ul>
+          <>
+            {/*
+              The second of the two groups a lookup answers with. "Marina
+              Sena" is an artist and a list of dates, and a reader has to be
+              able to tell which half of the page they are looking at without
+              reading every row. The heading is data-driven: it sits above
+              whatever `rows` holds, festival editions included, because a
+              festival edition *is* an event with its edition semantics kept
+              by the badge below rather than a third dataset.
+            */}
+            <h2
+              className="mb-3 text-lg font-semibold"
+              data-testid="event-search-section"
+            >
+              {tEvents('eventsResults')}
+            </h2>
+
+            <ul
+              className="space-y-3"
+              data-testid="event-search-results"
+              data-total={total}
+            >
+              {rows.map((row) => (
+                <li key={row.id}>
+                  <EventResultRow
+                    row={row}
+                    locale={locale}
+                  />
+                </li>
+              ))}
+            </ul>
+          </>
         )}
 
         {cursor && (
@@ -531,6 +549,8 @@ function EventResultRow({
   row: EventSearchRow;
   locale: string;
 }) {
+  const tCard = useTranslations('eventCard');
+
   const from = row.starts_at
     ? formatEventDateRange(row.starts_at, locale as never)
     : null;
@@ -544,6 +564,27 @@ function EventResultRow({
     [row.venue?.name, row.venue?.city || row.location?.city]
       .filter(Boolean)
       .join(' · ') || null;
+
+  /*
+   * The entity this row is. Derived from the two fields the catalogue already
+   * carries - the `festival` block the API only writes when a series id backs
+   * it, and `event_type` - so a festival edition that has not been tied to a
+   * series yet still reads as one instead of silently becoming a concert.
+   */
+  const isFestivalRow =
+    Boolean(row.festival?.series_id) ||
+    row.event_type === 'FestivalInstance';
+
+  /*
+   * The trusted artist relationship, surfaced as slugs rather than as nested
+   * links: the whole row is already the link to the event, and GigCrowd only
+   * ever fills `artists` with artists that exist, so the identity on offer is
+   * a real one.
+   */
+  const artistSlugs = row.artists
+    .map((artist) => artist.slug)
+    .filter(Boolean)
+    .join(',');
 
   return (
     <Link
@@ -566,6 +607,8 @@ function EventResultRow({
         sm:gap-4
       "
       data-testid="event-search-row"
+      data-entity-type={isFestivalRow ? 'festival_edition' : 'event'}
+      data-artist-slugs={artistSlugs}
     >
       <span className="min-w-0 flex-1">
         <span className="block font-medium text-foreground">
@@ -573,6 +616,24 @@ function EventResultRow({
         </span>
 
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-subtle">
+          <span
+            className="
+              rounded
+              border
+              border-border
+              px-1.5
+              py-px
+              text-[11px]
+              font-medium
+              uppercase
+              tracking-wide
+              text-muted
+            "
+            data-testid="event-search-type"
+          >
+            {isFestivalRow ? tCard('festival') : tCard('concert')}
+          </span>
+
           {row.artists.length > 0 && (
             <span>{row.artists.map((a) => a.name).join(', ')}</span>
           )}

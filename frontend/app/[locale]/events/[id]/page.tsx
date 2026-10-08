@@ -507,7 +507,16 @@ export default function EventDetailPage() {
               {displayTitle}
             </h1>
 
-            {isFestival && linkedArtists.length > 0 && (
+            {/*
+              Every event, not only a festival. `artist_slugs` are GigCrowd
+              slugs the importer wrote for an artist it already knows, so the
+              link is a trusted identity rather than a guess about the title,
+              and opening it runs the same `pending -> initializing ->
+              initialized` path every other artist page does. The festival-only
+              guard that used to live here hid the one relationship a normal
+              show has.
+            */}
+            {linkedArtists.length > 0 && (
               <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-muted-subtle">{t('artist')}</span>
 

@@ -512,6 +512,7 @@
     "genreLabel": "Género",
     "genreAll": "Todos los géneros",
     "artistsResults": "Artistas",
+    "eventsResults": "Eventos",
     "noResults": "Ningún evento coincide con esa búsqueda.",
     "noResultsHint": "Esta búsqueda cubre títulos de eventos, nombres de artistas y ediciones de festivales; la búsqueda de recintos aún no está disponible.",
     "more": "Ver más ({shown} de {total})",
