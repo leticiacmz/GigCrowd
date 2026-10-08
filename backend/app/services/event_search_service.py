@@ -20,6 +20,13 @@ page of results that shifts because a show was logged while somebody was reading
 would, with an offset, silently skip a row; a cursor cannot skip, because it
 names a position rather than a count.
 
+Ordering is one rule stated plainly: what is still to come is read soonest
+first, and what has already happened is read most recent first. Somebody looking
+for the next show should not scroll past next year's dates to find this month's,
+and somebody looking for a show they remember should meet the nearest one in
+time before the one from three years earlier. That is two sorted readings of one
+result set, walked by one cursor - not a scoring engine.
+
 Only upcoming events are listed by default. A catalogue of past events is what
 the profile's diary is for, and mixing the two makes "what is on" unanswerable.
 """
@@ -29,15 +36,31 @@ import re
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from pymongo import DESCENDING
+from pymongo import ASCENDING, DESCENDING
 
 from app.core.logger import get_logger
-from app.domain.event_provenance import trusted_upcoming_filter
+from app.domain.event_provenance import (
+    trusted_listing_filter,
+    trusted_upcoming_filter,
+)
 from app.repositories.artist_repository import ArtistRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.venue_repository import VenueRepository
 
 logger = get_logger("event_search")
+
+# What one row of a list needs - scanned without assembling a whole event.
+PAGE_PROJECTION = {
+    "title": 1,
+    "event_type": 1,
+    "starts_at": 1,
+    "ends_at": 1,
+    "venue_slug": 1,
+    "artist_slugs": 1,
+    "location": 1,
+    "festival.series_id": 1,
+    "festival.name": 1,
+}
 
 
 def escape_regex(value: str) -> str:
@@ -176,12 +199,13 @@ class EventSearchService:
         *,
         q: Optional[str] = None,
         genre: Optional[str] = None,
+        artist_slugs: Optional[list[str]] = None,
         limit: int = 20,
         before: Optional[str] = None,
         before_id: Optional[str] = None,
         include_past: bool = False,
     ) -> dict[str, Any]:
-        """One page of events matching the text and the genre.
+        """One page of events matching the text, the genre, or the artists named.
 
         Returns the page, the total that matched, and a cursor for the page after
         it - or `None`, which is the only signal the client needs to stop.
@@ -191,13 +215,18 @@ class EventSearchService:
 
         query: dict[str, Any] = {}
 
+        # One `now` for the whole request: the phase a row is placed in and the
+        # phase the first page asks for are read against the same instant, so a
+        # row cannot fall between them.
+        now = datetime.now(UTC)
+
         if not include_past:
             # An event with no date cannot be placed in time, and the enrichment
             # pass is what resolves that. Listing it as "upcoming" would put an
             # undated record at the top of a list of things that are about to
             # happen, so it is left out rather than guessed at.
             query["starts_at"] = {
-                "$gte": datetime.now(UTC)
+                "$gte": now
             }
 
             # A future claim has to be one that can be believed.
@@ -217,6 +246,24 @@ class EventSearchService:
             # is not a search.
             query["$and"] = list(query.get("$and", [])) + [
                 trusted_upcoming_filter()
+            ]
+
+        else:
+            # A listing that mixes past and future still has to refuse a future
+            # claim it cannot check. Without this clause `include_past=true`
+            # returned everything, so the one variant of this endpoint that
+            # reached back into history was also the one that showed a fixture
+            # or an unknown-provenance row as an upcoming gig.
+            #
+            # History is kept: the trust rule is about claims on the future, so
+            # this is `trusted_listing_filter` rather than the upcoming filter -
+            # the same clause the artist history listing already uses, from the
+            # repository, which stays the single place that knows what "still
+            # ahead" means.
+            query["$and"] = list(query.get("$and", [])) + [
+                trusted_listing_filter(
+                    EventRepository._still_ahead_dates_filter()
+                )
             ]
 
         text = (q or "").strip()
@@ -265,28 +312,67 @@ class EventSearchService:
                 else {"$in": {"$all": [existing, {"$in": slugs}]}}
             )
 
-        cursor = await self._cursor_for(
-            query,
-            before=before,
-            before_id=before_id,
+        if artist_slugs is not None:
+            # An explicit membership list - the artists this reader follows -
+            # matched against the same field genre filters on, so a
+            # personalized page is one query like every other, and not a second
+            # way of reaching the same rows that could drift apart from it.
+            wanted = list(
+                dict.fromkeys(
+                    str(slug)
+                    for slug in artist_slugs
+                    if slug
+                )
+            )
+
+            existing = query.get("artist_slugs")
+
+            if isinstance(
+                existing, dict
+            ) and isinstance(existing.get("$in"), list):
+
+                allowed = set(existing["$in"])
+
+                wanted = [
+                    slug
+                    for slug in wanted
+                    if slug in allowed
+                ]
+
+            if not wanted:
+                # Following nobody - or nobody carrying the chosen genre. An
+                # empty page states that plainly; it never widens into "every
+                # event", which is the failure this parameter must not have.
+                return {
+                    "events": [],
+                    "total": 0,
+                    "next_cursor": None,
+                    "genre": wanted_genre,
+                }
+
+            query["artist_slugs"] = {
+                "$in": wanted
+            }
+
+        boundary = _boundary_of(
+            before,
+            before_id,
         )
 
-        documents = await self.event_repository.collection.find(
-            cursor,
-            {
-                "title": 1,
-                "event_type": 1,
-                "starts_at": 1,
-                "ends_at": 1,
-                "venue_slug": 1,
-                "artist_slugs": 1,
-                "location": 1,
-                "festival.series_id": 1,
-                "festival.name": 1,
-            },
-        ).sort(
-            [("starts_at", DESCENDING), ("_id", DESCENDING)]
-        ).limit(limit + 1).to_list(length=None)
+        if include_past:
+            documents = await self._mixed_page(
+                query,
+                limit=limit,
+                boundary=boundary,
+                now=now,
+            )
+
+        else:
+            documents = await self._upcoming_page(
+                query,
+                limit=limit,
+                boundary=boundary,
+            )
 
         has_more = len(documents) > limit
 
@@ -370,61 +456,126 @@ class EventSearchService:
     # INTERNALS
     # ============================================================
 
-    async def _cursor_for(
+    async def _upcoming_page(
         self,
         query: dict,
-        before: Optional[str],
-        before_id: Optional[str],
-    ) -> dict:
-        """The query, plus "strictly after the last row of the previous page".
+        *,
+        limit: int,
+        boundary: Optional[tuple],
+    ) -> list[dict]:
+        """One page of what is still to come, soonest first.
 
-        With an offset, a show logged mid-read shifts every later row by one and
-        the reader silently skips a show. A cursor names a position in the sort
-        rather than a count of rows, so the next page starts exactly where the
-        last one stopped whatever happened in between.
+        The query already carries "still ahead" and its provenance rule; here it
+        only gains the position to start from, in the direction the list reads.
         """
 
-        cursor = dict(query)
+        page_query = dict(query)
 
-        if not before or not before_id:
-            return cursor
+        if boundary is not None:
+            page_query = _beyond(
+                page_query,
+                boundary,
+                ascending=True,
+            )
 
-        moment = _parse_cursor_date(before)
-
-        if moment is None:
-            return cursor
-
-        from app.utils.ids import to_object_id
-
-        # Sorted newest first on `(starts_at, _id)`, so "the rest of the list"
-        # is strictly *before* the boundary row. The second clause breaks the tie
-        # when several events share one instant - without it the boundary row
-        # comes back on the next page, and a reader scrolls forever seeing the
-        # same show at the bottom of every page.
-        boundary = to_object_id(before_id)
-
-        tie_break = (
-            {"_id": {"$lt": boundary}}
-            if boundary is not None
-            else {"_id": {"$ne": before_id}}
+        return await self._find_page(
+            page_query,
+            ASCENDING,
+            limit,
         )
 
-        after = {
-            "$or": [
-                {"starts_at": {"$lt": moment}},
-                {"starts_at": moment, **tie_break},
-            ]
+    async def _mixed_page(
+        self,
+        query: dict,
+        *,
+        limit: int,
+        boundary: Optional[tuple],
+        now: datetime,
+    ) -> list[dict]:
+        """One page of a lookup: what is still to come, then what has been.
+
+        A single sort cannot place upcoming and historical rows in these two
+        directions at once, so the result set is read in two sorted passes and
+        the cursor says which pass it stopped in: a boundary at or after `now`
+        still has upcoming rows ahead of it, one before `now` does not.
+
+        The split is taken at request time, which means an event starting
+        between two pages is read as history from then on - it has, by then,
+        started - and its row is one the reader has already scrolled past.
+        """
+
+        if boundary is None or boundary[0] >= now:
+
+            phase_query = dict(query)
+            phase_query["starts_at"] = {
+                "$gte": now
+            }
+
+            if boundary is not None:
+                phase_query = _beyond(
+                    phase_query,
+                    boundary,
+                    ascending=True,
+                )
+
+            documents = await self._find_page(
+                phase_query,
+                ASCENDING,
+                limit,
+            )
+
+            if len(documents) > limit:
+                # The page ends inside the upcoming pass; the historical one
+                # begins on the page after, exactly where this one stopped.
+                return documents
+
+            # The upcoming pass ran out mid-page, so the rest of the page is
+            # the most recent of what has already happened.
+            history_query = dict(query)
+            history_query["starts_at"] = {
+                "$lt": now
+            }
+
+            return documents + await self._find_page(
+                history_query,
+                DESCENDING,
+                limit + 1 - len(documents),
+            )
+
+        history_query = dict(query)
+        history_query["starts_at"] = {
+            "$lt": now
         }
+        history_query = _beyond(
+            history_query,
+            boundary,
+            ascending=False,
+        )
 
-        if "$or" in cursor:
-            cursor["$and"] = list(
-                cursor.get("$and", [])
-            ) + [after]
+        return await self._find_page(
+            history_query,
+            DESCENDING,
+            limit,
+        )
 
-        else:
-            cursor["$and"] = [after]
+    async def _find_page(
+        self,
+        query: dict,
+        direction: int,
+        limit: int,
+    ) -> list[dict]:
+        """`limit + 1` rows in one sort order.
 
-        return cursor
+        The extra row is the whole answer to "is there another page", asked of
+        the database rather than guessed from a count that may have moved.
+        """
+
+        return await self.event_repository.collection.find(
+            query,
+            PAGE_PROJECTION,
+        ).sort(
+            [("starts_at", direction), ("_id", direction)]
+        ).limit(limit + 1).to_list(length=None)
 
     async def _slugs_named(
         self,
@@ -504,6 +655,85 @@ class EventSearchService:
             for row in rows
             if row.get("slug")
         }
+
+
+def _boundary_of(
+    before: Optional[str],
+    before_id: Optional[str],
+) -> Optional[tuple]:
+    """The cursor row as a position: when it starts, and which row it is.
+
+    A cursor that is absent, half-written or not a date is read as "no cursor":
+    the list restarts at the top rather than failing on a position that was
+    never one.
+    """
+
+    if not before or not before_id:
+        return None
+
+    moment = _parse_cursor_date(before)
+
+    if moment is None:
+        return None
+
+    from app.utils.ids import to_object_id
+
+    return (
+        moment,
+        to_object_id(before_id),
+        str(before_id),
+    )
+
+
+def _beyond(
+    query: dict,
+    boundary: tuple,
+    *,
+    ascending: bool,
+) -> dict:
+    """The query, plus "strictly beyond the cursor row in the sort order".
+
+    With an offset, a show logged mid-read shifts every later row by one and the
+    reader silently skips a show. A cursor names a position in the sort rather
+    than a count of rows, so the next page starts exactly where the last one
+    stopped whatever happened in between.
+
+    The second clause breaks the tie when several events share one instant -
+    without it the boundary row comes back on the next page, and a reader scrolls
+    forever seeing the same show at the bottom of every page. The clause is
+    appended to `$and` rather than replacing it, so the provenance rules the
+    query already carries stay in force on page two and beyond.
+    """
+
+    moment, row_id, raw_id = boundary
+
+    if row_id is None:
+        tie_break = {"_id": {"$ne": raw_id}}
+
+    elif ascending:
+        tie_break = {"_id": {"$gt": row_id}}
+
+    else:
+        tie_break = {"_id": {"$lt": row_id}}
+
+    beyond = {
+        "$or": [
+            {
+                "starts_at": (
+                    {"$gt": moment}
+                    if ascending
+                    else {"$lt": moment}
+                )
+            },
+            {"starts_at": moment, **tie_break},
+        ]
+    }
+
+    query["$and"] = list(
+        query.get("$and", [])
+    ) + [beyond]
+
+    return query
 
 
 def merged_genre_counts(rows) -> list[dict]:
