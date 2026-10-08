@@ -94,6 +94,15 @@ class ArtistSearchService:
 
                 response.slug = existing.slug
 
+                # The stored image, when there is one. This row has already
+                # been through import, so what the catalogue holds is the
+                # picture the reader sees everywhere else in the product;
+                # the provider's search image remains the fallback for the
+                # artists stored without one.
+                response.image = (
+                    existing.image or response.image
+                )
+
             # An artist imported before discovery was Songkick-first may carry
             # only a Spotify id. There is deliberately no second lookup for it:
             # matching a Songkick result to a Spotify-only row means comparing
@@ -179,6 +188,12 @@ class ArtistSearchService:
                 response.id = imported.id
 
                 response.slug = imported.slug
+
+                # Same rule as the Songkick half: the persisted picture
+                # first, the provider's as fallback.
+                response.image = (
+                    imported.image or response.image
+                )
 
             extras.append(response)
 
