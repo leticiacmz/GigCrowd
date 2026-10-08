@@ -188,7 +188,14 @@ export default function ArtistProfilePage() {
           <img
             src={artist.image}
             alt={artist.name}
-            className="h-48 w-full object-cover sm:h-72"
+            /*
+              The whole photograph, not a slice of it. A fixed-height cover
+              crop turns a band's horizontal shot into a strip of torsos and
+              cuts a portrait's head off; here the image keeps its intrinsic
+              ratio and is only letterboxed into the banner's height cap, so
+              what the artist chose as their picture is what a reader sees.
+            */
+            className="h-auto max-h-80 w-full object-contain"
           />
         )}
 
@@ -328,7 +335,7 @@ export default function ArtistProfilePage() {
                           src={relatedArtist.image}
                           alt={relatedArtist.name}
                           loading="lazy"
-                          className="mb-3 h-32 w-full rounded-lg object-cover"
+                          className="mb-3 h-32 w-full rounded-lg object-contain"
                         />
                       )}
                       <p className="line-clamp-1 text-sm font-semibold">

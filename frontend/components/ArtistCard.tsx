@@ -45,7 +45,7 @@ export default function ArtistCard({
             <img
               src={artist.image}
               alt={artist.name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-card-hover text-6xl">
