@@ -26,6 +26,16 @@ interface ArtistProfile {
     upcoming: number;
     total: number;
   };
+  // The identities this artist's record holds, as stored: Songkick's
+  // `Artist123` spelling, the Spotify id when one was ever matched, and so
+  // on. Read-only - the page builds addresses from them, it never searches
+  // for a name to fill a gap.
+  external_ids?: {
+    songkick?: string;
+    spotify?: string;
+    musicbrainz?: string;
+    [key: string]: string | undefined;
+  };
 }
 
 interface ArtistEvent {
@@ -35,6 +45,59 @@ interface ArtistEvent {
   ends_at?: string | null;
   event_type?: string;
   ticket_url?: string | null;
+}
+
+interface ExternalLink {
+  provider: 'songkick' | 'spotify';
+  href: string;
+}
+
+/**
+ * The provider addresses this artist's stored ids already name.
+ *
+ * Every URL is built from the exact id on the record - Songkick's stored
+ * `Artist123` spelling translated into the one that appears in their artist
+ * addresses - so a link lands on that id's own page and never on a search
+ * for a name that might belong to somebody else. An id that is missing, or
+ * that carries characters which would change the address, produces no link
+ * at all: there would be nothing trustworthy to point at.
+ */
+function buildExternalLinks(artist: ArtistProfile | null): ExternalLink[] {
+  const ids = artist?.external_ids;
+
+  if (!ids) {
+    return [];
+  }
+
+  const isAddressSafe = (value: string) => !/[\s/?#:]/.test(value);
+
+  const links: ExternalLink[] = [];
+
+  const songkick = (ids.songkick ?? '').trim();
+
+  if (songkick) {
+    const bare = /^artist/i.test(songkick)
+      ? songkick.slice('Artist'.length)
+      : songkick;
+
+    if (bare && isAddressSafe(bare)) {
+      links.push({
+        provider: 'songkick',
+        href: `https://www.songkick.com/artists/${bare}`,
+      });
+    }
+  }
+
+  const spotify = (ids.spotify ?? '').trim();
+
+  if (spotify && isAddressSafe(spotify)) {
+    links.push({
+      provider: 'spotify',
+      href: `https://open.spotify.com/artist/${spotify}`,
+    });
+  }
+
+  return links;
 }
 
 export default function ArtistProfilePage() {
@@ -180,6 +243,8 @@ export default function ArtistProfilePage() {
     })
     .slice(0, 6);
 
+  const externalLinks = buildExternalLinks(artist);
+
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
       <Card className="overflow-hidden p-0">
@@ -306,6 +371,45 @@ export default function ArtistProfilePage() {
             </Link>
           </Card>
         </section>
+
+        {/*
+          Where else this artist's page lives, built only from the identities
+          stored on the record. Each address is the provider's own form for
+          that exact id, so following one lands on this artist and never on a
+          same-named someone else; with no stored id there is no link to show.
+        */}
+        {externalLinks.length > 0 && (
+          <section aria-labelledby="on-other-sites-heading">
+            <h2
+              id="on-other-sites-heading"
+              className="mb-4 text-xl font-bold sm:text-2xl"
+            >
+              {t('onOtherSites')}
+            </h2>
+
+            <Card className="p-5 sm:p-6">
+              <ul
+                className="flex flex-wrap gap-3"
+                data-testid="artist-external-links"
+              >
+                {externalLinks.map((link) => (
+                  <li key={link.provider}>
+                    <a
+                      href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid={`artist-link-${link.provider}`}
+                      className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium text-muted transition-colors hover:border-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      {t(link.provider)}
+                      <span aria-hidden="true">↗</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </section>
+        )}
 
         {relatedArtists.length > 0 && (
           <section aria-labelledby="related-artists-heading">
