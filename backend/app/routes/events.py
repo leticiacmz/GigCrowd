@@ -247,10 +247,14 @@ async def followed_artist_events(
     A personalized page therefore cannot show a future claim the public page
     would refuse, and there is no second store of events to drift out of date.
 
-    Following nobody is an empty page rather than an error: the caller falls
-    back to general discovery, which is the answer that still has something to
-    say. Declared before `/{event_id}` so "following" is never read as an
-    event id.
+    Following nobody is an empty page rather than an error, and the page says
+    which of the two empties this is: `following_count` comes back with the
+    count behind the list even when the list is empty, so the client can offer
+    "you follow nobody" instead of "nobody has a show ahead" without asking a
+    second endpoint. There is no fallback to general discovery here on
+    purpose - a personalized section that quietly swaps in events from artists
+    the reader does not follow is no longer the reader's section.
+    Declared before `/{event_id}` so "following" is never read as an event id.
     """
 
     from app.repositories.artist_follow_repository import (
@@ -286,7 +290,7 @@ async def followed_artist_events(
 
     )
 
-    return await service.search(
+    page = await service.search(
 
         artist_slugs=slugs,
 
@@ -297,6 +301,10 @@ async def followed_artist_events(
         before_id=before_id,
 
     )
+
+    # The count rides along even when the page is empty, because the empty
+    # page has two different meanings and only the count tells them apart.
+    return {**page, "following_count": len(follows)}
 
 
 @router.get(

@@ -24,6 +24,7 @@ from app.routes.events import router as events_router
 from tests.support.fake_mongo import FakeDatabase, make_user
 
 ALICE = "aaaaaaaaaaaaaaaaaaaaaaa1"
+BOB = "bbbbbbbbbbbbbbbbbbbbbbb2"
 FOLLOWED = "marina-sena"
 OTHER = "tim-bernardes"
 
@@ -174,6 +175,33 @@ class TestFollowedArtistEvents:
 
         assert payload["total"] == 1
         assert payload["next_cursor"] is None
+        assert payload["following_count"] == 1
+
+    def test_an_empty_page_still_reports_the_follow_count(self, app):
+        """Empty is ambiguous, and the count is what tells the two apart.
+
+        The page has two different things to say when the list is empty -
+        "you follow nobody" and "nobody you follow has a show ahead" - and
+        it must not fetch a second endpoint to choose. So the count rides
+        along even when there are no rows, for a reader with follows and for
+        one without alike.
+        """
+        with TestClient(app) as client:
+            _sign_in_as(app, ALICE)
+            with_follows = client.get("/events/following").json()
+
+            _sign_in_as(app, BOB)
+            without_follows = client.get("/events/following").json()
+
+        # Alice follows Marina Sena, whose only upcoming show is on this
+        # page; her list is the one row above.
+        assert with_follows["following_count"] == 1
+
+        # Bob follows nobody: no rows, no error, and a zero that means
+        # "follows nobody" rather than "follows nobody with shows".
+        assert without_follows["events"] == []
+        assert without_follows["total"] == 0
+        assert without_follows["following_count"] == 0
 
     def test_paging_uses_the_same_cursor_convention(self, app):
         """A second page is asked for the way every other event list asks."""

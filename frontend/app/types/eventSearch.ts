@@ -47,6 +47,13 @@ export interface EventSearchResponse {
   total: number;
   next_cursor?: EventSearchCursor | null;
   genre?: string | null;
+  /**
+   * How many artists the reader follows. Only the personalized endpoint
+   * reports it, and it reports it even on an empty page - it is what lets
+   * the UI tell "you follow nobody" apart from "nobody you follow has a
+   * show ahead" without a second request.
+   */
+  following_count?: number | null;
 }
 
 /**
