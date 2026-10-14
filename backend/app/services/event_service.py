@@ -39,12 +39,16 @@ class EventService:
         if not event:
             return None
 
+        # A missing venue is a data gap, not a reason to hide the event. The
+        # venue document is written by a separate lookup, so an event whose
+        # venue row was never created - or was keyed differently by an older
+        # import - still has a title, a date and a lineup worth showing, and
+        # the response schema already models `venue` as optional. Returning
+        # `None` here made the event page 404 for a record that exists, which
+        # is the one outcome that cannot be corrected by the reader.
         venue = await self.venue_repository.get_by_slug(
             event.venue_slug
         )
-
-        if not venue:
-            return None
 
         lineup_slugs = await self._lineup_slugs(
             event.lineup
@@ -115,12 +119,14 @@ class EventService:
 
         for event in events:
 
+            # A venue-less event is still an event. Skipping it here dropped
+            # rows out of artist pages while the same event remained reachable
+            # by id, so the listing and the detail page disagreed about what
+            # exists. The mapper renders `venue: null` and the client shows the
+            # event without a venue line.
             venue = await self.venue_repository.get_by_slug(
                 event.venue_slug
             )
-
-            if not venue:
-                continue
 
             responses.append(
                 EventResponseMapper.from_domain(
@@ -145,12 +151,14 @@ class EventService:
 
         for event in events:
 
+            # A venue-less event is still an event. Skipping it here dropped
+            # rows out of artist pages while the same event remained reachable
+            # by id, so the listing and the detail page disagreed about what
+            # exists. The mapper renders `venue: null` and the client shows the
+            # event without a venue line.
             venue = await self.venue_repository.get_by_slug(
                 event.venue_slug
             )
-
-            if not venue:
-                continue
 
             responses.append(
                 EventResponseMapper.from_domain(
@@ -174,12 +182,14 @@ class EventService:
 
         for event in events:
 
+            # A venue-less event is still an event. Skipping it here dropped
+            # rows out of artist pages while the same event remained reachable
+            # by id, so the listing and the detail page disagreed about what
+            # exists. The mapper renders `venue: null` and the client shows the
+            # event without a venue line.
             venue = await self.venue_repository.get_by_slug(
                 event.venue_slug
             )
-
-            if not venue:
-                continue
 
             responses.append(
                 EventResponseMapper.from_domain(
