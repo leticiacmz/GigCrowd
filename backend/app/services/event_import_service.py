@@ -19,10 +19,6 @@ from app.services.provider_manager import (
     ProviderManager,
 )
 
-from app.services.event_enrichment_service import (
-    EventEnrichmentService,
-)
-
 import time
 
 from app.domain.artist import Artist
@@ -38,7 +34,6 @@ class EventImportService:
         event_repository: EventRepository,
         venue_repository: VenueRepository,
         artist_repository: ArtistRepository,
-        enrichment_service: EventEnrichmentService = None,
     ):
 
         self.provider_manager = provider_manager
@@ -48,11 +43,6 @@ class EventImportService:
         self.venue_repository = venue_repository
         
         self.artist_repository = artist_repository
-
-        # Shared with the scheduler's enrichment service, so an import-time
-        # read and a scheduled read are literally the same code path rather
-        # than two implementations that have to be kept in agreement.
-        self.enrichment_service = enrichment_service
 
     async def sync_artist_events(
         self,
@@ -77,7 +67,6 @@ class EventImportService:
             from app.services.lineup_artist_importer import (
                 LineupArtistImporter,
             )
-            from app.jobs.enrichment_job import resolve_fields
             from app.config import settings
 
             songkick_service = SongkickEventImportService(
@@ -85,22 +74,6 @@ class EventImportService:
                 self.event_repository,
                 self.venue_repository,
                 self.artist_repository,
-                # Enrichment on import is the normal path, not an opt-in extra
-                # pass. Turning it off is a deliberate choice about network
-                # budget, and the events it leaves behind are recovered by the
-                # scheduler instead of by a person.
-                enrichment_service=(
-                    self.enrichment_service
-                ),
-                enrich_fields=resolve_fields(
-                    settings.ENRICH_ON_IMPORT_FIELDS
-                ),
-                enrich_limit=(
-                    settings.ENRICH_ON_IMPORT_MAX_EVENTS
-                ),
-                enrich_delay_seconds=(
-                    settings.ENRICH_ON_IMPORT_DELAY_SECONDS
-                ),
                 lineup_importer=(
                     LineupArtistImporter(
                         self.artist_repository
