@@ -8,7 +8,7 @@ Inspired by the event discovery experience of Facebook Events and the social cat
 
 <p align="center">
 
-**🌐 [Visit GigCrowd](https://YOUR-VERCEL-DOMAIN)** · **⚡ [API](https://gigcrowd-api.onrender.com/)** · **📚 [API Documentation](https://gigcrowd-api.onrender.com/docs)**
+**🌐 [Visit GigCrowd]([https://YOUR-VERCEL-DOMAIN](https://gigcrowd.vercel.app/))** · **⚡ [API](https://gigcrowd-api.onrender.com/)** · **📚 [API Documentation](https://gigcrowd-api.onrender.com/docs)**
 
 </p>
 
