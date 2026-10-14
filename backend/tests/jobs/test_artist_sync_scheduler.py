@@ -1,11 +1,15 @@
 """Artist synchronization on the real scheduler.
 
-It shares one clock, one switch and one status endpoint with the enrichment and
-lifecycle passes, and it earns its place there because that is where the work it
+It shares one clock, one switch and one status endpoint with the lifecycle
+pass, and it earns its place there because that is where the work it
 replaced used to hide - inside a GET request. The properties that matter are that
 it is off unless configuration turns it on, that it cannot be started twice, that
 it survives a broken pass, and that a pass can be triggered deliberately rather
 than only on the next tick.
+
+It is also the pass that owns event discovery: it synchronizes through the same
+extraction pipeline a manual sync runs, so a refresh and an import cannot
+disagree about what an event looks like.
 """
 from __future__ import annotations
 
@@ -14,19 +18,11 @@ from typing import Any, Optional
 import pytest
 
 from app.jobs.artist_sync_job import ArtistSyncJobConfig
-from app.jobs.scheduler import EnrichmentScheduler
+from app.jobs.scheduler import BackgroundScheduler
 
 
 class Boom(RuntimeError):
     pass
-
-
-async def no_op_enrichment(*_):
-    """An enrichment pass that does nothing.
-
-    Async because the scheduler awaits its runner, and a synchronous stub would
-    fail in the executor rather than testing anything about artist sync.
-    """
 
 
 async def no_op_artist_sync(*_):
@@ -35,13 +31,12 @@ async def no_op_artist_sync(*_):
 
 def scheduler_with(
     *,
-    job_runner=None,
     artist_sync_enabled: bool = False,
     artist_sync_runner=None,
     synchronization_service: Any = None,
     synchronization_factory=None,
     **kwargs,
-) -> EnrichmentScheduler:
+) -> BackgroundScheduler:
     if synchronization_factory is None:
 
         service = (
@@ -52,10 +47,8 @@ def scheduler_with(
 
         synchronization_factory = lambda: service
 
-    return EnrichmentScheduler(
+    return BackgroundScheduler(
         enabled=False,
-        service_factory=lambda: object(),
-        job_runner=job_runner or no_op_enrichment,
         artist_sync_enabled=artist_sync_enabled,
         artist_sync_runner=artist_sync_runner or no_op_artist_sync,
         synchronization_factory=synchronization_factory,
@@ -94,12 +87,18 @@ class TestArtistSyncIsOffByDefault:
         assert calls == []
 
     def test_it_is_off_unless_configuration_says_otherwise(self):
-        from app.config import settings
+        from app.config import Settings, settings
 
         # A local run of the API must never begin scraping on its own. This is the
-        # same guarantee the other two passes make, and it is the reason the
+        # same guarantee the other passes make, and it is the reason the
         # synchronization that used to happen in a request is safe to move.
-        assert settings.ARTIST_SYNC_SCHEDULER_ENABLED is False
+        #
+        # The *default* is what carries that guarantee. `.env` may turn the pass
+        # on deliberately - configuration doing exactly what it is for - so the
+        # assertion is against the field default rather than the loaded value.
+        defaults = Settings.model_fields
+
+        assert defaults["ARTIST_SYNC_SCHEDULER_ENABLED"].default is False
         assert settings.ARTIST_SYNC_SCHEDULER_BATCH_SIZE > 0
         assert settings.ARTIST_SYNC_TTL_HOURS > 0
 
@@ -175,26 +174,27 @@ class TestArtistSyncRunsOnATick:
     @pytest.mark.asyncio
     async def test_one_pass_does_not_stop_the_others(self):
         # The passes are independent. A broken artist sync must not silence the
-        # enrichment pass or the lifecycle prompts.
+        # lifecycle prompts that are already overdue.
         ran: list[str] = []
 
         async def broken_sync(*_):
 
             raise Boom("artist sync failed")
 
+        async def lifecycle(*_):
+
+            ran.append("lifecycle")
+
         scheduler = scheduler_with(
             artist_sync_enabled=True,
             artist_sync_runner=broken_sync,
-            job_runner=(
-                lambda svc, config: ran.append("enrichment")
-            ),
             lifecycle_enabled=True,
-            lifecycle_runner=lambda *_: ran.append("lifecycle"),
+            lifecycle_runner=lifecycle,
         )
 
         await scheduler.run()
 
-        assert ran == ["enrichment", "lifecycle"]
+        assert ran == ["lifecycle"]
 
 
 class TestArtistSyncResultsAreReported:
@@ -269,9 +269,6 @@ class TestRunsCannotOverlap:
         scheduler = scheduler_with(
             artist_sync_enabled=True,
             artist_sync_runner=slow,
-            job_runner=(
-                lambda svc, config: started.append("enrichment")
-            ),
         )
 
         import asyncio

@@ -172,12 +172,13 @@ INDEXES: dict[str, list[tuple[str, Any, dict]]] = {
         ("festival.series_id_1", [("festival.series_id", ASCENDING)], {}),
         ("starts_at_1", [("starts_at", ASCENDING)], {}),
         ("event_type_1", [("event_type", ASCENDING)], {}),
-        # Serves the enrichment selector, which asks every tick which events are
-        # still missing a date. Without this the scheduler's own query is a
-        # collection scan, which is fine on a laptop and not fine on a
-        # catalogue. The compound key matches the order the selector reads the
-        # fields in, and the sparse tail keeps the index to the events that
-        # could ever be selected.
+        # `date_status` and its companion marker, read together by the backfill
+        # migration and by the read-only audits. It was originally added for a
+        # scheduled selector over incomplete events; that selector no longer
+        # exists, and the index is kept because dropping an index from a populated
+        # collection is a change somebody should make deliberately rather than as
+        # a side effect of deleting a module. The compound key matches the order
+        # those queries read the fields in.
         (
             "date_status_1_date_source_checked_at_1",
             [

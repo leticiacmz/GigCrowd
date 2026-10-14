@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
 
     # Started after the database is connected, because the first pass plans
     # against it. Disabled by default: this only does work when
-    # ENRICHMENT_SCHEDULER_ENABLED says so.
+    # SCHEDULER_ENABLED says so.
     scheduler.start()
 
     try:
@@ -304,8 +304,8 @@ async def health():
         "status": "ok",
         "service": "GigCrowd API",
         # Scheduling facts only: no credentials, no source URLs and no page
-        # content. Useful for confirming that enrichment is on in production and
-        # off everywhere else.
+        # content. Useful for confirming that the scheduler is on in production
+        # and off everywhere else.
         "scheduler": scheduler.get_status(),
     }
 

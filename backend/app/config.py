@@ -43,87 +43,31 @@ class Settings(BaseSettings):
     SONGKICK_REQUIRE_NAVIGATION: bool = True
 
     # =====================================================
-    # Scheduled event enrichment
+    # Background scheduler
     # =====================================================
-    # The scheduler keeps incomplete Songkick events moving without anyone
-    # remembering to run a script. It is OFF by default on purpose: turning it
-    # on means this process starts making outbound requests to Songkick on its
-    # own, and that must never happen merely because someone ran the API
-    # locally. Production is expected to set ENRICHMENT_SCHEDULER_ENABLED=true
-    # explicitly.
+    # One clock, for two passes: refreshing artist event catalogues through
+    # the same extraction pipeline a manual sync uses, and the event lifecycle
+    # prompts. Nothing here revisits an event because it was written short of
+    # a field - an extraction gap is reported where it is found, and the next
+    # catalog refresh re-reads the source through this same pipeline.
+    #
+    # It is OFF by default on purpose: turning it on means this process starts
+    # making outbound requests to Songkick on its own, and that must never
+    # happen merely because someone ran the API locally. Production is
+    # expected to set SCHEDULER_ENABLED=true explicitly.
 
-    ENRICHMENT_SCHEDULER_ENABLED: bool = False
+    SCHEDULER_ENABLED: bool = False
 
     # How long to wait between runs.
-    ENRICHMENT_SCHEDULER_INTERVAL_MINUTES: int = 360
-
-    # How many events one run may attempt. A run is bounded so a scheduler can
-    # never spend an unbounded amount of time inside someone else's servers.
-    ENRICHMENT_SCHEDULER_BATCH_SIZE: int = 25
-
-    # Seconds to wait between source requests inside a run. This is politeness
-    # toward Songkick, not a tuning knob.
-    ENRICHMENT_SCHEDULER_REQUEST_DELAY_SECONDS: float = 1.5
-
-    # Which missing fields to chase, using the enrichment service's own
-    # vocabulary: dates, lineup, location or all.
-    ENRICHMENT_SCHEDULER_FIELDS: str = "dates"
-
-    # Whether to also revisit events that already have a date. Needed for
-    # lineup and location work, and pointless for dates.
-    ENRICHMENT_SCHEDULER_INCLUDE_DATED: bool = False
-
-    # Whether to run once immediately on startup instead of waiting a full
-    # interval. Off by default so starting the API never triggers a burst of
-    # outbound requests.
-    ENRICHMENT_SCHEDULER_RUN_ON_STARTUP: bool = False
-
-    # =====================================================
-    # ENRICHMENT DURING IMPORT
-    # =====================================================
-    # A Songkick gigography is a listing, and a listing routinely names an event
-    # without stating its date even though the event's own page carries one. An
-    # import that wrote that row and stopped has imported an event nobody can
-    # place in time, and the only remedy was a human remembering to run a
-    # backfill afterwards.
-    #
-    # So an import reads the concrete source for anything it has just written
-    # that is still incomplete. This is ON by default, because it is the normal
-    # path rather than an extra: the alternative is imported data that is wrong
-    # until someone notices. Turning it off only moves the work to the
-    # scheduler, and leaves the record incomplete in the meantime.
-
-    ENRICH_ON_IMPORT_ENABLED: bool = True
-
-    # Which missing fields to chase during an import, using the same vocabulary
-    # as the scheduler. Dates by default, because a date is the one thing that
-    # makes an event usable and the one a listing most often leaves out.
-    ENRICH_ON_IMPORT_FIELDS: str = "dates"
-
-    # How many incomplete events one import may read the source of.
-    #
-    # It is a bound, not a budget: it has to be larger than the backlog one
-    # import can actually create, or the surplus is quietly handed to the
-    # scheduler, which drains 25 an hour. On 2026-10-07 a full-catalogue
-    # import left 585 incomplete festival listings while this bound was 60,
-    # and 108 of them were still undated fourteen hours later.
-    #
-    # The bound still exists so a pathological run cannot spend forever
-    # inside Songkick, and the import stops early on its own when the source
-    # stops answering: five consecutive failures defer the rest.
-    ENRICH_ON_IMPORT_MAX_EVENTS: int = 1000
-
-    # Seconds between source requests during an import. Politeness toward
-    # Songkick, same as the scheduler's delay.
-    ENRICH_ON_IMPORT_DELAY_SECONDS: float = 1.5
+    SCHEDULER_INTERVAL_MINUTES: int = 360
 
     # =====================================================
     # FIRST-PASS COMPLETENESS
     # =====================================================
     # An extraction reads the artist page, the calendar, the gigography and the
     # search results, then joins everything those pages state about an event
-    # under its id. What those pages leave out - chiefly a festival's lineup, and a
-    # listing Songkick published with no date - is stated only on the
+    # under its id. What that leaves out - chiefly a festival's lineup, and a
+    # listing Songkick published with no date on it - is stated only on the
     # event's own page, so one run reads those pages itself instead of owing
     # them to a later pass.
     #
