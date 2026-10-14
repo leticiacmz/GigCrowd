@@ -1,6 +1,8 @@
+
+from typing import Optional
+
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.config import settings
-from typing import Optional
 
 
 class Database:
@@ -8,35 +10,45 @@ class Database:
     database = None
 
     async def connect(self):
-        """Connect to MongoDB
-
-        `tz_aware=True` makes a datetime read back exactly as it was written.
-
-        BSON has no timezone, so by default MongoDB hands back naive datetimes
-        and a document written with an aware value never compares equal to
-        itself afterwards. That silently breaks anything which has to be
-        idempotent - a seed that rewrites the same rows on every run, or an
-        "update only what changed" comparison.
-        """
+        """Connect to MongoDB and verify the connection."""
         self.client = AsyncIOMotorClient(
             settings.MONGODB_URL,
             tz_aware=True,
+            serverSelectionTimeoutMS=10000,
         )
+
         self.database = self.client[settings.DATABASE_NAME]
-        print(f"Connected to MongoDB at {settings.MONGODB_URL}")
+
+        try:
+            # Verify connectivity and authentication during startup.
+            await self.client.admin.command("ping")
+            print("MongoDB connection established successfully.")
+
+        except Exception:
+            # Do not log the connection URI or credentials.
+            self.client.close()
+            self.client = None
+            self.database = None
+            print("MongoDB connection failed. Check the database configuration.")
+            raise
 
     async def disconnect(self):
-        """Disconnect from MongoDB"""
+        """Disconnect from MongoDB."""
         if self.client:
             self.client.close()
-            print("Disconnected from MongoDB")
+            self.client = None
+            self.database = None
+            print("Disconnected from MongoDB.")
 
     def get_database(self):
-        """Get database instance"""
+        """Get database instance."""
         return self.database
 
     def get_collection(self, name: str):
-        """Get a specific collection"""
+        """Get a specific collection."""
+        if self.database is None:
+            raise RuntimeError("Database is not connected.")
+
         return self.database[name]
 
 
@@ -44,5 +56,5 @@ db = Database()
 
 
 def get_database():
-    """Dependency to get database instance"""
+    """Dependency to get database instance."""
     return db.get_database()
