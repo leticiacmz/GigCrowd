@@ -166,11 +166,11 @@ class SongkickEventMapper:
             # those rows has a page of its own that does.
             #
             # Calling that `unavailable` asserted something this listing cannot
-            # know, and the enrichment selector took it at face value, so fifty
-            # festival dates whose dates were sitting on Songkick the whole time
-            # were never re-read. An undated listing therefore leaves the status
-            # unset: the date is unknown, which is not the same as the source
-            # having none, and unknown is exactly what enrichment retries.
+            # know: unknown is not the same as the source having none. The
+            # status therefore stays unset, which is what lets the extraction
+            # that reads the event's own page in this same run fill it in, and
+            # what lets the import report a date the source never had as a gap
+            # rather than as an answer.
             date_status = (
                 "source"
                 if (starts_at or ends_at)
@@ -207,6 +207,12 @@ class SongkickEventMapper:
         # ========================================================
         # LOCATION
         # ========================================================
+        #
+        # The provider's structured data states the venue's address, and
+        # `location` is that address read for the client. A payload carrying
+        # the address but no derived location block still says where the event
+        # is, so it is read here rather than left for a later pass to go and
+        # discover a fact this import is already holding.
 
         location = (
             songkick_event_data.get(
@@ -217,9 +223,47 @@ class SongkickEventMapper:
         if not isinstance(
             location,
             dict,
-        ):
+        ) or not location:
 
-            location = None
+            location = (
+                SongkickEventMapper
+                ._location_from_venue(
+                    songkick_event_data.get(
+                        "venue"
+                    )
+                )
+            )
+
+        # ========================================================
+        # PRESENTATION
+        # ========================================================
+        #
+        # The page's own description, photograph and status are facts the
+        # source states during extraction. They used to be dropped here and
+        # written later by a second pass straight onto the document, which
+        # meant the domain object never knew about them, a resync could not
+        # carry them, and two code paths disagreed about what an event holds.
+
+        description = songkick_event_data.get(
+            "description"
+        )
+
+        if not isinstance(description, str):
+            description = None
+
+        image_url = songkick_event_data.get(
+            "songkick_image"
+        )
+
+        if not isinstance(image_url, str):
+            image_url = None
+
+        event_status = songkick_event_data.get(
+            "event_status"
+        )
+
+        if not isinstance(event_status, str):
+            event_status = None
 
         # ========================================================
         # SOURCE
@@ -286,6 +330,12 @@ class SongkickEventMapper:
             location=location,
 
             source=source,
+
+            description=description,
+
+            image_url=image_url,
+
+            event_status=event_status,
 
             sold_out=False,
 
@@ -408,6 +458,64 @@ class SongkickEventMapper:
     # ============================================================
     # VENUE
     # ============================================================
+
+    @staticmethod
+    def _location_from_venue(
+        venue: Any,
+    ) -> dict | None:
+        """Where this venue is, read from the address the payload carried.
+
+        Only what the address states: city and country, nothing inferred. An
+        event whose payload carries no address returns `None`, which is an
+        honest answer - "not stated here" - rather than an empty block that
+        reads as though the location were known and empty.
+        """
+
+        if not isinstance(
+            venue,
+            dict,
+        ):
+            return None
+
+        address = venue.get(
+            "address"
+        )
+
+        if not isinstance(
+            address,
+            dict,
+        ):
+            return None
+
+        location: dict = {}
+
+        city = (
+            address.get(
+                "addressLocality"
+            )
+            or address.get("city")
+        )
+
+        country = (
+            address.get(
+                "addressCountry"
+            )
+            or address.get("country")
+        )
+
+        if isinstance(country, dict):
+            country = (
+                country.get("name")
+                or country.get("code")
+            )
+
+        if city:
+            location["city"] = str(city)
+
+        if country:
+            location["country"] = str(country)
+
+        return location or None
 
     @staticmethod
     def _create_venue(

@@ -118,6 +118,24 @@ class Settings(BaseSettings):
     ENRICH_ON_IMPORT_DELAY_SECONDS: float = 1.5
 
     # =====================================================
+    # FIRST-PASS COMPLETENESS
+    # =====================================================
+    # An extraction reads the artist page, the calendar, the gigography and the
+    # search results, then joins everything those pages state about an event
+    # under its id. What those pages leave out - chiefly a festival's lineup, and a
+    # listing Songkick published with no date - is stated only on the
+    # event's own page, so one run reads those pages itself instead of owing
+    # them to a later pass.
+    #
+    # This bounds how many of those pages one scrape may read. It is a bound,
+    # not a budget: an event that arrived complete costs nothing, and events
+    # past the bound are reported as extraction gaps in the import summary
+    # rather than handed to anything else. Set it to 0 to read only the pages
+    # the scrape pays for anyway.
+
+    SONGKICK_EVENT_PAGE_READS_PER_SCRAPE: int = 25
+
+    # =====================================================
     # LINEUP ARTISTS
     # =====================================================
     # A festival announces far more artists than the catalogue has imported, and
