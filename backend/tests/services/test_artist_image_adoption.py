@@ -313,16 +313,17 @@ class TestTheImportActuallyCarriesThePhotograph:
     artist initializes, and the page simply has no headshot - which looks exactly
     like the source not publishing a photograph.
 
-    This broke once, specifically: `sync_artist_events` reassigned the name
-    `result` inside its enrichment loop, so by the time its return statement ran
-    `result` described the last enriched *event* rather than the artist, and the
-    facts came back empty for every artist whose import enriched anything - which
-    is most of them. Asserted here so the loop and the return cannot share a name
-    again.
+    This broke once, specifically: `sync_artist_events` rebound the name
+    `result` inside a loop, so by the time its return statement ran `result`
+    described the last event rather than the artist, and the facts came back
+    empty for every artist whose import did anything past writing the first row.
+    The loop that caught it was an enrichment loop and is gone; the property it
+    broke is not. Asserted here so the import's loop and the import's return
+    cannot share a name again, whatever the loop turns out to be doing.
     """
 
     @pytest.mark.asyncio
-    async def test_the_facts_survive_an_import_that_enriched_something(self):
+    async def test_the_facts_survive_a_whole_import_loop(self):
         from app.mappers.artist_document_mapper import (
             ArtistDocumentMapper,
         )
@@ -367,25 +368,11 @@ class TestTheImportActuallyCarriesThePhotograph:
         manager = type("Manager", (), {})()
         manager.get_provider = lambda name: provider
 
-        # Enrichment runs, and returns something shaped like a fact about an
-        # event rather than about the artist. This is the shadowing that went
-        # unnoticed.
-        enrichment_calls = []
-
-        class Enrichment:
-            async def enrich_event(self, event_id, fields=None):
-                enrichment_calls.append(event_id)
-
-                return {"outcome": "updated", "event_id": event_id}
-
         service = SongkickEventImportService(
             provider_manager=manager,
             event_repository=type("E", (), {})(),
             venue_repository=type("V", (), {})(),
             artist_repository=repository,
-            enrichment_service=Enrichment(),
-            enrich_fields=["date"],
-            enrich_delay_seconds=0,
         )
 
         artist = ArtistDocumentMapper.to_domain(an_artist())
@@ -395,7 +382,7 @@ class TestTheImportActuallyCarriesThePhotograph:
         assert result["events_received"] == 1
 
         # The thing that matters: the artist's own facts, still the artist's
-        # facts, after a loop that reused the name.
+        # facts, after a loop that could have reused the name.
         assert result["artist_facts"].get("image") == STAGED
 
     @pytest.mark.asyncio

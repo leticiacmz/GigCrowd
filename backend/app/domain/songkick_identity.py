@@ -98,6 +98,34 @@ def normalize_songkick_artist_id(
     return None
 
 
+#: The prefix Songkick's own artist URLs use, and therefore the one form this
+#: catalogue stores a Songkick artist id in.
+ARTIST_ID_PREFIX = "Artist"
+
+
+def canonical_songkick_artist_id(value: Any) -> Optional[str]:
+    """The stored form of a Songkick artist id: `Artist` plus the digits.
+
+    `normalize_songkick_artist_id` answers *which artist* - the digits are the
+    identity, and that is what comparisons use. This answers *how the identity is
+    written down*, which is a second question that had to be settled: the lineup
+    path, the repository lookups and the seed all store `Artist520117`, while the
+    search-import path stored `520117`, so the same artist could be written two
+    ways and neither lookup could see the other's row.
+
+    One spelling, decided here. `None` means the value is not a Songkick artist
+    id at all - a Spotify id, a slug, arbitrary text - and the caller must treat
+    that as "no trusted identity" rather than storing whatever it was handed.
+    """
+
+    numeric = normalize_songkick_artist_id(value)
+
+    if numeric is None:
+        return None
+
+    return f"{ARTIST_ID_PREFIX}{numeric}"
+
+
 def artist_id_from_url(url: Any) -> Optional[str]:
     """The numeric Songkick artist ID a URL points at, if any.
 

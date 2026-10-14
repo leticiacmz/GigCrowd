@@ -1,16 +1,20 @@
 """The background scheduler.
 
 The project has exactly one scheduler and this is it. It owns a clock and
-nothing else: it decides when an enrichment pass runs, hands the pass to
-`run_enrichment_once`, and reports what happened. Every decision about *what*
-to enrich belongs to `EventEnrichmentService`, and every decision about *what
-one run does* belongs to `enrichment_job`.
+nothing else: on each tick it refreshes artist event catalogues through the
+same extraction pipeline a manual sync uses, and it runs the event lifecycle
+pass. Both are off unless configuration turns them on, and each pass decides
+for itself what one run does.
 
-This file used to be an accidental copy of `main.py` that imported a
-`create_scheduler` which had never existed, so importing it raised and nothing
-ever did. It was replaced rather than left in place, because the job above
-genuinely needs somewhere to be scheduled from and a second, competing scheduler
-would be worse than none.
+What it deliberately does *not* own: a pass over events because they were
+written short of a field. That used to exist here and it was removed with the
+rest of the recovery model, for a specific reason. Extraction reads every page
+it pays for, joins them by event id, and reads an event's own page in the same
+run when something is still missing; whatever remains missing afterwards is
+reported at the point it was found, with the event id and the field. A later
+pass could not report it any better, and giving it one meant a gap found now
+would look fixed to whoever reads the summary later. The catalog refresh is
+what re-reads a source - it is the same pipeline, not a second one.
 
 Two behaviours are deliberate and should not be "simplified" away:
 
@@ -34,27 +38,20 @@ from app.jobs.artist_sync_job import (
     ArtistSyncJobResult,
     run_artist_sync_once,
 )
-from app.jobs.enrichment_job import (
-    EnrichmentJobConfig,
-    EnrichmentJobResult,
-    resolve_fields,
-    run_enrichment_once,
-)
-from app.services.event_enrichment_service import EventEnrichmentService
 
 logger = get_logger("scheduler")
 
 # The name APScheduler knows this job by.
-JOB_ID = "songkick_enrichment"
+JOB_ID = "songkick_refresh"
 
 
-class EnrichmentScheduler:
-    """Runs event enrichment on an interval, when it has been asked to.
+class BackgroundScheduler:
+    """Runs the background passes on an interval, when asked to.
 
-    `service_factory` is how the scheduler gets hold of the enrichment service.
-    It is a callable rather than a service so the wiring can be decided by the
-    application - and so a test can hand in a service whose source client never
-    touches the network.
+    `synchronization_factory` is how the scheduler gets hold of the
+    synchronization service. It is a callable rather than a service so the
+    wiring can be decided by the application - and so a test can hand in a
+    service whose source client never touches the network.
     """
 
     def __init__(
@@ -62,13 +59,6 @@ class EnrichmentScheduler:
         *,
         enabled: bool = False,
         interval_minutes: int = 360,
-        batch_size: Optional[int] = 25,
-        delay_seconds: float = 1.5,
-        fields: Optional[str] = "dates",
-        include_dated: bool = False,
-        run_on_startup: bool = False,
-        service_factory: Optional[Callable[[], Any]] = None,
-        job_runner: Optional[Callable] = None,
         lifecycle_enabled: bool = False,
         lifecycle_batch_size: int = 50,
         lifecycle_lookback_hours: int = 48,
@@ -84,13 +74,9 @@ class EnrichmentScheduler:
     ):
         self.enabled = bool(enabled)
         self.interval_minutes = interval_minutes
-        self.include_dated = include_dated
-        self.run_on_startup = run_on_startup
-        self.service_factory = service_factory
-        self.job_runner = job_runner or run_enrichment_once
 
-        # A second job, on the same schedule and in the same tick, rather than a
-        # second scheduler: one clock, one switch, one status endpoint.
+        # A pass, on a clock, rather than a second scheduler: one switch, one
+        # status endpoint, one thing to reason about.
         #
         # It is off unless configuration turns it on. A lifecycle pass notifies
         # real people, so on a development database it must never surprise
@@ -100,14 +86,14 @@ class EnrichmentScheduler:
         self.lifecycle_lookback_hours = int(lifecycle_lookback_hours)
         self.lifecycle_runner = lifecycle_runner
 
-        # A third job, on the same clock, rather than a second scheduler. Artist
-        # synchronization is here because it used to happen inside a GET request;
-        # giving it its own scheduler would have been a second thing to remember to
-        # start, stop and reason about.
+        # The pass that keeps catalogues fresh, on the same clock. Artist
+        # synchronization is here because it used to happen inside a GET
+        # request; giving it its own scheduler would have been a second thing
+        # to remember to start, stop and reason about.
         #
-        # Off unless configuration turns it on, for the reason the others are off: a
-        # pass visits Songkick without anybody asking, so booting the API locally
-        # must never start one.
+        # Off unless configuration turns it on, for the reason the others are
+        # off: a pass visits Songkick without anybody asking, so booting the API
+        # locally must never start one.
         self.artist_sync_enabled = bool(artist_sync_enabled)
         self.artist_sync_interval_minutes = artist_sync_interval_minutes
         self.artist_sync_run_on_startup = bool(
@@ -124,25 +110,12 @@ class EnrichmentScheduler:
             provider=artist_sync_provider,
         )
 
-        # An unrecognised field mode is a configuration mistake. It is resolved
-        # once here rather than on every run, so a typo is reported at startup
-        # instead of silently degrading every run that follows.
-        self.job_config = EnrichmentJobConfig(
-            batch_size=batch_size,
-            delay_seconds=delay_seconds,
-            fields=resolve_fields(fields),
-            include_dated=include_dated,
-            dry_run=False,
-        )
-
         self._scheduler: Optional[AsyncIOScheduler] = None
 
         # Guards against a second run starting while one is still walking. The
         # APScheduler job itself also refuses to overlap, but this flag is what
         # protects a manual `run_now` from colliding with a scheduled run.
         self._running = False
-
-        self.last_result: Optional[EnrichmentJobResult] = None
 
         self.last_lifecycle_result: Optional[dict] = None
 
@@ -164,14 +137,14 @@ class EnrichmentScheduler:
 
         if not self.enabled:
             logger.info(
-                "[SCHEDULER] enrichment scheduler is disabled; "
+                "[SCHEDULER] background scheduler is disabled; "
                 "no background work will run"
             )
             return False
 
         if self._scheduler is not None:
             logger.warning(
-                "[SCHEDULER] enrichment scheduler is already running"
+                "[SCHEDULER] background scheduler is already running"
             )
             return False
 
@@ -186,7 +159,7 @@ class EnrichmentScheduler:
                     minutes=max(1, self.interval_minutes)
                 ),
                 id=JOB_ID,
-                name="Songkick event enrichment",
+                name="Songkick catalog refresh",
                 # One pass at a time. If a pass overruns the interval the next
                 # one is dropped, never queued behind it.
                 max_instances=1,
@@ -202,9 +175,9 @@ class EnrichmentScheduler:
 
         except Exception as exc:
             # A scheduler that cannot start must not take the API down with it.
-            # The application is perfectly usable without enrichment.
+            # The application is perfectly usable without it.
             logger.error(
-                f"[SCHEDULER] could not start the enrichment "
+                f"[SCHEDULER] could not start the background "
                 f"scheduler: {type(exc).__name__}: {exc}"
             )
             return False
@@ -212,20 +185,39 @@ class EnrichmentScheduler:
         self._scheduler = scheduler
 
         logger.info(
-            f"[SCHEDULER] enrichment scheduler started; "
+            f"[SCHEDULER] background scheduler started; "
             f"every {max(1, self.interval_minutes)} minute(s), "
-            f"batch={self.job_config.batch_size}, "
-            f"delay={self.job_config.delay_seconds}s, "
-            f"fields={self.job_config.describe()['fields']}"
+            f"artist_sync={'on' if self.artist_sync_enabled else 'off'}, "
+            f"lifecycle={'on' if self.lifecycle_enabled else 'off'}"
         )
 
-        if self.run_on_startup:
+        if self.artist_sync_run_on_startup:
             logger.info(
-                "[SCHEDULER] running one pass immediately on startup"
+                "[SCHEDULER] running one artist sync pass "
+                "immediately on startup"
             )
-            asyncio.create_task(self.run())
+            asyncio.create_task(self._run_artist_sync_on_startup())
 
         return True
+
+    async def _run_artist_sync_on_startup(self) -> None:
+        """One startup pass over artist catalogues, never over anything else.
+
+        Deliberately not `run()`: the lifecycle pass sends notifications to
+        real people, and working through that backlog the moment a process
+        boots is exactly what must never happen on a development database.
+        """
+
+        if self._running:
+            return
+
+        self._running = True
+
+        try:
+            await self.run_artist_sync()
+
+        finally:
+            self._running = False
 
     def shutdown(self, wait: bool = False) -> None:
         """Stop scheduling. Safe to call when never started."""
@@ -239,7 +231,7 @@ class EnrichmentScheduler:
 
         try:
             # `wait=False` on purpose: shutdown should not block on an
-            # in-flight enrichment pass, which may be waiting on a slow source.
+            # in-flight pass, which may be waiting on a slow source.
             scheduler.shutdown(wait=wait)
 
         except Exception as exc:
@@ -248,14 +240,20 @@ class EnrichmentScheduler:
             )
 
         else:
-            logger.info("[SCHEDULER] enrichment scheduler stopped")
+            logger.info("[SCHEDULER] background scheduler stopped")
 
     # ============================================================
     # RUNNING
     # ============================================================
 
-    async def run(self) -> Optional[EnrichmentJobResult]:
-        """Run one enrichment pass, if one is not already running."""
+    async def run(self) -> Optional[ArtistSyncJobResult]:
+        """Run one tick: refresh catalogues, then the lifecycle pass.
+
+        There is no third pass. Both are wrapped separately on purpose: a
+        catalog refresh that fails must not silence the prompts that are
+        already overdue for real people, and a notification problem must not
+        leave gigographies stale.
+        """
 
         if self._running:
             logger.info(
@@ -267,47 +265,6 @@ class EnrichmentScheduler:
         self._running = True
 
         try:
-            service = self._service()
-
-        except Exception as exc:
-            self._running = False
-
-            logger.error(
-                f"[SCHEDULER] could not build the enrichment service: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            return None
-
-        result: Optional[EnrichmentJobResult] = None
-
-        try:
-            result = await self.job_runner(
-                service,
-                self.job_config,
-            )
-
-        except Exception as exc:
-            # The runner contains its own per-event failures. Reaching here
-            # means the run itself broke, and a broken run must not propagate
-            # into APScheduler's executor or into an unhandled task warning.
-            logger.error(
-                f"[SCHEDULER] enrichment pass failed: "
-                f"{type(exc).__name__}: {exc}"
-            )
-
-        finally:
-            # The other passes run whatever happened above. A failed enrichment
-            # pass - a dead Songkick request, say - must not silence the prompts
-            # that are already overdue for real people, and must not leave
-            # artist gigographies stale.
-            try:
-                await self._run_lifecycle()
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.error(
-                    f"[SCHEDULER] lifecycle pass failed: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-
             try:
                 await self.run_artist_sync()
             except Exception as exc:  # pragma: no cover - defensive
@@ -316,21 +273,30 @@ class EnrichmentScheduler:
                     f"{type(exc).__name__}: {exc}"
                 )
 
+            try:
+                await self._run_lifecycle()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.error(
+                    f"[SCHEDULER] lifecycle pass failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        finally:
             self._running = False
 
-        if result is not None:
-            self.last_result = result
-
-        return result
+        return self.last_artist_sync_result
 
     async def run_artist_sync(
         self,
     ) -> Optional[ArtistSyncJobResult]:
         """One artist-sync pass, if it is switched on.
 
-        Public and callable on its own so a pass can be triggered deliberately -
-        from a script, a test or an operator - rather than only waiting for the
-        next tick.
+        This is the pass that discovers and synchronizes events, and it does so
+        through `SynchronizationService` - the same `sync_artist_events` a
+        manual import runs, with the same extraction, the same joins and the
+        same reporting. Public and callable on its own so a pass can be
+        triggered deliberately - from a script, a test or an operator - rather
+        than only waiting for the next tick.
         """
 
         if not self.artist_sync_enabled:
@@ -387,9 +353,9 @@ class EnrichmentScheduler:
     async def _run_lifecycle(self) -> None:
         """One lifecycle pass, if it is switched on.
 
-        Separate from enrichment rather than inside it: the two have nothing to
-        do with each other beyond sharing a tick, and a failure in one must not
-        stop the other.
+        Separate from the catalog refresh rather than inside it: the two have
+        nothing to do with each other beyond sharing a tick, and a failure in
+        one must not stop the other.
         """
 
         if not self.lifecycle_enabled:
@@ -419,19 +385,6 @@ class EnrichmentScheduler:
 
         return EventLifecycleService(db.get_database())
 
-    def _service(self) -> Any:
-        """The enrichment service this scheduler drives."""
-
-        if self.service_factory is not None:
-            return self.service_factory()
-
-        from app.database.connection import db
-        from app.repositories.event_repository import EventRepository
-
-        return EventEnrichmentService(
-            EventRepository(db.get_database())
-        )
-
     # ============================================================
     # REPORTING
     # ============================================================
@@ -457,7 +410,6 @@ class EnrichmentScheduler:
             "in_progress": self._running,
             "interval_minutes": self.interval_minutes,
             "next_run_at": next_run,
-            "config": self.job_config.describe(),
             "lifecycle": {
                 "enabled": self.lifecycle_enabled,
                 "batch_size": self.lifecycle_batch_size,
@@ -475,11 +427,6 @@ class EnrichmentScheduler:
                     else None
                 ),
             },
-            "last_run": (
-                self.last_result.as_dict()
-                if self.last_result is not None
-                else None
-            ),
         }
 
 
@@ -500,9 +447,7 @@ async def _default_lifecycle_runner(
     )
 
 
-def create_scheduler(
-    service_factory: Optional[Callable[[], Any]] = None,
-) -> EnrichmentScheduler:
+def create_scheduler() -> BackgroundScheduler:
     """Build the scheduler from application settings.
 
     Settings are read here rather than at import time so that a test can build a
@@ -511,14 +456,9 @@ def create_scheduler(
 
     from app.config import settings
 
-    return EnrichmentScheduler(
-        enabled=settings.ENRICHMENT_SCHEDULER_ENABLED,
-        interval_minutes=settings.ENRICHMENT_SCHEDULER_INTERVAL_MINUTES,
-        batch_size=settings.ENRICHMENT_SCHEDULER_BATCH_SIZE,
-        delay_seconds=settings.ENRICHMENT_SCHEDULER_REQUEST_DELAY_SECONDS,
-        fields=settings.ENRICHMENT_SCHEDULER_FIELDS,
-        include_dated=settings.ENRICHMENT_SCHEDULER_INCLUDE_DATED,
-        run_on_startup=settings.ENRICHMENT_SCHEDULER_RUN_ON_STARTUP,
+    return BackgroundScheduler(
+        enabled=settings.SCHEDULER_ENABLED,
+        interval_minutes=settings.SCHEDULER_INTERVAL_MINUTES,
         lifecycle_enabled=settings.EVENT_LIFECYCLE_SCHEDULER_ENABLED,
         lifecycle_batch_size=settings.EVENT_LIFECYCLE_SCHEDULER_BATCH_SIZE,
         lifecycle_lookback_hours=settings.EVENT_LIFECYCLE_SCHEDULER_LOOKBACK_HOURS,
@@ -533,5 +473,4 @@ def create_scheduler(
         artist_sync_run_on_startup=(
             settings.ARTIST_SYNC_SCHEDULER_RUN_ON_STARTUP
         ),
-        service_factory=service_factory,
     )

@@ -64,6 +64,29 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+/**
+ * Merge a partial user into the stored session and announce it.
+ *
+ * The profile editor changes fields the rest of the app already displays -
+ * the avatar most of all - and every surface showing the signed-in user
+ * (the Navbar first) reads this copy rather than refetching. Patching it in
+ * place and firing the same event login and logout fire is what makes a
+ * saved photo appear everywhere at once instead of at the next login.
+ */
+export function patchStoredUser(patch: Partial<AuthUser>) {
+  if (typeof window === 'undefined') return;
+
+  const current = getUser();
+  if (!current) return;
+
+  localStorage.setItem(
+    USER_KEY,
+    JSON.stringify({ ...current, ...patch })
+  );
+
+  window.dispatchEvent(new Event('auth-changed'));
+}
+
 export function getUser(): AuthUser | null {
   if (typeof window === 'undefined') {
     return null;

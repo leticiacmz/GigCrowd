@@ -25,14 +25,12 @@ from datetime import UTC, datetime
 import pytest
 
 from app.domain.festival import festival_data_from_url, festival_identity
+from app.mappers.songkick_event_mapper import SongkickEventMapper
+from app.domain.event_schedule import DATE_FROM_SOURCE
 from app.domain.event_provenance import (
     PROVENANCE_SONGKICK,
     classify,
     is_trustworthy_upcoming,
-)
-from app.services.event_enrichment_service import (
-    DATE_FROM_SOURCE,
-    EventEnrichmentService,
 )
 from app.services.lineup_artist_importer import LineupArtistImporter
 from app.services.lineup_artist_resolver import external_id_for
@@ -224,6 +222,96 @@ class TestAFestivalEditionIsNotAPerformance:
         assert data["event_id"] == "4400101"
 
 
+class TestTheAddressStatesTheSeries:
+    """The festival block is one place the series is stated; not the only one.
+
+    An imported festival date can arrive with its festival block unwritten -
+    the listing gave a date, a title and a source address and nothing else -
+    and it is still the same edition of the same festival. The series in its
+    own Songkick address is what says so, which is the same structured signal
+    the metadata URLs are read with.
+    """
+
+    def test_a_festival_date_without_a_block_still_states_its_series(self):
+        document = {
+            "title": "Rio de Janeiro, Brazil Rock In Rio",
+            "event_type": "FestivalInstance",
+            "festival": None,
+            "source": {
+                "provider": "songkick",
+                "external_id": "42907787",
+                "url": (
+                    "https://www.songkick.com/festivals/"
+                    "1325-rock-in-rio/id/42907787-rock-in-rio-2026"
+                ),
+            },
+        }
+
+        identity = festival_identity(document)
+
+        assert identity["series_id"] == "1325"
+
+        # The name is display-only, and the source gave none here. It is not
+        # invented from the slug or the title to fill a header.
+        assert identity["name"] is None
+
+        # The address the series was read from is the URL of record.
+        assert identity["url"] == document["source"]["url"]
+
+    def test_stored_metadata_decides_before_the_address(self):
+        """The address is a fallback for a missing block, not a second opinion."""
+
+        document = {
+            "title": "Marina Sena Mada 2025",
+            "event_type": "FestivalInstance",
+            "festival": {
+                "series_id": "298683",
+                "name": "Mada 2025",
+                "url": (
+                    "https://www.songkick.com/festivals/"
+                    "298683-mada/id/42538034-mada-2025"
+                ),
+            },
+            "source": {
+                "provider": "songkick",
+                "external_id": "42538034",
+                # A different series entirely: stored metadata must win.
+                "url": (
+                    "https://www.songkick.com/festivals/"
+                    "1325-rock-in-rio/id/42907787-rock-in-rio-2026"
+                ),
+            },
+        }
+
+        identity = festival_identity(document)
+
+        assert identity["series_id"] == "298683"
+        assert identity["name"] == "Mada 2025"
+
+    def test_a_concert_address_never_states_a_series(self):
+        """A show at a place named after a festival is still a show.
+
+        Only a festival address carries the series segment, so ordinary event
+        addresses cannot produce an identity no matter what they are called.
+        """
+
+        document = {
+            "title": "Agnes Nunes @ Rock in Rio Hall",
+            "event_type": "Concert",
+            "festival": None,
+            "source": {
+                "provider": "songkick",
+                "external_id": "39116370",
+                "url": (
+                    "https://www.songkick.com/concerts/"
+                    "39116370-agnes-nunes-at-rock-in-rio-hall"
+                ),
+            },
+        }
+
+        assert festival_identity(document) is None
+
+
 class TestAPerformanceNeedsItsOwnSource:
     def test_a_performance_date_is_never_taken_from_the_festival_range(self):
         """The specific error this prevents.
@@ -231,14 +319,19 @@ class TestAPerformanceNeedsItsOwnSource:
         An artist on a three-night festival has one night. Storing the festival's
         whole span as that artist's show claims three performances, and shows up
         on the artist's page as a three-day engagement they never agreed to.
+
+        The rule lives where every payload passes: the mapper takes an event's
+        dates from its own `start_date`/`end_date` and never from the festival
+        identity beside them. The parser's side of the same line - that a
+        festival block is identity only and carries no dates at all - is pinned
+        in `tests/providers/songkick/test_festival_parsing.py`.
         """
 
-        stored = {"starts_at": None, "ends_at": None}
-
-        # The source states one night for this performance.
-        patch = EventEnrichmentService.apply_patch(
-            stored,
+        event, _ = SongkickEventMapper.to_domain(
             {
+                "id": "8100001",
+                "name": "Tim Bernardes at Villa Sound",
+                "event_type": "Concert",
                 "start_date": "2026-03-26T21:00:00+00:00",
                 "end_date": "2026-03-26T23:59:00+00:00",
                 "festival": {
@@ -249,16 +342,15 @@ class TestAPerformanceNeedsItsOwnSource:
                     "end_date": "2026-03-27T23:59:00+00:00",
                 },
             },
+            ["tim-bernardes"],
         )
 
-        assert patch["starts_at"] == "2026-03-26T21:00:00+00:00"
-        assert patch["ends_at"] == "2026-03-26T23:59:00+00:00"
-
-        # The festival's range is not written into the schedule, and the stored
-        # identity carries no dates at all.
-        if "festival" in patch:
-            assert "start_date" not in patch["festival"]
-            assert "end_date" not in patch["festival"]
+        assert event.starts_at == datetime(
+            2026, 3, 26, 21, 0, tzinfo=UTC
+        )
+        assert event.ends_at == datetime(
+            2026, 3, 26, 23, 59, tzinfo=UTC
+        )
 
     def test_a_lineup_entry_alone_carries_no_date(self):
         """A name and an id. Nothing that could become a schedule."""

@@ -5,7 +5,6 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, setRequestLocale } from 'next-intl/server';
 
 import Navbar from '@/components/Navbar';
-
 import '../globals.css';
 import { locales, type Locale } from '../i18n';
 
@@ -14,8 +13,9 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata = {
   title: 'GigCrowd',
   description: 'A social platform for live music experiences',
-  icons: {
-    icon: '/favicon.ico',
+icons: {
+  icon: '/favicon.png',
+  apple: '/apple-touch-icon.png',
   },
 };
 

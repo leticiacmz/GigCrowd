@@ -8,6 +8,25 @@ from app.repositories.artist_follow_repository import ArtistFollowRepository
 from app.domain.artist import Artist
 
 
+class AcceptingVerifier:
+    """The verdict of `SongkickArtistVerifier`, without fetching a page.
+
+    Import proves an identity before it writes one; these tests are about the
+    import, so the verdict is supplied rather than fetched.
+    """
+
+    async def verify(self, songkick_id, name=None):
+        from app.services.songkick_artist_verifier import VerifiedArtist
+
+        return VerifiedArtist(
+            valid=True,
+            songkick_id=songkick_id,
+            canonical_name=name,
+            requested_name=name,
+            name_agrees=True,
+        )
+
+
 @pytest.mark.asyncio
 async def test_provider_manager_defaults_to_songkick():
     """Verify ProviderManager defaults to Songkick for both search and events"""
@@ -226,7 +245,8 @@ async def test_spotify_cannot_create_canonical_artist():
     
     service = ArtistImportService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
+        verifier=AcceptingVerifier()
     )
     
     request = ArtistImportRequest(
@@ -257,7 +277,8 @@ async def test_songkick_is_only_canonical_import_path():
     
     service = ArtistImportService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
+        verifier=AcceptingVerifier()
     )
     
     songkick_data = {

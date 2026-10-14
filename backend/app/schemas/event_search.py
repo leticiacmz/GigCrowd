@@ -127,6 +127,17 @@ class EventSearchResponse(BaseModel):
         ),
     )
 
+    following_count: Optional[int] = Field(
+        default=None,
+        description=(
+            "How many artists the reader follows. Only the personalized "
+            "endpoint reports it, and it is reported even on an empty page: "
+            "the page reads it to tell 'follows nobody' apart from 'follows "
+            "nobody with no show ahead', which are two different things to "
+            "say. Absent everywhere else."
+        ),
+    )
+
 
 class EventSearchGenresResponse(BaseModel):
     """Every genre the catalogue can be filtered by."""

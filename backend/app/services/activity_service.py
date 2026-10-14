@@ -533,9 +533,21 @@ class ActivityService:
                 ActivityType.ATTEND_EVENT.value,
             ) and document:
                 event = events.get(str(document.get("event_id")), {})
-                item["content"] = document.get("review")
-                item["rating"] = document.get("rating")
-                item["attendance_status"] = document.get("status")
+
+                # One show log holds both facts, and it is filled in twice:
+                # first the attendance, later the rating and the words. The
+                # document both activities point at is therefore read *after*
+                # the review landed, which is how an attendance row used to
+                # grow stars it never had - "went to" and "rated" shown as
+                # the same sentence twice. Each row now carries its own fact
+                # and only its own: the review's words and stars on the
+                # review, the attendance status on the attendance.
+                if activity_type == ActivityType.CREATE_REVIEW.value:
+                    item["content"] = document.get("review")
+                    item["rating"] = document.get("rating")
+                else:
+                    item["attendance_status"] = document.get("status")
+
                 item["target"] = {
                     "kind": "event",
                     "id": str(document.get("event_id")),

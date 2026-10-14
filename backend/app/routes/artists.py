@@ -14,9 +14,6 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.venue_repository import VenueRepository
 
 from app.services.event_import_service import EventImportService
-from app.services.event_enrichment_service import (
-    EventEnrichmentService,
-)
 from app.services.event_service import EventService
 
 from app.services.artist_service import ArtistService
@@ -126,23 +123,16 @@ artist_import_service = ArtistImportService(
 
 
 
-# Enrichment is one service shared by the import path and the scheduler, so a
-# date recovered during an import and one recovered by a scheduled run travel
-# through identical logic. It is built here, next to the repositories that own
-# the data, and handed to the importer.
-event_enrichment_service = (
-    EventEnrichmentService(event_repository)
-    if settings.ENRICH_ON_IMPORT_ENABLED
-    else None
-)
-
-
+# There is no enrichment collaborator here, and that is the point. The import
+# reads every page it needs (artist page, calendar, gigography, search), joins
+# them by event id, and reads an event's own page during the same run when a
+# field is still missing. Whatever it still cannot state is reported by the
+# import itself, where the gap was found, rather than owed to a later process.
 event_import_service = EventImportService(
     provider_manager=provider_manager,
     event_repository=event_repository,
     venue_repository=venue_repository,
     artist_repository=artist_repository,
-    enrichment_service=event_enrichment_service,
 )
 
 

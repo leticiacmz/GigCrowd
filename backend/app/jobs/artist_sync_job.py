@@ -8,8 +8,8 @@ enough to visit it. Moving the work here makes all three properties explicit:
 bounded per run, on a clock, and visible in a log line nobody has to reproduce a
 browser session to read.
 
-Like `enrichment_job`, this module decides *what one run does* and nothing about
-*when* - the scheduler owns that. It also deliberately owns no synchronization
+This module decides *what one run does* and nothing about *when* - the
+scheduler owns that. It also deliberately owns no synchronization
 logic. Selection is `ArtistRepository.find_needing_sync`, the decision to skip a
 fresh artist is `SynchronizationService.needs_sync`, and the work itself is
 `SynchronizationService.synchronize_artist`. There is exactly one implementation

@@ -480,6 +480,167 @@ class SongkickClient:
         return None
 
     @classmethod
+    def _jsonld_index(
+        cls,
+        soup: BeautifulSoup,
+        source_url: str,
+    ) -> dict[tuple, dict]:
+        """Every event this page's own structured data describes, by identity.
+
+        A calendar page, a gigography page and an artist page all ship JSON-LD
+        for the events they render. Reading it costs nothing - the scripts are
+        already inside the response that was paid for - and it is the whole
+        difference between a listing row (a link and a date) and an event (a
+        venue, a lineup, a description, an image, a status).
+
+        Indexing by identity rather than by position is what lets a listing row
+        and the structured block for the same event id be joined without
+        guessing: the id is the one identifier both representations carry.
+        """
+
+        events: list[dict] = []
+        festivals: list[dict] = []
+
+        for script in soup.find_all(
+            "script",
+            type="application/ld+json",
+        ):
+            try:
+                value = json.loads(
+                    script.string or script.get_text()
+                )
+            except Exception:
+                continue
+
+            cls._extract_jsonld_events(
+                value,
+                source_url,
+                events,
+                festivals,
+                upcoming_only=False,
+            )
+
+        index: dict[tuple, dict] = {}
+
+        for event in events + festivals:
+
+            identity = cls._event_identity(event)
+
+            if identity is None or identity in index:
+                continue
+
+            index[identity] = event
+
+        return index
+
+    @classmethod
+    def _merge_event_details(
+        cls,
+        base: dict,
+        extra: Optional[dict],
+    ) -> dict:
+        """Fill what `base` does not state from `extra`, overwriting nothing.
+
+        Both were read for the same event id, so where they agree they describe
+        the same row and where they differ the one that *states* something wins.
+        The point of the merge is the gaps: a listing row carries an id, a URL
+        and a date, while the page's structured data carries the venue, the
+        lineup, the description and the image. A resync must not lose a field it
+        already has, so `extra` only ever adds.
+
+        Two fields are decided by *which reading* said them rather than by who
+        spoke first. A listing's link text is rendered for the reader -
+        "Greenwich, UK The O2" is a city, a country and a venue glued
+        together - and is neither the event's title nor its venue, while the
+        JSON-LD `name` and `location` are the values the source publishes for
+        that id. So a structured name or venue replaces a rendered one, and two
+        structured readings of the same event keep the first: they describe the
+        same block by construction, and first-wins keeps the merge
+        idempotent.
+        """
+
+        if not extra:
+            return base
+
+        merged = dict(base)
+
+        def structured(payload: dict) -> bool:
+            # JSON-LD readings carry the raw block; an HTML-derived reading
+            # carries a marker saying so, and a listing carries nothing.
+            raw = payload.get("raw")
+
+            return isinstance(raw, dict) and raw.get("source") != "html"
+
+        for field in (
+            "start_date",
+            "end_date",
+            "event_status",
+            "event_attendance_mode",
+            "description",
+            "songkick_image",
+            "venue",
+            "location",
+            "festival",
+            "ticket_url",
+        ):
+            if not merged.get(field) and extra.get(field):
+                merged[field] = extra[field]
+
+        for field in (
+            "performers",
+            "lineup",
+            "offers",
+            "artist_ids",
+        ):
+            if not merged.get(field) and extra.get(field):
+                merged[field] = extra[field]
+
+        # `date_status` is a claim about *these* dates, so it is only inherited
+        # by a reading that carries dates of its own. A JSON-LD block with no
+        # `startDate` reports "unavailable"; merging that onto a listing whose
+        # `<time>` did state one would file a dated event as dateless, and
+        # "unavailable" beside a real date is exactly the contradiction the
+        # lifecycle reads as settled. When neither reading has a date the
+        # status is inherited as it stands - it is what the page said, and a
+        # bare `unavailable` stays retryable.
+        if not merged.get("date_status") and extra.get("date_status") and (
+            extra.get("start_date")
+            or extra.get("end_date")
+            or not (
+                merged.get("start_date")
+                or merged.get("end_date")
+            )
+        ):
+            merged["date_status"] = extra["date_status"]
+
+        # A venue that was only rendered is replaced rather than kept: the
+        # listing's link text is the whole "Greenwich, UK The O2" string, which
+        # is a city, a country and a venue in one line and names none of them
+        # reliably. The structured block states the place itself. Absence is
+        # handled above, where it is simply a gap to fill.
+        if (
+            extra.get("venue")
+            and merged.get("venue")
+            and structured(extra)
+            and not structured(merged)
+        ):
+            merged["venue"] = extra["venue"]
+
+        if extra.get("name") and (
+            not merged.get("name")
+            or (
+                structured(extra)
+                and not structured(merged)
+            )
+        ):
+            merged["name"] = extra["name"]
+            merged["original_name"] = (
+                extra.get("original_name") or extra["name"]
+            )
+
+        return merged
+
+    @classmethod
     def _parse_calendar_page(
         cls,
         html: str,
@@ -490,11 +651,24 @@ class SongkickClient:
 
         The calendar page renders each event twice (duplicate entries),
         so we deduplicate by Songkick event ID.
+
+        Everything the page itself states about an event is taken here, from
+        both of the representations the page carries: the listing markup (id,
+        URL, date) and the structured data (venue, lineup, description, image).
+        They are joined by event id rather than by position, because the two
+        renderings do not necessarily appear in the same order - or even in the
+        same number. Nothing is fetched: the scripts were already in the
+        response this page cost.
         """
 
         soup = BeautifulSoup(
             html,
             "html.parser",
+        )
+
+        jsonld_by_identity = cls._jsonld_index(
+            soup,
+            source_url,
         )
 
         events = []
@@ -588,6 +762,16 @@ class SongkickClient:
                 "source": "songkick_calendar",
             }
 
+            # The listing's own structured data, joined by event id. This is
+            # where a calendar row gets its venue, its lineup and its image
+            # without anybody fetching the event's page afterwards.
+            event = cls._merge_event_details(
+                event,
+                jsonld_by_identity.get(
+                    ("id", str(event_id))
+                ),
+            )
+
             events.append(event)
 
         return events
@@ -659,13 +843,94 @@ class SongkickClient:
     # FESTIVAL LINEUP
     # ============================================================
 
+    @classmethod
+    def _festival_lineup_from_soup(
+        cls,
+        soup: BeautifulSoup,
+        festival_url: str,
+        source: Optional[dict] = None,
+        status: int = 200,
+    ) -> dict:
+        """The lineup a festival page already in hand states.
+
+        Split out of `get_festival_lineup` so a caller that is *already holding*
+        the page reads the lineup from it instead of fetching the same URL a
+        second time. Enrichment used to fetch an event's page, see it was a
+        festival, and then request that exact page again to read its lineup -
+        two requests for one document, and a second chance to fail for no
+        reason. One parser, one page, one request.
+        """
+
+        if source is None:
+            source = cls._read_jsonld_event(
+                soup,
+                festival_url,
+            )
+
+        # Extract festival name
+        h1 = soup.find("h1")
+        festival_name = (
+            h1.get_text(strip=True)
+            if h1 else None
+        )
+
+        # Extract lineup from .lineup-list
+        lineup = cls._parse_lineup_dom(
+            soup,
+            festival_url,
+        )
+
+        # The lineup DOM and the structured block describe the same people.
+        # They are merged rather than one overwriting the other: the DOM knows
+        # the rendered order, the structured block knows the ids and genres.
+        if lineup:
+
+            lineup = cls._merge_lineup_sources(
+                lineup,
+                source.get("lineup") or [],
+            )
+
+        elif source.get("lineup"):
+
+            lineup = list(source["lineup"])
+
+        logger.info(
+            f"Festival lineup extracted: "
+            f"{len(lineup)} artists"
+        )
+
+        return {
+            "url": festival_url,
+            "status": status,
+            "lineup": lineup,
+            "festival_name": (
+                (source.get("festival") or {}).get("name")
+                or festival_name
+            ),
+            "festival": source.get("festival"),
+            "start_date": source.get("start_date"),
+            "end_date": source.get("end_date"),
+            "venue": source.get("venue"),
+            "location": source.get("location"),
+            "description": source.get("description"),
+            "songkick_image": source.get(
+                "songkick_image"
+            ),
+            "event_status": source.get(
+                "event_status"
+            ),
+            "ticket_url": source.get("ticket_url"),
+        }
+
     async def get_festival_lineup(
         self,
         festival_url: str,
     ) -> dict:
-        """
-        Fetch a festival page and extract the complete lineup
-        from .lineup-list .artist-profile .artist-name.
+        """Fetch a festival page and read its lineup off it.
+
+        The fetch is the only thing this adds: the reading itself is
+        `_festival_lineup_from_soup`, shared with every other caller, so a page
+        fetched here and a page fetched elsewhere produce the same lineup.
         """
 
         logger.info(
@@ -697,65 +962,11 @@ class SongkickClient:
             "html.parser",
         )
 
-        # Extract festival name
-        h1 = soup.find("h1")
-        festival_name = (
-            h1.get_text(strip=True)
-            if h1 else None
-        )
-
-        source = self._read_jsonld_event(
+        return self._festival_lineup_from_soup(
             soup,
             festival_url,
+            status=response.status_code,
         )
-
-        # Extract lineup from .lineup-list
-        lineup = self._parse_lineup_dom(
-            soup,
-            festival_url,
-        )
-
-        # The lineup DOM and the structured block describe the same people.
-        # They are merged rather than one overwriting the other: the DOM knows
-        # the rendered order, the structured block knows the ids and genres.
-        if lineup:
-
-            lineup = self._merge_lineup_sources(
-                lineup,
-                source.get("lineup") or [],
-            )
-
-        elif source.get("lineup"):
-
-            lineup = list(source["lineup"])
-
-        logger.info(
-            f"Festival lineup extracted: "
-            f"{len(lineup)} artists"
-        )
-
-        return {
-            "url": festival_url,
-            "status": response.status_code,
-            "lineup": lineup,
-            "festival_name": (
-                (source.get("festival") or {}).get("name")
-                or festival_name
-            ),
-            "festival": source.get("festival"),
-            "start_date": source.get("start_date"),
-            "end_date": source.get("end_date"),
-            "venue": source.get("venue"),
-            "location": source.get("location"),
-            "description": source.get("description"),
-            "songkick_image": source.get(
-                "songkick_image"
-            ),
-            "event_status": source.get(
-                "event_status"
-            ),
-            "ticket_url": source.get("ticket_url"),
-        }
 
     @classmethod
     def _parse_lineup_dom(
@@ -1553,12 +1764,20 @@ class SongkickClient:
             ]
 
         # The lineup DOM carries the ids the structured block sometimes omits.
+        #
+        # Read from the page that was just fetched rather than by fetching it
+        # again: `enrich_event_details` already holds this festival's own HTML,
+        # and requesting the same URL a second time to look at the same markup
+        # was two requests where one is enough - with a second chance to time
+        # out for no additional information.
         if source.get("is_festival"):
 
             try:
 
-                lineup = await self.get_festival_lineup(
-                    event_url
+                lineup = self._festival_lineup_from_soup(
+                    soup,
+                    event_url,
+                    source=source,
                 )
 
             except Exception as exc:
@@ -2147,6 +2366,65 @@ class SongkickClient:
             )
 
         # --------------------------------------------------------
+        # FILL THE GAPS FROM EVERY PAGE ALREADY READ
+        #
+        # One event is read up to four times during a scrape - the artist page,
+        # the calendar, the gigography and search - and each reading states a
+        # different part of it: the listing gives the id and the date, the
+        # structured block gives the venue, the lineup, the description and the
+        # image. Deduplicating above kept the first reading of each event and
+        # threw the rest away, which is exactly why an imported event used to
+        # arrive with a date and nothing else and why its own page had to be
+        # fetched afterwards to recover what this scrape was already holding.
+        #
+        # So the discarded readings are indexed here and merged back in, field
+        # by field, filling only what is missing. Nothing is fetched, nothing
+        # already stated is replaced, and the identity stays the event's id -
+        # never its name.
+        # --------------------------------------------------------
+
+        detail_sources = (
+            (artist_page.get("upcoming_events") or [])
+            + (artist_page.get("upcoming_festivals") or [])
+            + (calendar["events"] or [])
+            + raw_gigography_events
+        )
+
+        details_by_identity: dict = {}
+
+        for candidate in detail_sources:
+
+            if not isinstance(candidate, dict):
+                continue
+
+            identity = self._event_identity(
+                candidate
+            )
+
+            if identity is None:
+                identity = self._livestream_identity(
+                    candidate
+                )
+
+            if identity in details_by_identity:
+                continue
+
+            details_by_identity[identity] = candidate
+
+        merged_events = [
+            self._merge_event_details(
+                event,
+                details_by_identity.get(
+                    self._event_identity(event)
+                )
+                or details_by_identity.get(
+                    self._livestream_identity(event)
+                ),
+            )
+            for event in merged_events
+        ]
+
+        # --------------------------------------------------------
         # ENRICH WITH UNIVERSAL SEARCH
         #
         # The artist page often contains an artist-specific
@@ -2186,6 +2464,31 @@ class SongkickClient:
             )
 
         merged_events = enriched_events
+
+        # --------------------------------------------------------
+        # READ AN EVENT'S OWN PAGE ONLY WHERE SOMETHING IS STILL MISSING
+        #
+        # Four readings of an event - the artist page, the calendar, the
+        # gigography and search - have been joined by id above, so anything
+        # still absent is absent from all four. Two things are still worth one
+        # request: a festival whose lineup no other page announces, and an
+        # event no page dated. Songkick publishes those listings with the
+        # details on the event's own page, so the run that creates the row is
+        # also the run that finishes it.
+        #
+        # One request per event however many fields it is missing, most
+        # incomplete first, and bounded so a catalogue full of undated
+        # listings cannot turn one sync into an unbounded number of requests.
+        # What the bound or the source leaves behind is not queued for
+        # anything: it is reported as an extraction gap by the import, in the
+        # same run.
+        # --------------------------------------------------------
+
+        merged_events, extraction = (
+            await self._complete_missing_fields(
+                merged_events
+            )
+        )
 
         live_streams = [
             event
@@ -2244,6 +2547,13 @@ class SongkickClient:
 
             "events": merged_events,
 
+            # What completing this run cost, in requests: how many of an
+            # event's own pages were read, how many were left unread because
+            # the per-run bound was reached, and how many of those read turned
+            # out to be unreadable. Reported so the import can say what the
+            # run did instead of leaving an operator to infer it from logs.
+            "extraction": extraction,
+
             "live_streams": live_streams,
 
             "festivals": festivals,
@@ -2253,6 +2563,221 @@ class SongkickClient:
             "total_events": len(
                 merged_events
             ),
+        }
+
+    # ============================================================
+    # FIRST-PASS COMPLETENESS
+    # ============================================================
+
+    @classmethod
+    def _missing_fields(cls, event: dict) -> list[str]:
+        """What this reading of an event still does not state.
+
+        Only the fields an event page can be expected to carry and a listing
+        often does not: a date, a venue, a festival's lineup. Description and
+        photograph are deliberately not here - they are presentation, they are
+        frequently absent at the source, and chasing them would cost one
+        request per event for a field that is often simply not published.
+
+        A livestream is never asked for a venue. An event that is supposed to
+        be placeless is not missing one.
+        """
+
+        missing: list[str] = []
+
+        if not event.get("start_date") and not event.get(
+            "end_date"
+        ):
+            missing.append("date")
+
+        if not event.get("is_live_stream"):
+
+            venue = event.get("venue")
+
+            venue_name = (
+                venue.get("name")
+                if isinstance(venue, dict)
+                else None
+            )
+
+            location = event.get("location") or {}
+
+            if not venue_name and not location.get("city"):
+                missing.append("venue")
+
+        festival = event.get("festival")
+
+        announced = (
+            festival.get("artists")
+            if isinstance(festival, dict)
+            else None
+        )
+
+        is_festival = bool(
+            event.get("is_festival")
+            or event.get("event_type") == "festival"
+        )
+
+        if (
+            is_festival
+            and not event.get("lineup")
+            and not announced
+        ):
+            missing.append("lineup")
+
+        return missing
+
+    async def _complete_missing_fields(
+        self,
+        events: list[dict],
+    ) -> tuple[list[dict], dict]:
+        """Read an event's own page, once, where every other reading fell short.
+
+        This is the last thing an extraction does before it hands its events
+        to the import, and it is deliberately the smallest possible use of the
+        network: an event that arrived complete costs nothing, and an event
+        that needs three fields costs one request, not three.
+
+        Results are written onto the event dict in place, so every other list
+        that holds the same event - `upcoming`, `upcoming_festivals`, the
+        festival view - sees the completed reading too. Replacing the dict
+        instead would leave those aliases describing the event as it was
+        before the page was read, which is how two parts of one response end
+        up disagreeing about a single event.
+
+        Two rules about what comes back, because a page can contradict a
+        listing that was already read:
+
+        * a date the source states elsewhere is never downgraded because this
+          page did not repeat it - the status follows the dates actually held,
+          so "unavailable" never sits beside a real date;
+        * a page that could not be parsed at all is reported as a failure here,
+          where it happened, with the URL, rather than being mistaken later
+          for a source that states nothing.
+        """
+
+        limit = max(
+            0,
+            int(
+                settings.SONGKICK_EVENT_PAGE_READS_PER_SCRAPE
+            ),
+        )
+
+        candidates: list[tuple[int, int, dict, list[str]]] = []
+
+        for position, event in enumerate(events):
+
+            if not isinstance(event, dict):
+                continue
+
+            missing = self._missing_fields(event)
+
+            if not missing or not event.get("url"):
+                continue
+
+            # Most incomplete first, and stable within that, so the bound is
+            # spent on the events a reader would notice rather than on
+            # whichever order the listings happened to arrive in.
+            candidates.append(
+                (-len(missing), position, event, missing)
+            )
+
+        candidates.sort(key=lambda item: (item[0], item[1]))
+
+        read = 0
+        skipped = 0
+        failed = 0
+
+        for _, position, event, missing in candidates:
+
+            if read >= limit:
+                skipped += 1
+                continue
+
+            read += 1
+
+            url = event.get("url")
+
+            logger.info(
+                "[EXTRACTION] reading the event's own page for "
+                f"{url} | missing={','.join(missing)} | "
+                f"read={read}/{limit}"
+            )
+
+            try:
+
+                completed = await self.enrich_event_details(
+                    event
+                )
+
+            except Exception as exc:
+
+                # The event keeps everything it already had. A source that is
+                # down is reported here, with the URL, and the import reports
+                # the resulting gap against the event that was written.
+                failed += 1
+
+                logger.warning(
+                    "[EXTRACTION FAILURE] could not read "
+                    f"{url}: {type(exc).__name__}: {exc}"
+                )
+
+                continue
+
+            if not isinstance(completed, dict):
+                continue
+
+            if completed is event:
+                # The page did not answer, so nothing was read and the event
+                # keeps everything it already had. Counted here, with the URL:
+                # a failure to read is not the same as a source that states
+                # nothing, and the import reports the two separately.
+                failed += 1
+
+                logger.warning(
+                    "[EXTRACTION FAILURE] no usable answer from "
+                    f"{url}"
+                )
+
+                continue
+
+            if completed.get("date_status") == "parser_failed":
+                failed += 1
+
+                logger.warning(
+                    "[EXTRACTION FAILURE] no readable structured "
+                    f"data on {url}; the page could not be parsed"
+                )
+
+            # The status describes the dates actually held. A listing read
+            # earlier in this same run may have stated one, and reporting the
+            # event as undated while storing its date is the contradiction a
+            # reader cannot act on.
+            if (
+                completed.get("start_date")
+                or completed.get("end_date")
+            ) and completed.get("date_status") in (
+                "unavailable",
+                "parser_failed",
+            ):
+
+                completed["date_status"] = "source"
+
+            event.update(completed)
+
+        if skipped:
+
+            logger.info(
+                f"[EXTRACTION] {skipped} event(s) still missing "
+                f"fields were left unread because the per-run "
+                f"bound of {limit} was reached"
+            )
+
+        return events, {
+            "event_pages_read": read,
+            "event_pages_skipped": skipped,
+            "event_pages_failed": failed,
+            "limit": limit,
         }
 
     # ============================================================
@@ -4242,8 +4767,9 @@ class SongkickClient:
             )
 
         # An event the source dates is kept; one it does not date is kept too,
-        # marked `date_status`, so enrichment can revisit it instead of the
-        # catalogue quietly losing a real show.
+        # with its `date_status` unset, so a later read can tell "the source
+        # says nothing" from "we never looked" instead of the catalogue
+        # quietly losing a real show.
         attendance_mode = (
             data.get(
                 "eventAttendanceMode"
@@ -4375,9 +4901,9 @@ class SongkickClient:
         # --------------------------------------------------------
         # Dates
         #
-        # An event whose source exposes no date is kept, marked as
-        # undated, so it can be revisited by enrichment instead of
-        # silently disappearing from the catalogue. A date that is
+        # An event whose source exposes no date is kept, with its status
+        # unset, so the next read of that source can answer instead of the
+        # show silently disappearing from the catalogue. A date that is
         # present but unreadable is reported separately.
         # --------------------------------------------------------
 

@@ -1,6 +1,6 @@
 """The lifecycle pass on the real scheduler.
 
-The enrichment job and the lifecycle job share one tick, one switch and one
+The catalog refresh and the lifecycle job share one tick, one switch and one
 status endpoint. What has to hold is that neither can stop the other, and that
 the lifecycle stays off unless somebody asks for it.
 """
@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 import pytest
 
-from app.jobs.scheduler import EnrichmentScheduler
+from app.jobs.scheduler import BackgroundScheduler
 
 
 class Boom(RuntimeError):
@@ -19,15 +19,15 @@ class Boom(RuntimeError):
 
 def scheduler_with(
     *,
-    job_runner=None,
+    artist_sync_runner=None,
+    artist_sync_enabled: bool = False,
     lifecycle_runner=None,
     lifecycle_enabled: bool = False,
-    service: Any = object(),
-) -> EnrichmentScheduler:
-    return EnrichmentScheduler(
+) -> BackgroundScheduler:
+    return BackgroundScheduler(
         enabled=False,
-        service_factory=lambda: service,
-        job_runner=job_runner or (lambda svc, config: None),
+        artist_sync_enabled=artist_sync_enabled,
+        artist_sync_runner=artist_sync_runner,
         lifecycle_enabled=lifecycle_enabled,
         lifecycle_runner=lifecycle_runner,
     )
@@ -80,7 +80,7 @@ class TestTheLifecycleIsOffByDefault:
 
 class TestTheTwoJobsDoNotBlockEachOther:
     @pytest.mark.asyncio
-    async def test_a_failed_enrichment_pass_still_runs_the_lifecycle(self):
+    async def test_a_failed_refresh_still_runs_the_lifecycle(self):
         # A dead Songkick request must not stop prompts that are already
         # overdue for real people.
         calls: list[str] = []
@@ -89,7 +89,8 @@ class TestTheTwoJobsDoNotBlockEachOther:
             raise Boom("songkick is down")
 
         scheduler = scheduler_with(
-            job_runner=broken,
+            artist_sync_enabled=True,
+            artist_sync_runner=broken,
             lifecycle_enabled=True,
             lifecycle_runner=lambda *_: calls.append("lifecycle"),
         )
@@ -100,24 +101,25 @@ class TestTheTwoJobsDoNotBlockEachOther:
         assert calls == ["lifecycle"]
 
     @pytest.mark.asyncio
-    async def test_a_failed_lifecycle_pass_does_not_lose_the_enrichment_result(
+    async def test_a_failed_lifecycle_pass_does_not_lose_the_refresh_result(
         self,
     ):
-        async def enrichment(*_args):
-            return "enrichment-result"
+        async def refresh(*_args):
+            return "refresh-result"
 
         def broken_lifecycle(*_args):
             raise Boom("notifications collection is down")
 
         scheduler = scheduler_with(
-            job_runner=enrichment,
+            artist_sync_enabled=True,
+            artist_sync_runner=refresh,
             lifecycle_enabled=True,
             lifecycle_runner=broken_lifecycle,
         )
 
         result = await scheduler.run()
 
-        assert result == "enrichment-result"
+        assert result == "refresh-result"
 
     @pytest.mark.asyncio
     async def test_a_failed_lifecycle_pass_is_not_swallowed_silently(
@@ -148,9 +150,12 @@ class TestWhatThePassDidIsVisible:
             def as_dict() -> dict:
                 return {"notified": 3, "failed": 0}
 
+        async def nothing(*_args):
+            return None
+
         scheduler = scheduler_with(
             lifecycle_enabled=True,
-            lifecycle_runner=lambda *_: None,
+            lifecycle_runner=nothing,
         )
 
         scheduler.last_lifecycle_result = Result.as_dict()

@@ -466,6 +466,12 @@ class SongkickProvider(BaseProvider):
                 [],
             ),
 
+            # What the extraction had to read beyond the pages it pays for
+            # anyway, to complete this run - and what it left unread because
+            # of its bound. Passed through so the import can report it rather
+            # than leaving it in a log nobody correlates with the write.
+            "extraction": data.get("extraction"),
+
             # --------------------------------------------------
             # Canonical import catalogue
             # --------------------------------------------------

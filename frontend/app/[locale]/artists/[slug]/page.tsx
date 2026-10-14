@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 
 import { artistAPI, eventAPI } from '@/app/lib/api';
 import { isAuthenticated } from '@/app/lib/auth';
+import { isPastEvent } from '@/app/lib/dates';
 import { useAuthAction } from '@/app/lib/use-auth-action';
 import ArtistTabs from '@/components/artist/ArtistTabs';
 import Badge from '@/components/ui/Badge';
@@ -26,15 +27,98 @@ interface ArtistProfile {
     upcoming: number;
     total: number;
   };
+  // The identities this artist's record holds, as stored: Songkick's
+  // `Artist123` spelling, the Spotify id when one was ever matched, and so
+  // on. Read-only - the page builds addresses from them, it never searches
+  // for a name to fill a gap.
+  external_ids?: {
+    songkick?: string;
+    spotify?: string;
+    musicbrainz?: string;
+    [key: string]: string | undefined;
+  };
 }
 
 interface ArtistEvent {
   id: string;
   title: string;
-  starts_at: string;
+  // Nullable because imported events genuinely arrive without a date; the
+  // type says so instead of promising a string the payload may not carry.
+  starts_at: string | null;
   ends_at?: string | null;
   event_type?: string;
   ticket_url?: string | null;
+  /** Resolved by the backend; see `isPastEvent`. */
+  is_past?: boolean;
+}
+
+/**
+ * When an event starts, or `Infinity` when it has no usable date.
+ *
+ * Undated imported shows sort last rather than collapsing to `NaN`, which no
+ * comparator can order and which used to leave their position arbitrary.
+ */
+function eventStart(event: ArtistEvent): number {
+  const parsed = event.starts_at
+    ? new Date(event.starts_at).getTime()
+    : Number.NaN;
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : Number.POSITIVE_INFINITY;
+}
+
+interface ExternalLink {
+  provider: 'songkick' | 'spotify';
+  href: string;
+}
+
+/**
+ * The provider addresses this artist's stored ids already name.
+ *
+ * Every URL is built from the exact id on the record - Songkick's stored
+ * `Artist123` spelling translated into the one that appears in their artist
+ * addresses - so a link lands on that id's own page and never on a search
+ * for a name that might belong to somebody else. An id that is missing, or
+ * that carries characters which would change the address, produces no link
+ * at all: there would be nothing trustworthy to point at.
+ */
+function buildExternalLinks(artist: ArtistProfile | null): ExternalLink[] {
+  const ids = artist?.external_ids;
+
+  if (!ids) {
+    return [];
+  }
+
+  const isAddressSafe = (value: string) => !/[\s/?#:]/.test(value);
+
+  const links: ExternalLink[] = [];
+
+  const songkick = (ids.songkick ?? '').trim();
+
+  if (songkick) {
+    const bare = /^artist/i.test(songkick)
+      ? songkick.slice('Artist'.length)
+      : songkick;
+
+    if (bare && isAddressSafe(bare)) {
+      links.push({
+        provider: 'songkick',
+        href: `https://www.songkick.com/artists/${bare}`,
+      });
+    }
+  }
+
+  const spotify = (ids.spotify ?? '').trim();
+
+  if (spotify && isAddressSafe(spotify)) {
+    links.push({
+      provider: 'spotify',
+      href: `https://open.spotify.com/artist/${spotify}`,
+    });
+  }
+
+  return links;
 }
 
 export default function ArtistProfilePage() {
@@ -77,8 +161,7 @@ export default function ArtistProfilePage() {
       const data = await eventAPI.getArtistEvents(artistSlug);
       setEvents(
         [...data].sort(
-          (a, b) =>
-            new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
+          (a, b) => eventStart(a) - eventStart(b)
         )
       );
     } catch {
@@ -171,14 +254,18 @@ export default function ArtistProfilePage() {
     );
   }
 
-  const now = new Date();
-
+  /*
+    The backend's `is_past` decides, falling back to the later of the two
+    dates, and an undated show stays in the list: "date to be announced" is
+    not evidence that it happened. The old rule built a Date from
+    `ends_at ?? starts_at`, which turned a missing date into 1970 and quietly
+    hid the very events the extraction work just made visible.
+  */
   const upcomingEvents = events
-    .filter((event) => {
-      const end = event.ends_at ?? event.starts_at;
-      return new Date(end).getTime() >= now.getTime();
-    })
+    .filter((event) => !isPastEvent(event))
     .slice(0, 6);
+
+  const externalLinks = buildExternalLinks(artist);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -188,7 +275,14 @@ export default function ArtistProfilePage() {
           <img
             src={artist.image}
             alt={artist.name}
-            className="h-48 w-full object-cover sm:h-72"
+            /*
+              The whole photograph, not a slice of it. A fixed-height cover
+              crop turns a band's horizontal shot into a strip of torsos and
+              cuts a portrait's head off; here the image keeps its intrinsic
+              ratio and is only letterboxed into the banner's height cap, so
+              what the artist chose as their picture is what a reader sees.
+            */
+            className="h-auto max-h-80 w-full object-contain"
           />
         )}
 
@@ -300,6 +394,45 @@ export default function ArtistProfilePage() {
           </Card>
         </section>
 
+        {/*
+          Where else this artist's page lives, built only from the identities
+          stored on the record. Each address is the provider's own form for
+          that exact id, so following one lands on this artist and never on a
+          same-named someone else; with no stored id there is no link to show.
+        */}
+        {externalLinks.length > 0 && (
+          <section aria-labelledby="on-other-sites-heading">
+            <h2
+              id="on-other-sites-heading"
+              className="mb-4 text-xl font-bold sm:text-2xl"
+            >
+              {t('onOtherSites')}
+            </h2>
+
+            <Card className="p-5 sm:p-6">
+              <ul
+                className="flex flex-wrap gap-3"
+                data-testid="artist-external-links"
+              >
+                {externalLinks.map((link) => (
+                  <li key={link.provider}>
+                    <a
+                      href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid={`artist-link-${link.provider}`}
+                      className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium text-muted transition-colors hover:border-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      {t(link.provider)}
+                      <span aria-hidden="true">↗</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </section>
+        )}
+
         {relatedArtists.length > 0 && (
           <section aria-labelledby="related-artists-heading">
             <h2
@@ -328,7 +461,7 @@ export default function ArtistProfilePage() {
                           src={relatedArtist.image}
                           alt={relatedArtist.name}
                           loading="lazy"
-                          className="mb-3 h-32 w-full rounded-lg object-cover"
+                          className="mb-3 h-32 w-full rounded-lg object-contain"
                         />
                       )}
                       <p className="line-clamp-1 text-sm font-semibold">

@@ -555,58 +555,59 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
     # ----------------------------------------------------------
     # Artists
     #
-    # Real ids only, each attributed to the source it came from. The
-    # deliberately thin one exists so the page can be judged when it knows
-    # almost nothing.
+    # Real ids only, each attributed to the source it came from,
+    # and "real" means checked: each id below was looked up as-is
+    # on its own provider by exact-key read, and only the ones that
+    # answered with the artist stored beside them were kept. The
+    # Spotify ids that answered 404 - or named a different artist
+    # - were dropped rather than repaired, and the MusicBrainz ids
+    # all went (six do not exist; the seventh answers "Various
+    # Artists"), because an id the provider does not confirm is
+    # not an identity, and a wrong one on the record is worse than
+    # an absent one.
+    #
+    # The deliberately thin one exists so the page can be judged when it
+    # knows almost nothing.
     # ----------------------------------------------------------
 
     artists = [
         build_artist(
             "Marina Sena",
-            spotify_id="7dGJo4pcD2V6oG8ykP7y6Oz",
             songkick_id=SONGKICK_IDS["Marina Sena"],
-            musicbrainz_id="e9e0d2b8-4d4a-4a5f-9a5a-1f4b8f2c9d31",
             genres=["MPB", "Pop"],
             followers_count=48210,
         ),
         build_artist(
             "Arctic Monkeys",
+            # The one stored Spotify id whose own page answers with this
+            # artist - the case for "a record can know a second source".
             spotify_id="7Ln80lUS6He07XvHI8qqHH",
             songkick_id=SONGKICK_IDS["Arctic Monkeys"],
-            musicbrainz_id="89ad4ac3-39f7-470e-963a-56509c546377",
             genres=["Alternative Rock", "Indie Rock"],
             followers_count=3104520,
         ),
         build_artist(
             "Gal Costa",
-            spotify_id="1r7iV2vcSpEnRgtPDVBb1C",
             songkick_id=SONGKICK_IDS["Gal Costa"],
-            musicbrainz_id="b2a2e0b6-9d7f-4a52-9c7d-6f2c9a1b4e77",
             genres=["MPB", "Bossa Nova", "Pop"],
             followers_count=271833,
         ),
         build_artist(
             "Rubel",
-            spotify_id="1McMsnEElThX1knmY4oliGf",
             songkick_id=SONGKICK_IDS["Rubel"],
-            musicbrainz_id="6d1f0b7a-2c4e-4a3b-9f8d-0e5b6c7a8d90",
             genres=["MPB", "Folk"],
             followers_count=39812,
         ),
         build_artist(
             "Tim Bernardes",
-            spotify_id="5P7o3k6eRHxaqfXuaC5ZUn",
             songkick_id=SONGKICK_IDS["Tim Bernardes"],
-            musicbrainz_id="9f2c1d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f",
             genres=["MPB", "Indie"],
             followers_count=120455,
         ),
         # A group, so band membership and "members" have something real.
         build_artist(
             "O Terno",
-            spotify_id="4tZwfgrHOc3mvqYlEYSvVi",
             songkick_id=SONGKICK_IDS["O Terno"],
-            musicbrainz_id="c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
             genres=["MPB", "Rock"],
             followers_count=51230,
         ),
@@ -615,9 +616,7 @@ def build_dataset() -> dict[str, list[dict[str, Any]]]:
         # case where "did the import actually import?" has an interesting answer.
         build_artist(
             "Demi Lovato",
-            spotify_id="4z6W6TZjkFpxQeKFGW5vUx",
             songkick_id=SONGKICK_IDS["Demi Lovato"],
-            musicbrainz_id="b2b2e0f2-6d8e-4c1a-9f77-3a5d6c1e9b02",
             genres=["Pop", "Alternative"],
             followers_count=7823001,
         ),

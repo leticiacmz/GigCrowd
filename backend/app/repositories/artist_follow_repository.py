@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from bson import ObjectId
 
 from app.repositories.base import BaseRepository
+from app.utils.ids import id_matches
 
 
 class ArtistFollowRepository(BaseRepository):
@@ -133,16 +134,19 @@ class ArtistFollowRepository(BaseRepository):
         limit: int = 50,
         skip: int = 0,
     ):
-        """Get list of artists that a user follows"""
+        """Get list of artists that a user follows.
 
-        # Convert user_id to ObjectId if it's a string
-        try:
-            user_id = ObjectId(user_id)
-        except:
-            pass  # Already an ObjectId or invalid
+        Matched through `id_matches`, not by converting the id: historic rows
+        disagree about how to store one, and a lookup that only knows one form
+        makes a real follow silently disappear from the feed and from every
+        list built on it.
+        """
 
-        cursor = self.collection.find({
-            "user_id": user_id,
-        }).skip(skip).limit(limit)
+        cursor = self.collection.find(
+            id_matches(
+                "user_id",
+                user_id,
+            )
+        ).skip(skip).limit(limit)
 
         return await cursor.to_list(length=limit)

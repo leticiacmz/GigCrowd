@@ -16,9 +16,18 @@ from bson import ObjectId
 # Fields a resync must never clear by writing `None` over a stored value.
 #
 # A gigography listing states less than an event's own page does, and routinely
-# states less than enrichment has already recovered. Blanking these on every
-# resync would make recovery self-erasing. `ends_at` is deliberately here: a
-# stored festival range must survive a listing that only carried a start.
+# states less than an earlier extraction already obtained. Blanking these on
+# every resync would make that work self-erasing. `ends_at` is deliberately here:
+# a stored festival range must survive a listing that only carried a start.
+# `date_source_checked_at` belongs here for the same reason - it is the marker
+# that says somebody actually read the source, and losing it would demote a
+# checked event back to "not checked" for every selector that reads it.
+#
+# The presentation fields are here for the same reason stated plainly: a
+# listing that carries no description has not declared that the event has none,
+# and a resync that erased the stored one would take away the only copy the
+# catalogue holds. A listing that *does* carry one still corrects it, because
+# a present value is written as it arrives.
 #
 # These are omitted from the update when the incoming value is `None`, not
 # written as `None`. The distinction matters: writing `None` erases the stored
@@ -29,6 +38,10 @@ _NEVER_BLANKED_BY_A_RESYNC = frozenset(
         "starts_at",
         "ends_at",
         "date_status",
+        "date_source_checked_at",
+        "description",
+        "image_url",
+        "event_status",
     }
 )
 
@@ -499,6 +512,19 @@ class EventRepository(BaseRepository):
         self,
         event: Event,
     ):
+        """Refresh an event the legacy Bandsintown path keyed by its own id.
+
+        The provider update above already refused to blank a stored date with a
+        later `None`, and this one has to refuse it too: the invariant is about
+        the record, not about which provider wrote. A weaker payload arriving
+        later must not be able to turn a recovered concrete date back into a
+        TBA, and attendance counters are not a listing's to reset either.
+
+        The Bandsintown path is reachable only when a caller asks for it
+        explicitly (`EventImportService.sync_artist_events(provider=...)`), but
+        reachable is enough - it obeys the same rules as the path the importer
+        uses by default.
+        """
 
         bandsintown_id = event.external_ids.get(
             "bandsintown"
@@ -509,17 +535,26 @@ class EventRepository(BaseRepository):
                 "Event does not have a Bandsintown external ID."
             )
 
+        incoming = event.model_dump(
+            exclude={"id"}
+        )
+
+        for name in _NEVER_OWNED_BY_A_PROVIDER:
+            incoming.pop(name, None)
+
+        updates = _without_absent_protected(
+            incoming,
+            _NEVER_BLANKED_BY_A_RESYNC,
+        )
+
+        updates["updated_at"] = datetime.now(UTC)
+
         await self.collection.update_one(
             {
                 "external_ids.bandsintown": bandsintown_id
             },
             {
-                "$set": {
-                    **event.model_dump(
-                        exclude={"id"}
-                    ),
-                    "updated_at": datetime.now(UTC),
-                }
+                "$set": updates
             },
         )
 
@@ -687,8 +722,8 @@ class EventRepository(BaseRepository):
         A gigography listing is a worse source than the event's own page, and it
         frequently states less: Songkick lists a festival date with no date on
         it even though that date has a page carrying the real range. Writing the
-        listing's `None` over a date that enrichment had already recovered would
-        make the recovery self-erasing - every resync would put the event back in
+        listing's `None` over a date an earlier extraction already obtained would
+        make that work self-erasing - every resync would put the event back in
         the incomplete state the previous run had just fixed, and the record would
         never settle. So a field the incoming event does not have leaves the
         stored one alone, and only a value the source actually states is written.
@@ -720,28 +755,3 @@ class EventRepository(BaseRepository):
             },
             {"$set": updates},
         )
-
-    async def get_id_by_external_id(
-        self,
-        provider: str,
-        external_id: str,
-    ) -> Optional[str]:
-        """The stored id of an event, given the id its provider knows it by.
-
-        The importer needs this to point enrichment at the row it has just
-        written, and reading the row's own id is what guarantees enrichment is
-        applied to the document that exists rather than to an id it guessed.
-        """
-
-        if not external_id:
-            return None
-
-        document = await self.collection.find_one(
-            {f"external_ids.{provider}": external_id},
-            {"_id": 1},
-        )
-
-        if document is None:
-            return None
-
-        return str(document["_id"])

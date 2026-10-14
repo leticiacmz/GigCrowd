@@ -38,6 +38,23 @@ class EventDateUnavailable(ValueError):
         super().__init__(message)
 
 
+# How a stored date was resolved, recorded on the event itself so any reader
+# can tell three different situations apart:
+#
+# * `source` - the date came from the provider's own page.
+# * `unavailable` - the source was read and genuinely carries no date.
+# * `parser_failed` - a date was there and could not be read.
+#
+# They live here rather than in a service because the answer belongs to the
+# event, not to whoever asked: a mapper writes them, a migration backfills
+# them, a report reads them, and the import decides what a failure means from
+# them. One definition, in the module that already owns every rule about an
+# event's schedule.
+DATE_FROM_SOURCE = "source"
+DATE_UNAVAILABLE = "unavailable"
+DATE_PARSER_FAILED = "parser_failed"
+
+
 def _field(event: Any, name: str) -> Any:
     """Read a field from a domain object or a raw document."""
     if event is None:

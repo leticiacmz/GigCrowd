@@ -152,8 +152,6 @@ development fixture has the opposite job.
 | `audit_lineup_artist_identities.py` | Whether the identities lineup expansion created are real |
 | `report_lineup_resolution.py` | How much of the stored lineup can be linked |
 | `report_event_gaps.py` | Which events are incomplete, without fetching |
-| `enrich_events.py` | Fill missing event fields from the provider |
-| `recover_incomplete_events.py` | Drain the incomplete backlog through the scheduler's own job |
 | `import_lineup_artists.py` | Make the artists already stored in lineups real artists |
 
 `report_lineup_resolution.py`, `audit_state.py` and
@@ -191,30 +189,31 @@ would permanently skip a real artist.
 
 ### Nothing here is needed to keep imports correct
 
-The two scripts at the bottom exist to look at the catalogue and to bring
-*existing* records forward. They are not part of the import lifecycle:
+These scripts look at the catalogue and bring *existing* records forward. None
+of them is part of the import lifecycle:
 
-* An import enriches its own incomplete events through
-  `EventEnrichmentService.enrich_event`. See `app/jobs/README.md`.
-* A scheduler tick catches whatever an import deferred or failed on, through the
-  same service.
-* `recover_incomplete_events.py` calls `run_enrichment_once` — exactly what the
-  scheduler calls — in a loop, because one tick is deliberately bounded. It is
-  the scheduler's job with more ticks, not a different job.
+* An extraction joins every page it pays for, then reads an event's own page
+  during that same run when a field is still missing, bounded by
+  `SONGKICK_EVENT_PAGE_READS_PER_SCRAPE`. See `app/jobs/README.md`.
+* What is still missing after that is reported by the import — event id, field,
+  source — rather than handed to anything else. Nothing schedules a pass over
+  incomplete events, and nothing reads a stored event's source on demand.
+* `enrich_events.py`, `recover_incomplete_events.py`, `EventEnrichmentService`
+  and `app/jobs/enrichment_job.py` were removed with that pass. What closes a
+  gap now is the next catalog refresh, through the same pipeline.
 
 ```
-# What is still incomplete, and why.
-python -m app.scripts.recover_incomplete_events --dry-run
-python -m app.scripts.recover_incomplete_events --apply
+# Which stored events lack what, and why (read-only, no fetching).
+python -m app.scripts.report_event_gaps
 
 # Lineups stored before announced performers became artists.
 python -m app.scripts.import_lineup_artists --dry-run
 python -m app.scripts.import_lineup_artists --apply
 ```
 
-Both create artist and event records and nothing else: no gigography is fetched
-and no `last_synced_at` is written, so importing an artist stays the sync job's
-decision rather than a side effect of reading a page.
+The lineup importer creates artist and event records and nothing else: no
+gigography is fetched and no `last_synced_at` is written, so importing an artist
+stays the sync job's decision rather than a side effect of reading a page.
 
 ### The loopback guard
 

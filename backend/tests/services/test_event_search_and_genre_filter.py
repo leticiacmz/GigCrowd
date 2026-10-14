@@ -640,6 +640,76 @@ class TestWhatMayBePresentedAsUpcoming:
         assert history["total"] == 1
 
     @pytest.mark.asyncio
+    async def test_include_past_does_not_open_the_future(self):
+        """The one variant of this endpoint that could bypass the rule.
+
+        `include_past=true` exists to reach back into history, but it queried
+        with no date clause at all - so the same request that made last year's
+        shows reachable also showed a fixture dated next year as an announced
+        gig. Reaching back must not mean believing everything ahead.
+        """
+
+        service = a_service(
+            [
+                an_artist("gal-costa", ["MPB"]),
+                an_artist("marina-sena", ["MPB"]),
+            ],
+            [
+                an_event(
+                    "Gal Costa Last Year",
+                    ["gal-costa"],
+                    starts_at=(
+                        datetime.now(UTC) - timedelta(days=400)
+                    ),
+                    source={
+                        "provider": "songkick",
+                        "external_id": "9900109",
+                        "url": (
+                            "https://www.songkick.com/concerts/"
+                            "9900109-gal-costa"
+                        ),
+                        "provenance": "fixture",
+                    },
+                ),
+                an_event(
+                    "Gal Costa Next Year",
+                    ["gal-costa"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=400)
+                    ),
+                    source={
+                        "provider": "songkick",
+                        "external_id": "9900110",
+                        "url": (
+                            "https://www.songkick.com/concerts/"
+                            "9900110-gal-costa"
+                        ),
+                        "provenance": "fixture",
+                    },
+                ),
+                an_event(
+                    "Marina Sena Next Month",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=30)
+                    ),
+                ),
+            ],
+        )
+
+        everything = await service.search(include_past=True)
+
+        titles = [
+            row["title"]
+            for row in everything["events"]
+        ]
+
+        assert "Gal Costa Last Year" in titles
+        assert "Marina Sena Next Month" in titles
+        assert "Gal Costa Next Year" not in titles
+        assert everything["total"] == 2
+
+    @pytest.mark.asyncio
     async def test_the_artist_page_and_this_list_agree(self):
         """A search more permissive than the page it links to is not a search.
 
@@ -844,6 +914,403 @@ class TestPaging:
         assert all(
             title.startswith("MPB Show") for title in titles
         )
+
+
+class TestReadingOrder:
+    """What is still to come reads soonest first; what has been reads newest first.
+
+    Two sorted readings of one result set, not a scoring engine. Somebody
+    looking for the next show should not scroll past next year's dates to find
+    this month's, and somebody looking for a show they remember should meet the
+    nearest one in time before the one from three years earlier - while both
+    remain in the same list, in the same total, walked by the same cursor.
+    """
+
+    @pytest.mark.asyncio
+    async def test_upcoming_is_read_soonest_first(self):
+        """The next show is the first answer to "what is on"."""
+
+        service = a_service(
+            [an_artist("marina-sena", ["MPB"])],
+            [
+                an_event(
+                    "Far Show",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=300)
+                    ),
+                ),
+                an_event(
+                    "Soon Show",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=10)
+                    ),
+                ),
+                an_event(
+                    "Middle Show",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=100)
+                    ),
+                ),
+            ],
+        )
+
+        result = await service.search()
+
+        assert [
+            row["title"]
+            for row in result["events"]
+        ] == [
+            "Soon Show",
+            "Middle Show",
+            "Far Show",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_lookup_reads_what_is_to_come_before_what_has_been(self):
+        """A historical row from yesterday does not outrank next year's show.
+
+        Neither a single descending sort (which buries this month's dates under
+        next year's) nor a single ascending one (which puts yesterday's show at
+        the top of a lookup) answers both questions.
+        """
+
+        service = a_service(
+            [an_artist("marina-sena", ["MPB"])],
+            [
+                an_event(
+                    "History",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) - timedelta(days=1)
+                    ),
+                ),
+                an_event(
+                    "Next Year",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=300)
+                    ),
+                ),
+                an_event(
+                    "This Season",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=30)
+                    ),
+                ),
+            ],
+        )
+
+        result = await service.search(include_past=True)
+
+        assert [
+            row["title"]
+            for row in result["events"]
+        ] == [
+            "This Season",
+            "Next Year",
+            "History",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_history_reads_most_recent_first(self):
+        """Of what has been, the nearest in time is the most worth showing."""
+
+        service = a_service(
+            [an_artist("marina-sena", ["MPB"])],
+            [
+                an_event(
+                    "Long Ago",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) - timedelta(days=400)
+                    ),
+                ),
+                an_event(
+                    "Last Week",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) - timedelta(days=7)
+                    ),
+                ),
+                an_event(
+                    "Last Season",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) - timedelta(days=150)
+                    ),
+                ),
+                an_event(
+                    "Soon",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=10)
+                    ),
+                ),
+            ],
+        )
+
+        result = await service.search(include_past=True)
+
+        assert [
+            row["title"]
+            for row in result["events"]
+        ] == [
+            "Soon",
+            "Last Week",
+            "Last Season",
+            "Long Ago",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_cursor_walks_both_passes_without_repeating_or_skipping(self):
+        """The page that stops in one pass continues in the other.
+
+        The two passes meet inside one cursor: a page that ends in the upcoming
+        half must continue into the historical half from its most recent row,
+        and a cursor sitting in the historical half must not climb back into
+        what is still to come.
+        """
+
+        service = a_service(
+            [an_artist("marina-sena", ["MPB"])],
+            [
+                an_event(
+                    f"Future {index}",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC)
+                        + timedelta(days=index + 1)
+                    ),
+                    ident=ObjectId(),
+                )
+                for index in range(3)
+            ]
+            + [
+                an_event(
+                    f"Past {index}",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC)
+                        - timedelta(days=index + 1)
+                    ),
+                    ident=ObjectId(),
+                )
+                for index in range(4)
+            ],
+        )
+
+        titles: list[str] = []
+        cursor: Any = None
+
+        for _ in range(10):
+
+            page = await service.search(
+                include_past=True,
+                limit=2,
+                before=cursor["date"] if cursor else None,
+                before_id=cursor["id"] if cursor else None,
+            )
+
+            titles.extend(
+                row["title"]
+                for row in page["events"]
+            )
+
+            cursor = page["next_cursor"]
+
+            if not cursor:
+                break
+
+        assert titles == [
+            "Future 0",
+            "Future 1",
+            "Future 2",
+            "Past 0",
+            "Past 1",
+            "Past 2",
+            "Past 3",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_provenance_rule_survives_a_cursor_page_without_text(self):
+        """Page two is not a looser query than page one.
+
+        The cursor clause appends to what the query already carries, so the
+        trust rule that hides an uncheckable future claim on the first page is
+        still in force on the second. The text-free request is the one where a
+        cursor clause written as a replacement used to wipe it, and a phantom
+        row was one page away from reading as an announced gig.
+        """
+
+        service = a_service(
+            [an_artist("marina-sena", ["MPB"])],
+            [
+                an_event(
+                    "Real Far Show",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=500)
+                    ),
+                    ident=ObjectId(),
+                ),
+                an_event(
+                    "Phantom Further Show",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=600)
+                    ),
+                    ident=ObjectId(),
+                    source={
+                        "provider": "songkick",
+                        "external_id": "9900109",
+                        "url": (
+                            "https://www.songkick.com/concerts/"
+                            "9900109-a-phantom"
+                        ),
+                        "event_id": "9900109",
+                        "provenance": "fixture",
+                    },
+                ),
+                an_event(
+                    "Old Show",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) - timedelta(days=30)
+                    ),
+                    ident=ObjectId(),
+                ),
+            ],
+        )
+
+        titles: list[str] = []
+        cursor: Any = None
+
+        for _ in range(10):
+
+            page = await service.search(
+                include_past=True,
+                limit=1,
+                before=cursor["date"] if cursor else None,
+                before_id=cursor["id"] if cursor else None,
+            )
+
+            titles.extend(
+                row["title"]
+                for row in page["events"]
+            )
+
+            cursor = page["next_cursor"]
+
+            if not cursor:
+                break
+
+        assert titles == [
+            "Real Far Show",
+            "Old Show",
+        ]
+
+
+class TestTheFollowedList:
+    """The personalized page is the browse query with a membership list.
+
+    One source of truth for follows, one for events, one set of rules: the
+    page a signed-in reader lands on cannot be more permissive than the public
+    page it stands in for, and an empty follow list must never widen into
+    "every event" - which is the failure this parameter exists to prevent.
+    """
+
+    @pytest.mark.asyncio
+    async def test_only_the_followed_artists_shows_appear(self):
+        service = a_service(
+            [
+                an_artist("marina-sena", ["MPB"]),
+                an_artist("tim-bernardes", ["Indie"]),
+            ],
+            [
+                an_event("Marina Show", ["marina-sena"]),
+                an_event("Tim Show", ["tim-bernardes"]),
+            ],
+        )
+
+        result = await service.search(
+            artist_slugs=["marina-sena"]
+        )
+
+        assert [
+            row["title"]
+            for row in result["events"]
+        ] == ["Marina Show"]
+
+        assert result["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_following_nobody_is_an_empty_page(self):
+        """No follows states itself; it does not become the whole catalogue."""
+
+        service = a_service(
+            [an_artist("marina-sena", ["MPB"])],
+            [an_event("Marina Show", ["marina-sena"])],
+        )
+
+        result = await service.search(artist_slugs=[])
+
+        assert result["events"] == []
+        assert result["total"] == 0
+        assert result["next_cursor"] is None
+
+    @pytest.mark.asyncio
+    async def test_it_is_still_upcoming_only_and_read_soonest_first(self):
+        """The same provenance rule and the same reading order as the browse list.
+
+        A personalized page that hid a fixture, or that read history before
+        what is on, would be answering a different question from the one the
+        page replaced.
+        """
+
+        service = a_service(
+            [an_artist("marina-sena", ["MPB"])],
+            [
+                an_event(
+                    "Last Year",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) - timedelta(days=400)
+                    ),
+                ),
+                an_event(
+                    "Far Show",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=200)
+                    ),
+                ),
+                an_event(
+                    "Soon Show",
+                    ["marina-sena"],
+                    starts_at=(
+                        datetime.now(UTC) + timedelta(days=5)
+                    ),
+                ),
+            ],
+        )
+
+        result = await service.search(
+            artist_slugs=["marina-sena"]
+        )
+
+        assert [
+            row["title"]
+            for row in result["events"]
+        ] == [
+            "Soon Show",
+            "Far Show",
+        ]
+
+        assert result["total"] == 2
 
 
 class TestWhatARowCarries:

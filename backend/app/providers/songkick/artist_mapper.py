@@ -1,5 +1,9 @@
 from app.domain.artist import Artist
 
+from app.domain.songkick_identity import (
+    canonical_songkick_artist_id,
+)
+
 from app.utils.slug import generate_slug
 from app.utils.text import normalize_text
 
@@ -139,10 +143,24 @@ class SongkickArtistMapper:
         # EXTERNAL IDS
         # ==================================================
 
+        # Canonical spelling of the Songkick id, decided by the identity module
+        # rather than by this mapper. `str(songkick_id)` here is how the same
+        # artist came to be stored two ways - `520117` by this path and
+        # `Artist520117` by the lineup path - so that a lookup keyed on one form
+        # never found the row written by the other.
+        canonical_songkick_id = canonical_songkick_artist_id(
+            songkick_id
+        )
+
+        if not canonical_songkick_id:
+
+            raise ValueError(
+                "Songkick artist data requires a usable "
+                "Songkick artist id."
+            )
+
         external_ids = {
-            "songkick": str(
-                songkick_id
-            ),
+            "songkick": canonical_songkick_id,
         }
 
         if spotify_artist:

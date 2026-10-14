@@ -97,6 +97,54 @@ class TestArtistFollowRepositoryMethods:
         mock_db.users.update_one.assert_not_called()
 
 
+class TestLookingUpWhoseArtistsTheyAre:
+    """Historic rows store the user id in both forms; both must count.
+
+    A follow that cannot be found is not a follow: the feed's "following"
+    scope and the Events page's personalized list are both built on this
+    lookup, and matching only one representation empties them for a real
+    reader whose rows happen to be stored the other way.
+    """
+
+    @pytest.mark.asyncio
+    async def test_both_storage_forms_of_the_user_id_are_matched(self):
+        from bson import ObjectId
+
+        from tests.support.fake_mongo import FakeDatabase
+
+        STRING_USER = "aaaaaaaaaaaaaaaaaaaaaaa1"
+        OBJECT_USER = "bbbbbbbbbbbbbbbbbbbbbbb2"
+
+        db = FakeDatabase(
+            {
+                "artist_follows": [
+                    {"user_id": STRING_USER, "artist_slug": "marina-sena"},
+                    {"user_id": ObjectId(OBJECT_USER), "artist_slug": "rubel"},
+                ],
+            }
+        )
+
+        repository = ArtistFollowRepository(db)
+
+        as_string = await repository.get_following_artists(
+            STRING_USER,
+            limit=10,
+        )
+
+        assert [follow["artist_slug"] for follow in as_string] == [
+            "marina-sena"
+        ]
+
+        # Looked up the way every caller does: as the hex string, even where
+        # the row stores an ObjectId.
+        as_object_id = await repository.get_following_artists(
+            OBJECT_USER,
+            limit=10,
+        )
+
+        assert [follow["artist_slug"] for follow in as_object_id] == ["rubel"]
+
+
 class TestFeedActivityRepositoryInit:
     """Test that FeedActivityRepository works with the db attribute fix."""
 

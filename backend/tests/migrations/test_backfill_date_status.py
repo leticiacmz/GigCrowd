@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.migrations.backfill_date_status import (
-    VALID_STATUSES,
-    classify,
-)
-from app.services.event_enrichment_service import (
+from app.domain.event_schedule import (
     DATE_FROM_SOURCE,
     DATE_PARSER_FAILED,
     DATE_UNAVAILABLE,
+)
+from app.migrations.backfill_date_status import (
+    VALID_STATUSES,
+    classify,
 )
 
 
