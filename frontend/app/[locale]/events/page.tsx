@@ -902,13 +902,24 @@ function EventResultRow({
 }) {
   const tCard = useTranslations('eventCard');
 
-  const from = row.starts_at
-    ? formatEventDateRange(row.starts_at, locale as never)
-    : null;
+  /*
+   * A row with no usable date says so, the same way a card does, instead of
+   * rendering "Invalid Date" from a string the parser rejected. The end date
+   * only travels beside the start when there is a start to travel from.
+   */
+  const from =
+    formatEventDateRange(
+      row.starts_at ?? row.ends_at ?? '',
+      locale as never,
+    ) ||
+    tCard('dateUnknown');
 
   const to =
-    row.ends_at && row.starts_at !== row.ends_at
-      ? formatEventDateRange(row.ends_at, locale as never)
+    row.starts_at &&
+    row.ends_at &&
+    row.starts_at !== row.ends_at
+      ? formatEventDateRange(row.ends_at, locale as never) ||
+        null
       : null;
 
   const place =

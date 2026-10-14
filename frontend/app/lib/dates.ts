@@ -26,48 +26,80 @@ export function formatEventDateRange(
   value: string,
   locale: Locale,
 ): string {
+  const parsed = parseDate(value);
+
+  // An unusable date formats as nothing rather than as "Invalid Date": an
+  // imported event can arrive with a string the parser rejects, and a broken
+  // label on the page is worse than an absent one the caller can replace.
+  if (parsed === null) {
+    return '';
+  }
+
   return new Intl.DateTimeFormat(intlTag(locale), {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  }).format(new Date(value));
+  }).format(parsed);
 }
 
 export function formatEventMonthDay(
   value: string,
   locale: Locale,
 ): string {
+  const parsed = parseDate(value);
+
+  if (parsed === null) {
+    return '';
+  }
+
   return new Intl.DateTimeFormat(intlTag(locale), {
     day: 'numeric',
     month: 'short',
-  }).format(new Date(value));
+  }).format(parsed);
 }
 
 export function formatEventTime(
   value: string,
   locale: Locale,
 ): string {
+  const parsed = parseDate(value);
+
+  if (parsed === null) {
+    return '';
+  }
+
   return new Intl.DateTimeFormat(intlTag(locale), {
     hour: 'numeric',
     minute: '2-digit',
-  }).format(new Date(value));
+  }).format(parsed);
 }
 
 /**
  * A date span, collapsed to one end date when both ends share a month.
+ *
+ * Both ends are parsed before anything is printed: a missing or unusable start
+ * yields nothing for the caller to fall back on, and an unusable end collapses
+ * the span to the start date instead of printing a broken half of a range.
  */
 export function formatDateSpan(
   start: string,
   end: string | null | undefined,
   locale: Locale,
 ): string {
-  const startDate = new Date(start);
+  const startMs = parseDate(start);
 
-  if (!end) {
+  if (startMs === null) {
+    return '';
+  }
+
+  const startDate = new Date(startMs);
+  const endMs = parseDate(end);
+
+  if (endMs === null) {
     return formatEventDateRange(start, locale);
   }
 
-  const endDate = new Date(end);
+  const endDate = new Date(endMs);
 
   const sameMonth =
     startDate.getFullYear() === endDate.getFullYear() &&

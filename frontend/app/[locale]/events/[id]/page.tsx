@@ -112,6 +112,18 @@ interface Event {
    * has to render honestly; it is not an invitation to invent a date.
    */
   date_status?: string | null;
+  /**
+   * When the source was last actually read for a date. Distinguishes
+   * "checked, and there is no date" from "a listing simply lacked one".
+   */
+  date_source_checked_at?: string | null;
+  /**
+   * The provider's scheduling state - schema.org `eventStatus`, stored as the
+   * provider wrote it, so typically `https://schema.org/EventCancelled`.
+   * Optional: most events state nothing, and absent means "no word from the
+   * source", never "confirmed on".
+   */
+  event_status?: string | null;
   lineup?: LineupArtist[];
   location?: Location | null;
   going_count?: number;
@@ -123,6 +135,34 @@ interface Event {
 
 type EventStatus = 'upcoming' | 'happening' | 'past';
 type EventTab = 'information' | 'posts' | 'artists';
+
+/**
+ * The two scheduling words a reader has to act on, or `null` for everything
+ * else.
+ *
+ * The stored value is schema.org's own spelling, usually as a full URL
+ * (`https://schema.org/EventCancelled`), so the last segment is what is
+ * compared, case-insensitively - the provider's casing is not ours to rely
+ * on. "Scheduled" resolves to null on purpose: a badge saying so on every
+ * ordinary show is noise, and a state this function does not recognise stays
+ * unlabelled rather than being guessed at.
+ */
+function resolveSchedulingState(
+  value?: string | null,
+): 'cancelled' | 'postponed' | null {
+  const word =
+    (value ?? '').split('/').pop()?.toLowerCase() ?? '';
+
+  if (word === 'eventcancelled') {
+    return 'cancelled';
+  }
+
+  if (word === 'eventpostponed') {
+    return 'postponed';
+  }
+
+  return null;
+}
 
 export default function EventDetailPage() {
   const router = useRouter();
@@ -184,6 +224,12 @@ export default function EventDetailPage() {
   const isEventPast = isPastEvent(event);
   const isEventHappening = isHappeningNow(event);
   const isFestival = event?.event_type === 'FestivalInstance';
+
+  // A cancelled or postponed show says so beside its status badge; an event
+  // whose source stated no scheduling word simply carries no badge.
+  const schedulingState = resolveSchedulingState(
+    event?.event_status,
+  );
 
   const artistSlugs = useMemo(() => {
     if (!event) {
@@ -501,6 +547,17 @@ export default function EventDetailPage() {
               >
                 {statusLabel}
               </span>
+
+              {schedulingState && (
+                <span
+                  className="inline-flex items-center rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs font-medium text-accent"
+                  data-testid="event-scheduling-state"
+                >
+                  {schedulingState === 'cancelled'
+                    ? t('eventCancelled')
+                    : t('eventPostponed')}
+                </span>
+              )}
             </div>
 
             <h1 className="max-w-4xl text-3xl md:text-5xl font-bold tracking-tight">

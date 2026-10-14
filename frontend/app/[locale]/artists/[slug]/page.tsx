@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 
 import { artistAPI, eventAPI } from '@/app/lib/api';
 import { isAuthenticated } from '@/app/lib/auth';
+import { isPastEvent } from '@/app/lib/dates';
 import { useAuthAction } from '@/app/lib/use-auth-action';
 import ArtistTabs from '@/components/artist/ArtistTabs';
 import Badge from '@/components/ui/Badge';
@@ -41,10 +42,30 @@ interface ArtistProfile {
 interface ArtistEvent {
   id: string;
   title: string;
-  starts_at: string;
+  // Nullable because imported events genuinely arrive without a date; the
+  // type says so instead of promising a string the payload may not carry.
+  starts_at: string | null;
   ends_at?: string | null;
   event_type?: string;
   ticket_url?: string | null;
+  /** Resolved by the backend; see `isPastEvent`. */
+  is_past?: boolean;
+}
+
+/**
+ * When an event starts, or `Infinity` when it has no usable date.
+ *
+ * Undated imported shows sort last rather than collapsing to `NaN`, which no
+ * comparator can order and which used to leave their position arbitrary.
+ */
+function eventStart(event: ArtistEvent): number {
+  const parsed = event.starts_at
+    ? new Date(event.starts_at).getTime()
+    : Number.NaN;
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : Number.POSITIVE_INFINITY;
 }
 
 interface ExternalLink {
@@ -140,8 +161,7 @@ export default function ArtistProfilePage() {
       const data = await eventAPI.getArtistEvents(artistSlug);
       setEvents(
         [...data].sort(
-          (a, b) =>
-            new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
+          (a, b) => eventStart(a) - eventStart(b)
         )
       );
     } catch {
@@ -234,13 +254,15 @@ export default function ArtistProfilePage() {
     );
   }
 
-  const now = new Date();
-
+  /*
+    The backend's `is_past` decides, falling back to the later of the two
+    dates, and an undated show stays in the list: "date to be announced" is
+    not evidence that it happened. The old rule built a Date from
+    `ends_at ?? starts_at`, which turned a missing date into 1970 and quietly
+    hid the very events the extraction work just made visible.
+  */
   const upcomingEvents = events
-    .filter((event) => {
-      const end = event.ends_at ?? event.starts_at;
-      return new Date(end).getTime() >= now.getTime();
-    })
+    .filter((event) => !isPastEvent(event))
     .slice(0, 6);
 
   const externalLinks = buildExternalLinks(artist);

@@ -44,25 +44,70 @@ interface ArtistEvent {
 
   title: string;
 
-  starts_at: string;
+  // Nullable: imported events arrive without a date often enough that the
+  // type has to admit it rather than promise a string.
+  starts_at: string | null;
 
   ticket_url?: string | null;
 
   venue?: {
 
-    name: string;
+    name?: string | null;
+
+    slug?: string | null;
 
     city?: string | null;
 
     country?: string | null;
 
-  };
+  } | null;
 
   going_count?: number;
 
   maybe_count?: number;
 
   went_count?: number;
+
+}
+
+
+/**
+ * When an event starts, or `Infinity` when it has no usable date.
+ *
+ * Undated shows sort last instead of producing `NaN`, which no comparator can
+ * order and which used to scatter them arbitrarily through the list.
+ */
+function eventStart(event: ArtistEvent): number {
+
+  const parsed = event.starts_at
+    ? new Date(event.starts_at).getTime()
+    : Number.NaN;
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : Number.POSITIVE_INFINITY;
+
+}
+
+
+/**
+ * The year an event starts in, or `null` when it has no usable date.
+ *
+ * Only usable dates reach the year filter, so an undated show cannot claim
+ * "NaN" as its year - and it stays visible under "All years", where the
+ * honest answer is that nobody has said when it is.
+ */
+function eventYear(event: ArtistEvent): number | null {
+
+  const parsed = event.starts_at
+    ? new Date(event.starts_at).getTime()
+    : Number.NaN;
+
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return new Date(parsed).getFullYear();
 
 }
 
@@ -223,9 +268,9 @@ export default function ArtistEventsPage(){
             a,
             b
           ) =>
-            new Date(a.starts_at).getTime()
+            eventStart(a)
             -
-            new Date(b.starts_at).getTime()
+            eventStart(b)
         );
 
 
@@ -267,11 +312,11 @@ export default function ArtistEventsPage(){
 
 
       const values =
-        events.map(
-          event =>
-            new Date(
-              event.starts_at
-            ).getFullYear()
+        events
+        .map(eventYear)
+        .filter(
+          (year): year is number =>
+            year !== null
         );
 
 
@@ -326,15 +371,19 @@ export default function ArtistEventsPage(){
 
 
 
+        const year =
+          eventYear(event);
+
+
         const matchesYear =
           selectedYear === 'all'
           ||
-          new Date(
-            event.starts_at
-          )
-          .getFullYear()
-          .toString()
-          === selectedYear;
+          (
+            year !== null
+            &&
+            year.toString()
+            === selectedYear
+          );
 
 
 

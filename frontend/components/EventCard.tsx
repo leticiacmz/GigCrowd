@@ -45,7 +45,9 @@ interface EventCardProps {
 
     venue?: {
 
-      name: string;
+      name?: string | null;
+
+      slug?: string | null;
 
       city?: string | null;
 
@@ -104,7 +106,8 @@ function isFestival(event: EventCardProps['event']) {
  *
  * A festival spans days, so it is placed by the range it covers; a concert is a
  * single evening. Either can be missing altogether on imported events, and an
- * undated show is labelled as unknown rather than dated "Invalid Date".
+ * undated show is labelled as unknown rather than dated "Invalid Date" - which
+ * is also the outcome when a date is present but cannot be parsed.
  */
 function formatEventDate(
   event: EventCardProps['event'],
@@ -112,17 +115,25 @@ function formatEventDate(
   unknownLabel: string,
 ) {
   if (!event.starts_at) {
-    return event.ends_at
-      ? formatDateSpan(event.ends_at, null, locale)
-      : unknownLabel;
+    if (!event.ends_at) {
+      return unknownLabel;
+    }
+
+    return (
+      formatDateSpan(event.ends_at, null, locale) ||
+      unknownLabel
+    );
   }
 
-  return formatDateSpan(
-    event.starts_at,
-    isFestival(event)
-      ? event.ends_at
-      : null,
-    locale,
+  return (
+    formatDateSpan(
+      event.starts_at,
+      isFestival(event)
+        ? event.ends_at
+        : null,
+      locale,
+    ) ||
+    unknownLabel
   );
 
 }
@@ -136,8 +147,17 @@ function getVenueName(
     return event.venue.name;
   }
 
-  if (event.venue_slug) {
-    return event.venue_slug
+  // The venue row itself may carry only its slug (a search result does), so
+  // both spellings of the stored identity are read before giving up. A venue
+  // that is null or nameless renders as no venue at all - never as a name
+  // invented from somewhere else.
+  const slug =
+    event.venue_slug ??
+    event.venue?.slug ??
+    null;
+
+  if (slug) {
+    return slug
       .replace(/-/g, ' ');
   }
 
