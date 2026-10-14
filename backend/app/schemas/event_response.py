@@ -69,7 +69,31 @@ class EventResponse(BaseModel):
     # than guessing a date of its own.
     date_status: Optional[str] = None
 
+    # When the source was last actually read, if it ever was. This is what lets
+    # a client tell "nobody has checked yet" from "checked, and there is no
+    # date": a `date_status` of "unavailable" beside a timestamp is a finished
+    # answer, and the same status with no timestamp is only an assertion from a
+    # listing that lacked the date.
+    date_source_checked_at: Optional[datetime] = None
+
     ticket_url: Optional[str] = None
+
+    # ============================================================
+    # PRESENTATION
+    # ============================================================
+    #
+    # What the provider's own page says about this event. Optional because the
+    # source does not always state them - a listing row may carry no
+    # description and no photograph - and an optional field a client can render
+    # when present and skip when absent is what keeps one event's richness from
+    # deciding whether another one loads.
+
+    description: Optional[str] = None
+
+    image_url: Optional[str] = None
+
+    # The provider's scheduling state (scheduled, cancelled, postponed).
+    event_status: Optional[str] = None
 
     free: Optional[bool] = None
 

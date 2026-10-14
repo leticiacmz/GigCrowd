@@ -241,6 +241,48 @@ class TestAnUpdateNeverReplacesTheStamp:
         assert after["created_at"] == original
 
     @pytest.mark.asyncio
+    async def test_the_legacy_update_cannot_erase_a_recovered_date(
+        self, repository
+    ):
+        # The invariant is about the record, not about which provider wrote it.
+        # A listing that arrives later and carries no date must not be able to
+        # turn a date somebody already recovered back into a TBA - and it must
+        # not demote "checked" back to "not checked" while it is at it.
+        event_repository, database = repository
+
+        await event_repository.insert_event(
+            an_event(
+                external_ids={"bandsintown": "12345"},
+                ends_at=datetime(2027, 1, 2, tzinfo=UTC),
+                date_status="unavailable",
+                date_source_checked_at=datetime(
+                    2026, 10, 7, 4, 48, tzinfo=UTC
+                ),
+            )
+        )
+
+        await event_repository.update_event(
+            an_event(
+                title="Renamed by a listing",
+                external_ids={"bandsintown": "12345"},
+                starts_at=None,
+                ends_at=None,
+                date_status=None,
+                date_source_checked_at=None,
+            )
+        )
+
+        after = await database.events.find_one({})
+
+        assert after["title"] == "Renamed by a listing"
+        assert after["starts_at"] == datetime(2027, 1, 1, tzinfo=UTC)
+        assert after["ends_at"] == datetime(2027, 1, 2, tzinfo=UTC)
+        assert after["date_status"] == "unavailable"
+        assert after["date_source_checked_at"] == datetime(
+            2026, 10, 7, 4, 48, tzinfo=UTC
+        )
+
+    @pytest.mark.asyncio
     async def test_an_update_does_not_invent_a_stamp(self, repository):
         # An event that predates this fix has no `created_at`. Updating it must
         # not fabricate one that implies it was first imported just now.

@@ -78,12 +78,35 @@ class TestLegacyDocuments:
 
         assert event.starts_at is None
 
-    def test_the_missing_date_is_recorded_as_unavailable(self):
-        """Rather than left unrecorded, which makes it invisible to a re-read."""
+    def test_a_never_checked_document_reports_no_status(self):
+        """`unavailable` was a claim the document never made.
+
+        A row nobody has read has no answer about the date, and reporting it as
+        "unavailable" collapsed that into the one state where somebody went and
+        looked and the source had nothing. The two are told apart by
+        `date_source_checked_at`, so both are read here rather than invented.
+        """
 
         event = EventDocumentMapper.to_domain(LEGACY)
 
+        assert event.date_status is None
+        assert event.date_source_checked_at is None
+
+    def test_a_checked_document_keeps_its_verdict(self):
+        """What a completed read recorded is what a re-read returns."""
+
+        checked = dict(LEGACY)
+        checked["date_status"] = "unavailable"
+        checked["date_source_checked_at"] = datetime(
+            2026, 10, 7, 4, 48, tzinfo=UTC
+        )
+
+        event = EventDocumentMapper.to_domain(checked)
+
         assert event.date_status == "unavailable"
+        assert event.date_source_checked_at == datetime(
+            2026, 10, 7, 4, 48, tzinfo=UTC
+        )
 
     def test_an_artist_is_optional(self):
         event = EventDocumentMapper.to_domain(LEGACY)

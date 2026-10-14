@@ -58,6 +58,8 @@ class EventResponseMapper:
 
             date_status=event.date_status,
 
+            date_source_checked_at=event.date_source_checked_at,
+
             lineup=[
                 LineupEntryResponse(
                     name=entry.name,
@@ -98,6 +100,12 @@ class EventResponseMapper:
             ],
 
             ticket_url=event.ticket_url,
+
+            description=event.description,
+
+            image_url=event.image_url,
+
+            event_status=event.event_status,
 
             free=event.free,
 

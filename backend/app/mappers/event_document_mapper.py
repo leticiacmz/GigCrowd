@@ -146,6 +146,17 @@ class EventDocumentMapper:
             # DATE PROVENANCE
             # ====================================================
 
+            # Read as stored. The only inference left here is the one that
+            # cannot be wrong: a document that carries a date but no status is
+            # a row imported before `date_status` existed, and its date did come
+            # from a source.
+            #
+            # A document with neither reports `None` rather than
+            # "unavailable". Asserting `unavailable` for a row nobody has read
+            # is precisely the claim the storage model refuses to make - it
+            # collapses "not checked" and "checked and there was no date" into
+            # one value, which is the distinction the client needs. The two are
+            # told apart by `date_source_checked_at`, carried alongside.
             date_status=(
                 document.get(
                     "date_status"
@@ -156,8 +167,12 @@ class EventDocumentMapper:
                         document.get("starts_at")
                         or document.get("ends_at")
                     )
-                    else "unavailable"
+                    else None
                 )
+            ),
+
+            date_source_checked_at=document.get(
+                "date_source_checked_at"
             ),
 
             # ====================================================
@@ -194,6 +209,29 @@ class EventDocumentMapper:
 
             ticket_url=document.get(
                 "ticket_url"
+            ),
+
+            # ====================================================
+            # PRESENTATION
+            # ====================================================
+
+            description=document.get(
+                "description"
+            ),
+
+            # `songkick_image` is how an earlier writer stored the photograph
+            # before the field had a name of its own. Both are read so a row
+            # imported either way renders the same picture; new writes use
+            # `image_url`.
+            image_url=document.get(
+                "image_url"
+            )
+            or document.get(
+                "songkick_image"
+            ),
+
+            event_status=document.get(
+                "event_status"
             ),
 
             # ====================================================

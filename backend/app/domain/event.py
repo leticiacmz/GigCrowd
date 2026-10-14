@@ -115,9 +115,17 @@ class Event(BaseModel):
             "'unavailable' when the provider exposed none, "
             "'parser_failed' when a date was present but "
             "could not be read. Used to decide which events "
-            "are still worth a second visit."
+            "are still worth a second visit. `None` means "
+            "the source has never been asked - which is not "
+            "the same claim as 'unavailable'."
         ),
     )
+
+    # When the source was actually read. Beside `date_status` this is what
+    # separates "nobody has looked" from "looked, and there was no date": a
+    # stored `unavailable` with no timestamp here was asserted by a listing,
+    # while a timestamp means a concrete page was fetched and had none.
+    date_source_checked_at: Optional[datetime] = None
 
     # ============================================================
     # LOCATION
@@ -151,6 +159,40 @@ class Event(BaseModel):
     free: bool = False
 
     ticket_url: Optional[str] = None
+
+    # ============================================================
+    # PRESENTATION
+    # ============================================================
+    #
+    # Facts the provider's own page states: what the event says about itself,
+    # the photograph it publishes, and whether it is still scheduled. They
+    # belong to the domain because they are read during extraction like every
+    # other field - carrying them here is what lets one import write them, one
+    # resync keep them and one response read them, instead of a second code
+    # path writing them past the domain and the first never knowing.
+
+    description: Optional[str] = Field(
+        default=None,
+        description=(
+            "The event's own description, as the "
+            "provider published it"
+        ),
+    )
+
+    image_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "The event's photograph from the provider"
+        ),
+    )
+
+    event_status: Optional[str] = Field(
+        default=None,
+        description=(
+            "The provider's status for this event, such "
+            "as its schema.org scheduling state"
+        ),
+    )
 
     # ============================================================
     # ATTENDANCE
