@@ -25,14 +25,12 @@ from datetime import UTC, datetime
 import pytest
 
 from app.domain.festival import festival_data_from_url, festival_identity
+from app.mappers.songkick_event_mapper import SongkickEventMapper
+from app.domain.event_schedule import DATE_FROM_SOURCE
 from app.domain.event_provenance import (
     PROVENANCE_SONGKICK,
     classify,
     is_trustworthy_upcoming,
-)
-from app.services.event_enrichment_service import (
-    DATE_FROM_SOURCE,
-    EventEnrichmentService,
 )
 from app.services.lineup_artist_importer import LineupArtistImporter
 from app.services.lineup_artist_resolver import external_id_for
@@ -321,14 +319,19 @@ class TestAPerformanceNeedsItsOwnSource:
         An artist on a three-night festival has one night. Storing the festival's
         whole span as that artist's show claims three performances, and shows up
         on the artist's page as a three-day engagement they never agreed to.
+
+        The rule lives where every payload passes: the mapper takes an event's
+        dates from its own `start_date`/`end_date` and never from the festival
+        identity beside them. The parser's side of the same line - that a
+        festival block is identity only and carries no dates at all - is pinned
+        in `tests/providers/songkick/test_festival_parsing.py`.
         """
 
-        stored = {"starts_at": None, "ends_at": None}
-
-        # The source states one night for this performance.
-        patch = EventEnrichmentService.apply_patch(
-            stored,
+        event, _ = SongkickEventMapper.to_domain(
             {
+                "id": "8100001",
+                "name": "Tim Bernardes at Villa Sound",
+                "event_type": "Concert",
                 "start_date": "2026-03-26T21:00:00+00:00",
                 "end_date": "2026-03-26T23:59:00+00:00",
                 "festival": {
@@ -339,16 +342,15 @@ class TestAPerformanceNeedsItsOwnSource:
                     "end_date": "2026-03-27T23:59:00+00:00",
                 },
             },
+            ["tim-bernardes"],
         )
 
-        assert patch["starts_at"] == "2026-03-26T21:00:00+00:00"
-        assert patch["ends_at"] == "2026-03-26T23:59:00+00:00"
-
-        # The festival's range is not written into the schedule, and the stored
-        # identity carries no dates at all.
-        if "festival" in patch:
-            assert "start_date" not in patch["festival"]
-            assert "end_date" not in patch["festival"]
+        assert event.starts_at == datetime(
+            2026, 3, 26, 21, 0, tzinfo=UTC
+        )
+        assert event.ends_at == datetime(
+            2026, 3, 26, 23, 59, tzinfo=UTC
+        )
 
     def test_a_lineup_entry_alone_carries_no_date(self):
         """A name and an id. Nothing that could become a schedule."""

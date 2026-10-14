@@ -1,7 +1,7 @@
 """Record how each stored event's date was resolved.
 
-`date_status` is how the enrichment system tells three different situations
-apart, and records imported before that field existed do not carry it:
+`date_status` is how three different situations are told apart, and records
+imported before that field existed do not carry it:
 
 * `source` - the date came from the provider's own page.
 * `unavailable` - the source was read and genuinely carries no date.
@@ -29,8 +29,8 @@ The reasoning per record is deliberately conservative:
 * Nothing is marked `parser_failed` by this migration. That status means a
   source stated a date that could not be parsed, and only a read can establish
   that. Backfilling it from the absence of a date would be exactly the
-  confusion this field exists to prevent, and it would make the scheduled
-  enrichment pass retry events that can never succeed.
+  confusion this field exists to prevent: an unread record would claim to have
+  been read.
 
 No stored date is touched. This writes one field and nothing else.
 """
@@ -41,12 +41,10 @@ import sys
 
 from app.database.connection import db
 from app.domain.event_schedule import (
-    has_event_date,
-)
-from app.services.event_enrichment_service import (
     DATE_FROM_SOURCE,
-    DATE_UNAVAILABLE,
     DATE_PARSER_FAILED,
+    DATE_UNAVAILABLE,
+    has_event_date,
 )
 
 # The valid states, so a typo cannot be written into the collection.
@@ -87,9 +85,10 @@ def classify(document: dict) -> tuple[str, str]:
     if has_source:
         # A source exists but no date was recovered. Whether the page simply has
         # no date or the reader could not understand it is not knowable without
-        # reading the page, which is the scheduled enrichment's job and not this
-        # migration's. `unavailable` is the honest "there is no date here"; the
-        # enrichment pass will revisit anything genuinely undated.
+        # reading the page, and this migration reads nothing. `unavailable` is
+        # the honest "there is no date here"; an extraction that later reads
+        # the event's own page overwrites it with `source` if the date turns
+        # out to be there.
         return (
             DATE_UNAVAILABLE,
             "has a provider source but no date was ever read",
