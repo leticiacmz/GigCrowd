@@ -31,12 +31,18 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
 from app.core.logger import get_logger
+from app.domain.songkick_identity import (
+    canonical_songkick_artist_id,
+)
 
 logger = get_logger("lineup_resolution")
 
 # Artists store the id in the form that appears in a Songkick artist URL, while
 # a lineup entry carries the bare numeric part. Both are the same identifier, and
-# translating between them is the whole of the format difference.
+# translating between them is the whole of the format difference - which is why
+# this delegates to `songkick_identity` rather than restating the rule: the
+# stored spelling has one owner, and a second local copy of it is how the two
+# spellings came to coexist in the first place.
 EXTERNAL_ID_PREFIX = "Artist"
 
 
@@ -44,18 +50,14 @@ def external_id_for(lineup_songkick_id: str) -> str:
     """The stored form of a lineup entry's Songkick id.
 
     An id that is already in the stored form is passed through unchanged, so a
-    caller never has to know which form it happens to be holding.
+    caller never has to know which form it happens to be holding. An id that is
+    not a Songkick artist id at all yields `""`, which every caller already
+    treats as "nothing to look up".
     """
 
-    text = str(lineup_songkick_id).strip()
-
-    if not text:
-        return ""
-
-    if text.lower().startswith(EXTERNAL_ID_PREFIX.lower()):
-        return EXTERNAL_ID_PREFIX + text[len(EXTERNAL_ID_PREFIX):]
-
-    return f"{EXTERNAL_ID_PREFIX}{text}"
+    return (
+        canonical_songkick_artist_id(lineup_songkick_id) or ""
+    )
 
 
 def stored_id_of(external_id: str) -> str:

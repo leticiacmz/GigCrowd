@@ -16,6 +16,9 @@ from app.domain.artist_state import (
     SYNC_EMPTY,
     PENDING,
 )
+from app.domain.songkick_identity import (
+    canonical_songkick_artist_id,
+)
 
 from app.mappers.artist_document_mapper import (
     ArtistDocumentMapper,
@@ -147,21 +150,21 @@ class ArtistRepository(BaseRepository):
         songkick_id: int | str,
     ) -> Artist | None:
 
-        songkick_id = str(
+        # Canonicalised rather than stringified. Both spellings a caller may
+        # hold - `520117` and `Artist520117` - name the same artist, and
+        # deciding the stored spelling per call site is what let a search
+        # import write a row the lineup path could never find. An unusable
+        # value is "no trusted identity", not "some artist".
+        canonical = canonical_songkick_artist_id(
             songkick_id
         )
 
-        if not songkick_id.startswith(
-            "Artist"
-        ):
-
-            songkick_id = (
-                f"Artist{songkick_id}"
-            )
+        if not canonical:
+            return None
 
         return await self.get_by_external_id(
             "songkick",
-            songkick_id,
+            canonical,
         )
 
     async def generate_unique_slug(
@@ -269,18 +272,15 @@ class ArtistRepository(BaseRepository):
         """
         from pymongo.errors import DuplicateKeyError
 
-        normalized_id = str(songkick_id).strip()
+        normalized_id = canonical_songkick_artist_id(
+            songkick_id
+        )
 
         if not normalized_id:
             raise ValueError(
                 "A Songkick artist id is required to "
                 "ensure an artist"
             )
-
-        if not normalized_id.lower().startswith(
-            "artist"
-        ):
-            normalized_id = f"Artist{normalized_id}"
 
         existing = await self.get_by_external_id(
             "songkick",

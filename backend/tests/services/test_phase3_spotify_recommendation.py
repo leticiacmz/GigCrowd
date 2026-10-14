@@ -29,6 +29,26 @@ def search_item(
     return item
 
 
+class AcceptingVerifier:
+    """The verdict of `SongkickArtistVerifier`, without fetching a page.
+
+    Import now proves an identity before it writes one, and these tests are
+    about what happens next. Saying yes here keeps the subject under test the
+    import rather than the network.
+    """
+
+    async def verify(self, songkick_id, name=None):
+        from app.services.songkick_artist_verifier import VerifiedArtist
+
+        return VerifiedArtist(
+            valid=True,
+            songkick_id=songkick_id,
+            canonical_name=name,
+            requested_name=name,
+            name_agrees=True,
+        )
+
+
 @pytest.mark.asyncio
 async def test_artist_search_runs_through_songkick():
     """Discovery is a Songkick question.
@@ -286,7 +306,8 @@ async def test_spotify_import_deprecated():
     
     service = ArtistImportService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
+        verifier=AcceptingVerifier()
     )
     
     request = ArtistImportRequest(
@@ -311,7 +332,8 @@ async def test_songkick_import_works_without_spotify():
     
     service = ArtistImportService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
+        verifier=AcceptingVerifier()
     )
     
     songkick_data = {
@@ -468,7 +490,8 @@ async def test_songkick_import_uses_provider_artist_id():
 
     service = ArtistImportService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
+        verifier=AcceptingVerifier()
     )
 
     request = ArtistImportRequest(
@@ -484,8 +507,10 @@ async def test_songkick_import_uses_provider_artist_id():
 
     inserted = mock_artist_repo.insert_artist.await_args[0][0]
 
-    # Canonical identity comes from Songkick, never from Spotify
-    assert inserted.external_ids["songkick"] == "976211"
+    # Canonical identity comes from Songkick, never from Spotify - and it is
+    # stored in the one spelling every lookup expects, so the same artist is
+    # never written two ways.
+    assert inserted.external_ids["songkick"] == "Artist976211"
     assert "spotify" not in inserted.external_ids
 
     # Spotify image survives the import
@@ -500,7 +525,8 @@ async def test_songkick_import_requires_canonical_id():
 
     service = ArtistImportService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
+        verifier=AcceptingVerifier()
     )
 
     request = ArtistImportRequest(
@@ -555,7 +581,8 @@ async def test_spotify_import_requires_exact_songkick_match():
 
     service = ArtistImportService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
+        verifier=AcceptingVerifier()
     )
 
     with pytest.raises(ValueError) as exc_info:
@@ -606,7 +633,8 @@ async def test_spotify_import_creates_songkick_canonical_with_image():
 
     service = ArtistImportService(
         provider_manager=mock_provider_manager,
-        artist_repository=mock_artist_repo
+        artist_repository=mock_artist_repo,
+        verifier=AcceptingVerifier()
     )
 
     result = await service.import_from_spotify("spotify_id_123")
@@ -615,6 +643,6 @@ async def test_spotify_import_creates_songkick_canonical_with_image():
 
     inserted = mock_artist_repo.insert_artist.await_args[0][0]
 
-    assert inserted.external_ids["songkick"] == "976211"
+    assert inserted.external_ids["songkick"] == "Artist976211"
     assert inserted.external_ids["spotify"] == "spotify_id_123"
     assert inserted.image == spotify_image

@@ -1,5 +1,9 @@
 from app.core.logger import get_logger
 
+from app.domain.songkick_identity import (
+    canonical_songkick_artist_id,
+)
+
 from app.repositories.artist_repository import (
     ArtistRepository,
 )
@@ -28,7 +32,13 @@ class ArtistImportService:
         self,
         provider_manager: ProviderManager,
         artist_repository: ArtistRepository,
+        verifier=None,
     ):
+        """`verifier` is the shared `SongkickArtistVerifier`, injectable so a
+        test can decide an identity without fetching a live page. Left unset, it
+        is created on first use - the same lazy shape the lineup importer uses,
+        so there is one verifier class and not a second one per call site.
+        """
 
         self.provider_manager = (
             provider_manager
@@ -37,6 +47,56 @@ class ArtistImportService:
         self.artist_repository = (
             artist_repository
         )
+
+        self.verifier = verifier
+
+    async def _verified_identity(
+        self,
+        songkick_id: str,
+        name: str | None,
+    ):
+        """The verdict of the shared verifier, or a rejection as an exception.
+
+        A Songkick id is only trusted once the page it addresses has said it is
+        an artist page for that same id. Importing without that check is how a
+        number read off the wrong page becomes a permanent catalogue row, so the
+        check happens before the write rather than after it - exactly as the
+        lineup path does, through the same class.
+        """
+
+        if self.verifier is None:
+
+            from app.services.songkick_artist_verifier import (
+                SongkickArtistVerifier,
+            )
+
+            self.verifier = SongkickArtistVerifier()
+
+        identity = await self.verifier.verify(
+            songkick_id,
+            name=name,
+        )
+
+        if not identity.valid:
+
+            raise ValueError(
+                f"Songkick id {songkick_id} could not be "
+                f"verified as this artist's profile "
+                f"({identity.reason})."
+            )
+
+        if identity.name_agrees is False:
+
+            # Not a rejection: Songkick's own page is the authority on the
+            # spelling. Reported so a mismatched pair is visible in the logs
+            # instead of being persisted silently.
+            logger.warning(
+                f"[IMPORT] {songkick_id} is the profile of "
+                f"{identity.canonical_name!r}, not {name!r}; "
+                "the verified id is kept"
+            )
+
+        return identity
 
     # ==================================================
     # HELPERS
@@ -133,7 +193,12 @@ class ArtistImportService:
             # `provider_artist_id` is the canonical Songkick
             # artist id for Songkick requests. It is the single
             # source of truth and must never be inferred.
-            songkick_id = (
+            #
+            # Canonicalised here rather than stored as sent, so the lookup, the
+            # verification and the row all speak of the artist in one spelling.
+            # A value that is not a Songkick artist id - a Spotify id above all -
+            # has no trusted identity and is refused rather than stored.
+            songkick_id = canonical_songkick_artist_id(
                 request.provider_artist_id
             )
 
@@ -161,9 +226,7 @@ class ArtistImportService:
 
             # Guarantee the canonical id is present and
             # authoritative regardless of client payload.
-            artist_data["id"] = str(
-                songkick_id
-            )
+            artist_data["id"] = songkick_id
 
             if not artist_data.get("image"):
 
@@ -485,7 +548,9 @@ class ArtistImportService:
 
             existing_by_songkick.external_ids[
                 "songkick"
-            ] = str(songkick_id)
+            ] = canonical_songkick_artist_id(
+                songkick_id
+            ) or str(songkick_id)
 
             existing_by_songkick.external_ids[
                 "spotify"
@@ -575,7 +640,7 @@ class ArtistImportService:
             f"{artist_name}"
         )
 
-        songkick_id = (
+        songkick_id = canonical_songkick_artist_id(
             songkick_artist_data.get(
                 "id"
             )
@@ -587,9 +652,27 @@ class ArtistImportService:
                 "Songkick artist requires an ID."
             )
 
-        songkick_id = str(
-            songkick_id
+        # --------------------------------------------------
+        # Verify before persisting (or reusing)
+        # --------------------------------------------------
+        #
+        # This is the one check the explicit import path was missing: it wrote
+        # whatever id it was handed, while the lineup path proved first that the
+        # id addresses an artist's own page. Both now go through the same
+        # verifier, so an id that does not belong to an artist - or belongs to a
+        # different one - is a rejection rather than a catalogue row.
+        #
+
+        await self._verified_identity(
+            songkick_id,
+            artist_name,
         )
+
+        songkick_artist_data = dict(
+            songkick_artist_data
+        )
+
+        songkick_artist_data["id"] = songkick_id
 
         # --------------------------------------------------
         # Check canonical identity
