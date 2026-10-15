@@ -131,6 +131,7 @@ export default function ArtistProfilePage() {
   const tEvent = useTranslations('event');
   const tCommunity = useTranslations('community');
   const tCommon = useTranslations('common');
+  const tArtistEvents = useTranslations('artistEvents');
 
   const runAuthAction = useAuthAction({ locale });
 
@@ -138,6 +139,8 @@ export default function ArtistProfilePage() {
   const [events, setEvents] = useState<ArtistEvent[]>([]);
   const [relatedArtists, setRelatedArtists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [eventsError, setEventsError] = useState(false);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [error, setError] = useState('');
   const [following, setFollowing] = useState(false);
@@ -158,8 +161,17 @@ export default function ArtistProfilePage() {
     }
   }, [artistSlug, t]);
 
+  /*
+    The upcoming list has its own state, because its empty state is a claim:
+    "no upcoming events" is only true once the fetch has actually come back.
+    A failure is not an empty list either - it says so, rather than telling a
+    reader the artist has no shows when the page simply could not find out.
+  */
   const loadArtistEvents = useCallback(async () => {
     try {
+      setEventsLoading(true);
+      setEventsError(false);
+
       const data = await eventAPI.getArtistEvents(artistSlug);
       setEvents(
         [...data].sort(
@@ -168,6 +180,9 @@ export default function ArtistProfilePage() {
       );
     } catch {
       setEvents([]);
+      setEventsError(true);
+    } finally {
+      setEventsLoading(false);
     }
   }, [artistSlug]);
 
@@ -360,9 +375,16 @@ export default function ArtistProfilePage() {
             )}
           </div>
 
-          {upcomingEvents.length === 0 ? (
+          {eventsLoading ? (
             <Card className="p-6 text-center text-muted">
-              {t('noUpcomingEvents')}
+              <LoadingState
+                size="section"
+                message={tArtistEvents('loading')}
+              />
+            </Card>
+          ) : upcomingEvents.length === 0 ? (
+            <Card className="p-6 text-center text-muted">
+              {eventsError ? tArtistEvents('loadError') : t('noUpcomingEvents')}
             </Card>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -442,7 +464,7 @@ export default function ArtistProfilePage() {
           </section>
         )}
 
-        {relatedArtists.length > 0 && (
+        {(relatedLoading || relatedArtists.length > 0) && (
           <section aria-labelledby="related-artists-heading">
             <h2
               id="related-artists-heading"

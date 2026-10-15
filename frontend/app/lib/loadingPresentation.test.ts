@@ -206,3 +206,85 @@ test('every locale carries the loading messages the fixes rely on', () => {
     );
   }
 });
+
+test('every locale says the same truthful thing while the gigography loads', () => {
+  // One sentence, both places the wait can appear: the overview's upcoming
+  // list and the full events page. The wording names the artist's events -
+  // never a generic "loading" and never a claim that there are none.
+  const expected = {
+    en: 'Fetching artist events…',
+    'pt-BR': 'Buscando os eventos do artista…',
+    es: 'Buscando los eventos del artista…',
+  };
+
+  for (const [locale, text] of Object.entries(expected)) {
+    const messages = JSON.parse(read(`messages/${locale}.json`));
+
+    assert.equal(
+      messages.artistEvents?.loading,
+      text,
+      `${locale} artistEvents.loading must read ${text}`,
+    );
+    assert.equal(
+      messages.artistSync?.events,
+      text,
+      `${locale} artistSync.events must read ${text}`,
+    );
+  }
+});
+
+test('the key route segments each open with the shared loading state', () => {
+  const segments = [
+    'app/[locale]/feed/loading.tsx',
+    'app/[locale]/festivals/[id]/loading.tsx',
+    'app/[locale]/festivals/series/[seriesId]/loading.tsx',
+    'app/[locale]/events/[id]/loading.tsx',
+    'app/[locale]/artists/[slug]/loading.tsx',
+    'app/[locale]/artists/[slug]/events/loading.tsx',
+    'app/[locale]/artists/[slug]/community/loading.tsx',
+    'app/[locale]/notifications/loading.tsx',
+    'app/[locale]/profile/[username]/loading.tsx',
+  ];
+
+  for (const segment of segments) {
+    const source = read(segment);
+
+    assert.ok(
+      source.includes('getTranslations'),
+      `${segment} must announce a localized message`,
+    );
+    assert.ok(
+      source.includes('<LoadingState'),
+      `${segment} must use the shared loading component`,
+    );
+    assert.ok(
+      !/message="[^"]+"/.test(source),
+      `${segment} must not hardcode a message`,
+    );
+    assert.ok(
+      !source.includes('setTimeout(') && !source.includes('Math.random('),
+      `${segment} must not invent progress or schedule its own end`,
+    );
+  }
+});
+
+test('the artist overview waits for its own events list before claiming a void', () => {
+  const page = read('app/[locale]/artists/[slug]/page.tsx');
+
+  assert.ok(
+    page.includes('eventsLoading'),
+    'the upcoming list needs its own loading state',
+  );
+  assert.ok(
+    /eventsLoading \? \(/.test(page),
+    'while the list loads the page must show loading, not "no upcoming events"',
+  );
+  assert.ok(
+    page.includes('eventsError'),
+    'a failed fetch must say it failed, not claim the artist has no shows',
+  );
+  assert.ok(
+    page.includes("tArtistEvents('loadError')"),
+    'the failure sentence must come from the artistEvents namespace',
+  );
+});
