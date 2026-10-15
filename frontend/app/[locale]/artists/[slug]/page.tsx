@@ -235,13 +235,14 @@ export default function ArtistProfilePage() {
   /*
     The first open of an artist who only existed as a lineup name fetches
     their whole gigography server-side, once, under a claim - which can take
-    minutes. So the wait is an intentional, branded state rather than a bare
-    spinner: the GigCrowd icon turning until the page behind it is real.
+    minutes. The artist is already identified at this point: the wait is for
+    their events, so the branded state says that rather than "finding
+    artist" - the GigCrowd icon turning until the page behind it is real.
   */
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <ArtistSyncLoading phase="searching" />
+        <ArtistSyncLoading phase="events" />
       </div>
     );
   }

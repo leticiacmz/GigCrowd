@@ -28,15 +28,16 @@ test('the artist is never shown twice in the header', () => {
     'Demi Lovato @ Rock In Rio 2022',
   );
 
-  // A stored festival name taken from the artist's own page: the name
-  // already says who the artist is, so no prefix is added.
+  // A stored festival name taken from the artist's own appearance page
+  // names the performance, not the festival: it is refused, and the
+  // header falls back to the title's festival part.
   assert.equal(
     eventDisplayTitle({
       festivalName: 'Demi Lovato @ Barra Olympic Park',
       title: 'Demi Lovato Rock In Rio 2022',
       artistName: 'Demi Lovato',
     }),
-    'Demi Lovato @ Barra Olympic Park',
+    'Demi Lovato @ Rock In Rio 2022',
   );
 });
 
@@ -175,5 +176,51 @@ test('the stored festival name wins over the artist-prefixed title', () => {
       artistName: 'Demi Lovato',
     }),
     'Festival HERA HSBC 2024',
+  );
+});
+
+test('a stored name beginning with the artist names the appearance, not the festival', () => {
+  // Songkick's artist pages embed a microformat naming the date after the
+  // performer; an import that read it stored exactly that as the festival's
+  // name. It must never be displayed as the festival.
+  const source = {
+    festivalName: 'Charli XCX @ Autódromo José Carlos Pace (Interlagos)',
+    title: 'Charli XCX @ Autódromo José Carlos Pace (Interlagos)',
+    artistName: 'Charli XCX',
+  };
+
+  // The card shows the venue descriptor rather than the artist as festival.
+  assert.equal(
+    festivalDisplayName(source),
+    'Autódromo José Carlos Pace (Interlagos)',
+  );
+
+  // The header still reads as the artist at that place.
+  assert.equal(
+    eventDisplayTitle(source),
+    'Charli XCX @ Autódromo José Carlos Pace (Interlagos)',
+  );
+});
+
+test('the official edition name that merely shares a word with the artist is kept', () => {
+  assert.equal(
+    festivalDisplayName({
+      festivalName: 'Lollapalooza 2027 @ Autódromo José Carlos Pace',
+      title: 'Charli XCX @ Autódromo José Carlos Pace (Interlagos)',
+      artistName: 'Charli XCX',
+    }),
+    'Lollapalooza 2027 @ Autódromo José Carlos Pace',
+  );
+});
+
+test('stripping the artist also drops the "@" it leaves behind', () => {
+  assert.equal(
+    stripArtistPrefix('Charli XCX @ Zilker Park', 'Charli XCX'),
+    'Zilker Park',
+  );
+
+  assert.equal(
+    stripArtistPrefix('Charli XCX@Zilker Park', 'Charli XCX'),
+    'Zilker Park',
   );
 });

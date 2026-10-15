@@ -386,6 +386,110 @@ class TestFestivalMetadataUrlCandidates:
         assert festival["url"] is None
 
 
+class TestFestivalNameRefusesAnArtistAppearance:
+    """Songkick's artist pages name the date after the performer.
+
+    The artist page of Charli XCX embeds a microformat naming her upcoming
+    Lollapalooza date "Charli XCX @ Zilker Park" beside the festival's
+    official address. An import read that block and stored the personalized
+    name as the festival's own, which then headlined the festival page as if
+    the artist were the festival. The series id comes from the official
+    address and is the identity; the artist-shaped name is never stored.
+    """
+
+    ARTIST_PAGE_URL = (
+        "https://www.songkick.com/festivals/"
+        "2612884-austin-city-limits-music-weekend-2"
+        "/id/43198598-austin-city-limits-music-festival-weekend-2-2026"
+    )
+
+    def personalized_page(self) -> str:
+        return festival_page(
+            jsonld=[
+                {
+                    "@context": "http://schema.org",
+                    "@type": "MusicEvent",
+                    "name": "Charli XCX @ Zilker Park",
+                    "url": (
+                        self.ARTIST_PAGE_URL
+                        + "?utm_medium=organic"
+                        + "&utm_source=microformat"
+                    ),
+                    "startDate": "2026-10-09T12:00:00",
+                    "performer": [
+                        {
+                            "@type": "MusicGroup",
+                            "name": "Charli XCX",
+                            "sameAs": (
+                                "https://www.songkick.com/artists/"
+                                "2274326-charli-xcx"
+                            ),
+                        }
+                    ],
+                }
+            ]
+        )
+
+    def test_an_artist_shaped_name_is_not_stored_as_the_festivals(self):
+        parsed = SongkickClient._read_jsonld_event(
+            BeautifulSoup(self.personalized_page(), "html.parser"),
+            self.ARTIST_PAGE_URL,
+        )
+
+        festival = parsed["festival"]
+
+        assert festival is not None
+        assert festival["series_id"] == "2612884"
+        assert festival["name"] is None
+
+    def test_an_official_edition_name_is_kept(self):
+        """The festival page's own name - "Edition @ Venue" - is real."""
+
+        parsed = SongkickClient._read_jsonld_event(
+            BeautifulSoup(festival_page(), "html.parser"),
+            CANONICAL_URL,
+        )
+
+        assert parsed["festival"]["name"] == (
+            "Primavera Sound São Paulo Dia 1 2022 @ Distrito Anhembi"
+        )
+
+    def test_a_search_document_in_the_artist_shape_is_refused(self):
+        """The search path falls back to the event's own title; same rule."""
+
+        festival = SongkickClient._build_festival_metadata(
+            {
+                "name": "Charli XCX @ Zilker Park",
+                "url": self.ARTIST_PAGE_URL,
+            },
+            {
+                "performers": [
+                    {"name": "Charli XCX"},
+                ],
+            },
+        )
+
+        assert festival["series_id"] == "2612884"
+        assert festival["name"] is None
+
+    def test_a_search_document_naming_the_festival_is_kept(self):
+        festival = SongkickClient._build_festival_metadata(
+            {
+                "name": "Austin City Limits 2026 @ Zilker Park",
+                "url": self.ARTIST_PAGE_URL,
+            },
+            {
+                "performers": [
+                    {"name": "Charli XCX"},
+                ],
+            },
+        )
+
+        assert festival["name"] == (
+            "Austin City Limits 2026 @ Zilker Park"
+        )
+
+
 class TestLineup:
     """Performers keep their Songkick identity or they are not linkable."""
 

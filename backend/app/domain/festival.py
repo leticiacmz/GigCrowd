@@ -194,6 +194,41 @@ def _artist_names(event: Any) -> list[str]:
     return names
 
 
+def _is_artist_prefixed(
+    event: Any,
+    text: Any,
+) -> bool:
+    """Whether text begins with the name of one of the event's own artists.
+
+    The prefix rule only. A festival's own name may legitimately contain
+    ` @ ` ("Reading Festival 2026 @ Richfield Avenue" is how Songkick names
+    the edition), so the separator rule that refuses an event *title* does
+    not apply to a value being considered as the festival's name.
+    """
+
+    normalized_text = _normalize(text)
+
+    if not normalized_text:
+        return False
+
+    for name in _artist_names(event):
+
+        normalized_name = _normalize(name)
+
+        if not normalized_name:
+            continue
+
+        if (
+            normalized_text == normalized_name
+            or normalized_text.startswith(
+                f"{normalized_name} "
+            )
+        ):
+            return True
+
+    return False
+
+
 def _is_artist_shaped_title(
     event: Any,
     title: Any,
@@ -222,27 +257,7 @@ def _is_artist_shaped_title(
     if " @ " in text:
         return True
 
-    normalized_title = _normalize(text)
-
-    if not normalized_title:
-        return False
-
-    for name in _artist_names(event):
-
-        normalized_name = _normalize(name)
-
-        if not normalized_name:
-            continue
-
-        if (
-            normalized_title == normalized_name
-            or normalized_title.startswith(
-                f"{normalized_name} "
-            )
-        ):
-            return True
-
-    return False
+    return _is_artist_prefixed(event, text)
 
 
 def festival_name(event: Any) -> Optional[str]:
@@ -261,7 +276,12 @@ def festival_name(event: Any) -> Optional[str]:
 
         name = metadata.get("name")
 
-        if name:
+        # The metadata name wins only when it names the festival. A name
+        # written from the artist's own appearance page - Songkick's artist
+        # pages embed a microformat naming the date "Charli XCX @ Autódromo
+        # ..." - introduces the performer as if they were the festival, so
+        # it is refused here and the caller shows a generic label instead.
+        if name and not _is_artist_prefixed(event, name):
             return name
 
     if festival_key(event):
@@ -462,6 +482,15 @@ def festival_identity(
         official_url = metadata.get("official_url")
         edition = metadata.get("edition")
         tracking = metadata.get("tracking_count")
+
+    # The name is carried for display, and what it must never display is the
+    # artist as if they were the festival. Songkick's artist pages embed a
+    # microformat naming the date after the performer ("Charli XCX @
+    # Autódromo ..."); a name in that shape is dropped here while the series
+    # id - which came from the official address and decides the identity -
+    # is kept untouched.
+    if name and _is_artist_prefixed(event, name):
+        name = None
 
     if not series_id:
 

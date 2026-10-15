@@ -3194,6 +3194,42 @@ class SongkickClient:
         return enriched
 
     @classmethod
+    def _festival_name_for(
+        cls,
+        name,
+        artist_names,
+    ):
+        """The festival's name only when it names the festival.
+
+        Songkick's artist pages embed a microformat naming each upcoming
+        date after the artist ("Charli XCX @ Zilker Park"), and a search
+        document states the event the same way. The series id from the
+        official address is the identity and is kept, but a name shaped
+        after one of the event's own artists names the appearance, not the
+        festival - so it is dropped here rather than stored and later
+        displayed as if the performer were the festival.
+        """
+
+        text = str(name or "").strip()
+
+        if not text:
+            return None
+
+        lowered = text.casefold()
+
+        for artist_name in artist_names or []:
+
+            artist = str(artist_name or "").strip().casefold()
+
+            if not artist:
+                continue
+
+            if lowered == artist or lowered.startswith(f"{artist} "):
+                return None
+
+        return name
+
+    @classmethod
     def _build_festival_metadata(
         cls,
         search_document: dict,
@@ -3262,6 +3298,36 @@ class SongkickClient:
             cls._extract_festival_artists(
                 search_document
             )
+        )
+
+        # A name read in the shape of the artist's own appearance page is
+        # not the festival's name; the series id above still identifies it.
+        # The artist context is whatever the source stated: the festival's
+        # own billed artists, and the performers of the event being
+        # enriched - whose title is the name that falls back last.
+        artist_names = [
+            entry.get("name")
+            for entry in artists
+            if isinstance(entry, dict)
+        ]
+
+        raw_performers = (
+            original_event.get("performers") or []
+        )
+
+        if isinstance(raw_performers, dict):
+            raw_performers = [raw_performers]
+
+        for performer in raw_performers:
+
+            if isinstance(performer, dict):
+                artist_names.append(
+                    performer.get("name")
+                )
+
+        name = cls._festival_name_for(
+            name,
+            artist_names,
         )
 
         festival = {
@@ -4904,6 +4970,21 @@ class SongkickClient:
                 festival_metadata[
                     "artists"
                 ] = lineup
+
+                # The series id came from the official address; the name
+                # may have been read off the artist's own page, where the
+                # microformat names the date after the performer. Such a
+                # name names the appearance, not the festival.
+                festival_metadata[
+                    "name"
+                ] = cls._festival_name_for(
+                    festival_metadata.get("name"),
+                    [
+                        entry.get("name")
+                        for entry in lineup
+                        if isinstance(entry, dict)
+                    ],
+                )
 
         image = data.get(
             "image"

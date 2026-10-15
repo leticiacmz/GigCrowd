@@ -11,8 +11,9 @@ import Button from '@/components/ui/Button';
  * The operation behind it can take minutes on a first open: the backend
  * fetches the artist's whole gigography once, under a claim, and every later
  * open is a plain read. So this state has to be honest rather than brief -
- * it shows from the first moment the flow starts, it says which of the two
- * real phases is running (looking the artist up, then importing them), and
+ * it shows from the first moment the flow starts, it says which of the
+ * real phases is running (looking the artist up, waiting on the artist's
+ * events on the artist page, then importing them from a lineup press), and
  * it never invents a percentage for work whose length is genuinely unknown.
  *
  * The visual is the app's own: the GigCrowd icon already shipped in
@@ -28,7 +29,7 @@ import Button from '@/components/ui/Button';
  * ring rather than a spinning one.
  */
 
-export type ArtistSyncPhase = 'searching' | 'importing';
+export type ArtistSyncPhase = 'searching' | 'events' | 'importing';
 
 export type ArtistSyncFailure = 'failed' | 'unidentifiable';
 
@@ -53,7 +54,9 @@ export default function ArtistSyncLoading({
       : t('failed')
     : phase === 'importing'
       ? t('importing')
-      : t('searching');
+      : phase === 'events'
+        ? t('events')
+        : t('searching');
 
   return (
     <div

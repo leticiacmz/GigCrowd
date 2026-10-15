@@ -70,6 +70,24 @@ test('the artist loading state announces itself without repeating', () => {
   assert.ok(component.includes('aria-live="polite"'));
 });
 
+test('the artist page says it is waiting on the events, not on finding the artist', () => {
+  // The first open of an artist is the gigography sync: the artist is
+  // already identified, so a "finding artist" message for the whole
+  // multi-minute wait misstates what is happening. The page must ask for
+  // the events phase, and the component must know that phase.
+  const page = read('app/[locale]/artists/[slug]/page.tsx');
+
+  assert.ok(
+    page.includes('phase="events"'),
+    'the artist page loading state must announce the events wait',
+  );
+
+  const component = read('components/ui/ArtistSyncLoading.tsx');
+
+  assert.ok(component.includes("'events'"));
+  assert.ok(component.includes("t('events')"));
+});
+
 test('the loading ring stops under prefers-reduced-motion', () => {
   const css = read('app/globals.css');
 
@@ -92,6 +110,7 @@ test('every locale carries the artist-sync messages, and the retired artists tab
 
     for (const key of [
       'searching',
+      'events',
       'importing',
       'failed',
       'unidentifiable',

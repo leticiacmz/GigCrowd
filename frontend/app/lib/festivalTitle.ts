@@ -9,13 +9,16 @@
   * the stored name is a value, never an input to rewrite - it is returned
     verbatim or not used at all;
   * a stored festival name wins over the event title, as it is what the
-    importer recorded the festival to be called;
+    importer recorded the festival to be called - except a name that begins
+    with the artist's own name, which was read off the artist's appearance
+    page ("Charli XCX @ Zilker Park") and names the performance, not the
+    festival;
   * the artist prefix is added only when it adds information - it is skipped
     when the name already contains the artist, and when the name already
     reads as a full "Name @ Venue" descriptor (dropping the venue to make
     room for the artist would lose a real part of the name);
-  * the title is a fallback, and only after the leading artist prefix is
-    stripped from it.
+  * the title is a fallback, and only after the leading artist prefix - and
+    any "@" it leaves behind - is stripped from it.
 
   The same rules apply on the event detail header, its festival card, and
   anywhere else these helpers are reached, so the pages cannot drift apart.
@@ -48,21 +51,55 @@ export function stripArtistPrefix(
   if (!trimmedTitle || !artist) return trimmedTitle;
 
   if (trimmedTitle.toLowerCase().startsWith(artist.toLowerCase())) {
-    return trimmedTitle.slice(artist.length).trim();
+    return trimmedTitle
+      .slice(artist.length)
+      .trim()
+      .replace(/^@\s*/, '')
+      .trim();
   }
 
   return trimmedTitle;
 }
 
 /**
+ * Whether a name begins with the artist's own name - the shape a name takes
+ * when it was read off the artist's appearance page rather than off the
+ * festival.
+ */
+function isArtistPrefixed(
+  name: string,
+  artistName?: string | null,
+): boolean {
+  const artist = artistName?.trim() ?? '';
+  if (!artist) return false;
+
+  const lowerName = name.toLowerCase();
+  const lowerArtist = artist.toLowerCase();
+
+  return (
+    lowerName === lowerArtist ||
+    lowerName.startsWith(`${lowerArtist} `)
+  );
+}
+
+/**
  * The festival's display name: the stored name when there is one, otherwise
  * the event title after the artist prefix is stripped, otherwise nothing.
+ *
+ * A stored name that begins with the artist's own name names the artist's
+ * appearance, not the festival, and is not used - the title fallback then
+ * yields the venue descriptor, and the header still reads "Artist @ Venue".
+ * The backend refuses the same shape at the identity, so this is the
+ * presentation-side parity for rows written before that rule existed.
  */
 export function festivalDisplayName(
   source: FestivalNameSource,
 ): string {
   const stored = source.festivalName?.trim();
-  if (stored) return stored;
+
+  if (stored && !isArtistPrefixed(stored, source.artistName)) {
+    return stored;
+  }
 
   return stripArtistPrefix(source.title, source.artistName);
 }

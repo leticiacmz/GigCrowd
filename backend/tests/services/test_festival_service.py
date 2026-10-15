@@ -192,6 +192,54 @@ class TestIdentity:
         )
 
     @pytest.mark.asyncio
+    async def test_an_artist_shaped_name_never_heads_the_festival(self):
+        """The corrupted name is dropped; the series and editions stay.
+
+        An import that read the microformat on the artist's own Songkick
+        page stored the performer's appearance ("Charli XCX @ Autódromo ...")
+        as the festival's name. The page must not present the artist as the
+        festival, and refusing the name must not cost the page its identity:
+        the series id still comes from the official address, so the festival
+        opens with a generic label and every edition is still listed.
+        """
+
+        document = festival_document(
+            "507f1f77bcf86cd799439011",
+            "Charli XCX @ Autódromo José Carlos Pace (Interlagos)",
+            starts_at=datetime(2027, 3, 19, 14, tzinfo=UTC),
+            artist_slugs=["charli-xcx"],
+            lineup=[
+                {
+                    "name": "Charli XCX",
+                    "songkick_id": "2274326",
+                    "slug": "charli-xcx",
+                    "url": None,
+                    "image": None,
+                    "genres": [],
+                    "order": 0,
+                }
+            ],
+            festival={
+                "series_id": "1235",
+                "name": "Charli XCX @ Autódromo José Carlos Pace (Interlagos)",
+                "url": (
+                    "https://www.songkick.com/festivals/"
+                    "1235-lollapalooza/id/43456089-lollapalooza-2027"
+                ),
+            },
+        )
+
+        service = build([document])
+
+        festival = await service.get_festival(
+            "507f1f77bcf86cd799439011"
+        )
+
+        assert festival.identity.series_id == "1235"
+        assert festival.identity.name is None
+        assert len(festival.editions) == 1
+
+    @pytest.mark.asyncio
     async def test_the_identity_carries_no_single_date(self):
         """A six-day festival does not have one date to show."""
 

@@ -35,6 +35,7 @@ import {
   eventDisplayTitle,
   festivalDisplayName,
 } from '../../../lib/festivalTitle';
+import { festivalSeriesId } from '../../../lib/festivalIdentity';
 import { createArtistOpener } from '../../../lib/artistSync';
 
 import Button from '../../../../components/ui/Button';
@@ -71,6 +72,7 @@ interface Venue {
 }
 
 interface Festival {
+  series_id?: string | null;
   name?: string | null;
   edition?: string | null;
   url?: string | null;
@@ -137,6 +139,14 @@ interface Event {
   went_count?: number;
   description?: string | null;
   image_url?: string | null;
+  /**
+   * Where the record came from. The address itself is load-bearing: it is
+   * one of the places a festival series id is stated, and thus one of the
+   * conditions under which a festival page for this event exists.
+   */
+  source?: {
+    url?: string | null;
+  } | null;
 }
 
 type EventStatus = 'upcoming' | 'happening' | 'past';
@@ -372,6 +382,17 @@ export default function EventDetailPage() {
         artistName: linkedArtistName,
       })
     : event?.title || '';
+
+  /*
+    A festival page for this event exists only when its identity is
+    confirmed - a Songkick series id stated by the stored block, by one of
+    its URLs, or by the event's own address (the legacy rows written without
+    a block). Where nothing states one, the backend answers 404 and every
+    link down this page to it is withheld rather than presented as an
+    association the data never made. The rule mirrors `festival_identity`
+    server-side; `lib/festivalIdentity` keeps the two from drifting.
+  */
+  const festivalSeries = event ? festivalSeriesId(event) : null;
 
   // Marking attendance changes user-specific data. Signed-out visitors are
   // sent to the localized login (preserving locale and current page) instead
@@ -731,7 +752,7 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            {isFestival && (
+            {isFestival && festivalSeries && (
               <div className="mt-6">
                 <Link
                   href={`/${locale}/festivals/${event.id}`}
@@ -853,12 +874,14 @@ export default function EventDetailPage() {
                       <p className="text-sm text-muted-subtle mt-1">{t('lineupHint')}</p>
                     </div>
 
-                    <Link
-                      href={`/${locale}/festivals/${event.id}`}
-                      className="text-sm text-accent hover:text-accent/80 transition shrink-0"
-                    >
-                      {t('exploreFestival')}
-                    </Link>
+                    {festivalSeries && (
+                      <Link
+                        href={`/${locale}/festivals/${event.id}`}
+                        className="text-sm text-accent hover:text-accent/80 transition shrink-0"
+                      >
+                        {t('exploreFestival')}
+                      </Link>
+                    )}
                   </div>
                 </Card>
               )}
@@ -1101,12 +1124,14 @@ export default function EventDetailPage() {
                   </h2>
                 </div>
 
-                <Link
-                  href={`/${locale}/festivals/${event.id}`}
-                  className="text-sm text-accent hover:text-accent/80 transition"
-                >
-                  {t('openFestivalPage')}
-                </Link>
+                {festivalSeries && (
+                  <Link
+                    href={`/${locale}/festivals/${event.id}`}
+                    className="text-sm text-accent hover:text-accent/80 transition"
+                  >
+                    {t('openFestivalPage')}
+                  </Link>
+                )}
               </div>
 
               {lineup.length === 0 ? (

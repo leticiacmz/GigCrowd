@@ -141,6 +141,71 @@ def test_a_metadata_name_with_a_venue_suffix_is_kept():
     assert festival_name(event) == "Rock In Rio 2022 @ Barra Olympic Park"
 
 
+def test_a_metadata_name_beginning_with_an_artist_is_refused():
+    """A name written from the artist's appearance page is not the festival's.
+
+    Songkick's artist pages embed a microformat naming each upcoming date
+    after the performer ("Charli XCX @ Autódromo ..."), and an import that
+    read it stored exactly that as the festival's name. The series id still
+    identifies the festival; the name must not present the artist as it, so
+    the caller shows a generic label instead.
+    """
+
+    event = festival_event(
+        festival={
+            "series_id": "1235",
+            "name": "Charli XCX @ Autódromo José Carlos Pace (Interlagos)",
+            "url": SONGKICK_URL,
+        },
+        title="Charli XCX @ Autódromo José Carlos Pace (Interlagos)",
+        artist_slugs=["charli-xcx"],
+        lineup=[{"name": "Charli XCX", "songkick_id": "2274326"}],
+    )
+
+    assert festival_name(event) is None
+
+
+def test_the_identity_keeps_the_series_but_drops_an_artist_shaped_name():
+    """Identity is the series id; the corrupted name is display-only noise."""
+
+    event = festival_event(
+        festival={
+            "series_id": "1235",
+            "name": "Charli XCX @ Autódromo José Carlos Pace (Interlagos)",
+            "url": SONGKICK_URL,
+        },
+        artist_slugs=["charli-xcx"],
+        lineup=[{"name": "Charli XCX", "songkick_id": "2274326"}],
+    )
+
+    identity = festival_identity(event)
+
+    assert identity["series_id"] == "1235"
+    assert identity["name"] is None
+
+
+def test_an_official_edition_name_that_merely_shares_a_word_is_kept():
+    """"Lollapalooza 2027 @ Interlagos" does not start with an artist name."""
+
+    event = festival_event(
+        festival={
+            "series_id": "1235",
+            "name": "Lollapalooza 2027 @ Autódromo José Carlos Pace",
+            "url": SONGKICK_URL,
+        },
+        artist_slugs=["charli-xcx"],
+        lineup=[{"name": "Charli XCX", "songkick_id": "2274326"}],
+    )
+
+    assert (
+        festival_name(event)
+        == "Lollapalooza 2027 @ Autódromo José Carlos Pace"
+    )
+    assert festival_identity(event)["name"] == (
+        "Lollapalooza 2027 @ Autódromo José Carlos Pace"
+    )
+
+
 def test_a_title_beginning_with_a_lineup_artist_is_refused():
     """"Demi Lovato Rock In Rio 2022" names the artist's appearance page."""
 

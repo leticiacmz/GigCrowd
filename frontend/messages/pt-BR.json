@@ -19,6 +19,7 @@
   },
   "artistSync": {
     "searching": "Buscando artista...",
+    "events": "Buscando os eventos do artista...",
     "importing": "Importando o artista e sincronizando os eventos dele...",
     "failed": "Não foi possível abrir este artista.",
     "unidentifiable": "Este artista ainda não pode ser identificado com segurança.",
