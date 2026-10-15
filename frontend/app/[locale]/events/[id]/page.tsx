@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -36,6 +37,7 @@ import {
   festivalDisplayName,
 } from '../../../lib/festivalTitle';
 import { festivalSeriesId } from '../../../lib/festivalIdentity';
+import { createRequestGuard } from '../../../lib/requestGuard';
 import { createArtistOpener } from '../../../lib/artistSync';
 
 import Button from '../../../../components/ui/Button';
@@ -212,35 +214,78 @@ export default function EventDetailPage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
 
+  /*
+    Each loader owns a guard: only the most recently started request may
+    write its answer, and the id check in front of every claim makes a
+    request started for a previous page refuse to even compete - otherwise
+    its late claim would outrank the current page's own load.
+  */
+  const eventRequest = useRef(createRequestGuard()).current;
+  const showLogRequest = useRef(createRequestGuard()).current;
+  const pageEventId = useRef(eventId);
+
+  /*
+    The page changes identity with its id while staying mounted. When that
+    happens the previous event - and its attendance, the actions pending on
+    it - are dropped during render itself, so no frame of the new URL can
+    show the old event, and no answer that arrives later is ever applied to
+    state that already belongs to someone else's show.
+  */
+  const [renderedEventId, setRenderedEventId] = useState(eventId);
+  if (renderedEventId !== eventId) {
+    setRenderedEventId(eventId);
+    // The guards learn the new identity in the same pass, so a request that
+    // resumes before the effects run already sees the page it must not touch.
+    pageEventId.current = eventId;
+    setEvent(null);
+    setShowLog(null);
+    setLoading(true);
+    setSubmitting(false);
+    setAttendanceError(null);
+  }
+
   useEffect(() => {
     loadEvent();
     loadShowLog();
   }, [eventId]);
 
   async function loadEvent() {
+    const target = eventId;
+    if (pageEventId.current !== target) return;
+    const request = eventRequest.next();
+    const stillMine = () =>
+      eventRequest.isCurrent(request) && pageEventId.current === target;
     try {
       setLoading(true);
-      const data = await eventAPI.getEvent(eventId);
+      const data = await eventAPI.getEvent(target);
+      if (!stillMine()) return;
       setEvent(data);
     } catch (error) {
+      if (!stillMine()) return;
       console.error('Failed loading event', error);
       setEvent(null);
     } finally {
-      setLoading(false);
+      if (stillMine()) setLoading(false);
     }
   }
 
   async function loadShowLog() {
+    const target = eventId;
+    if (pageEventId.current !== target) return;
+    const request = showLogRequest.next();
+    const stillMine = () =>
+      showLogRequest.isCurrent(request) && pageEventId.current === target;
     if (!isAuthenticated()) {
-      setShowLog(null);
+      if (stillMine()) setShowLog(null);
       return;
     }
 
     try {
-      const data = await showLogAPI.get(eventId);
+      const data = await showLogAPI.get(target);
+      if (!stillMine()) return;
       setShowLog(data);
     } catch (error) {
-      setShowLog(null);
+      if (stillMine()) setShowLog(null);
     }
   }
 
@@ -440,6 +485,10 @@ export default function EventDetailPage() {
 
       if (showLog?.status === status) {
         await showLogAPI.delete(eventId);
+        // The action answered for the event that was on screen when it was
+        // pressed; if the reader has already moved on, its result - and the
+        // reloads it would trigger - belong to the previous page.
+        if (pageEventId.current !== eventId) return;
         setShowLog(null);
         await loadEvent();
         return;
@@ -449,6 +498,8 @@ export default function EventDetailPage() {
         event_id: eventId,
         status,
       });
+
+      if (pageEventId.current !== eventId) return;
 
       await loadShowLog();
       await loadEvent();
@@ -468,6 +519,7 @@ export default function EventDetailPage() {
 
   async function handleReviewSave(payload: ReviewPayload) {
     const saved = await showLogAPI.saveReview(eventId, payload);
+    if (pageEventId.current !== eventId) return;
 
     setShowLog(saved);
     setReviewOpen(false);
@@ -476,6 +528,7 @@ export default function EventDetailPage() {
 
   async function handleReviewDelete() {
     const cleared = await showLogAPI.deleteReview(eventId);
+    if (pageEventId.current !== eventId) return;
 
     setShowLog(cleared);
     await loadEvent();
