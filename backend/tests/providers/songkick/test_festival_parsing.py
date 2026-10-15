@@ -323,6 +323,69 @@ class TestFestivalIdentity:
         )
 
 
+class TestFestivalMetadataUrlCandidates:
+    """A festival link is persisted only in the shape a browser can open.
+
+    Songkick's search documents carry a relative `uri` as often as a real
+    `url`, and persisting the relative one would later render as a link back
+    into GigCrowd rather than to the source. The local data holds no such row
+    (every stored festival url is already http(s)), so these cases live here:
+    the first candidate a browser can open wins, and when none can, no url is
+    persisted at all.
+    """
+
+    def test_the_first_candidate_a_browser_can_open_wins(self):
+        """The relative `url` and `uri` are skipped, not repaired or kept."""
+
+        festival = SongkickClient._build_festival_metadata(
+            {
+                "name": "Rock In Rio 2022",
+                "url": "/festivals/1-rock-in-rio",
+                "web_url": "javascript:alert(1)",
+                "uri": "/api/festivals/1",
+            },
+            {
+                "url": "https://www.songkick.com/festivals/1-rock-in-rio",
+            },
+        )
+
+        assert festival["url"] == (
+            "https://www.songkick.com/festivals/1-rock-in-rio"
+        )
+
+    def test_a_url_keeps_its_path_and_loses_the_query(self):
+        """Tracking parameters are not part of a festival's address."""
+
+        festival = SongkickClient._build_festival_metadata(
+            {
+                "name": "Rock In Rio 2022",
+                "url": (
+                    "https://www.songkick.com/festivals/1-rock-in-rio"
+                    "?ref=search_bar"
+                ),
+            },
+            {},
+        )
+
+        assert festival["url"] == (
+            "https://www.songkick.com/festivals/1-rock-in-rio"
+        )
+
+    def test_no_openable_candidate_persists_no_url(self):
+        """Every candidate relative: the field is absent rather than broken."""
+
+        festival = SongkickClient._build_festival_metadata(
+            {
+                "name": "Rock In Rio 2022",
+                "url": "/festivals/1-rock-in-rio",
+                "uri": "/api/festivals/1",
+            },
+            {},
+        )
+
+        assert festival["url"] is None
+
+
 class TestLineup:
     """Performers keep their Songkick identity or they are not linkable."""
 

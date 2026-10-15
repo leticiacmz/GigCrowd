@@ -206,6 +206,129 @@ async def test_an_empty_lineup_resolves_to_the_initiator_alone():
     assert result == ["demi-lovato"]
 
 
+@pytest.mark.asyncio
+async def test_the_import_loop_carries_the_payload_lineup_into_the_artist_list():
+    """The seam between extraction and resolution, pinned end to end.
+
+    The lineup reading and the resolution are each tested apart; this pins
+    the wire in `sync_artist_events` that carries the payload's lineup to the
+    resolver, so a refactor of the import loop cannot quietly stop passing it
+    along and shed the association on every sync. The payload states the id in
+    both spellings, and the entry that resolves to nobody contributes nothing.
+    """
+
+    payload = {
+        "songkick_id": "8100001",
+        "name": "Villa Sound 2026",
+        "event_type": "festival",
+        "url": (
+            "https://www.songkick.com/festivals/"
+            "8100001-villa-sound"
+        ),
+        "start_date": "2026-03-25T20:00:00+00:00",
+        "end_date": None,
+        "venue": {
+            "name": "Parque de la Ciudad",
+            "url": (
+                "https://www.songkick.com/venues/"
+                "9001-parque-de-la-ciudad"
+            ),
+            "address": {
+                "addressLocality": "Buenos Aires",
+                "addressCountry": "AR",
+            },
+        },
+        "festival": {
+            "series_id": "44001",
+            "name": "Villa Sound",
+            "url": (
+                "https://www.songkick.com/festivals/"
+                "8100001-villa-sound"
+            ),
+        },
+        "lineup": [
+            {"name": "Weather", "songkick_id": "976211"},
+            {"name": "Nobody Imported", "songkickId": "999999999"},
+        ],
+        "artist_ids": [1715773],
+    }
+
+    provider_manager = MagicMock()
+    songkick_provider = MagicMock()
+    songkick_provider.get_artist_events = AsyncMock(
+        return_value={
+            "events": [payload],
+            "upcoming_festivals": [],
+        }
+    )
+    provider_manager.get_provider = MagicMock(
+        return_value=songkick_provider
+    )
+
+    event_repository = MagicMock()
+    event_repository.upsert_event_by_provider = AsyncMock(
+        return_value=True
+    )
+
+    venue_repository = MagicMock()
+    venue_repository.upsert_venue = AsyncMock(return_value=False)
+    venue_repository.get_by_external_id = AsyncMock(
+        return_value={"slug": "parque-de-la-ciudad"}
+    )
+    venue_repository.get_by_name = AsyncMock(return_value=None)
+
+    # Full stored shapes: this path reads the initiating artist through
+    # `get_by_songkick_id`, which maps the document the way the real
+    # catalogue stores it.
+    catalogue = [
+        {
+            "_id": "6ac5d823147149ffe667e901",
+            "name": "Demi Lovato",
+            "normalized_name": "demi lovato",
+            "slug": "demi-lovato",
+            "external_ids": {
+                "songkick": external_id_for("1715773"),
+            },
+        },
+        {
+            "_id": "6ac5d823147149ffe667e902",
+            "name": "Weather",
+            "normalized_name": "weather",
+            "slug": "weather",
+            "external_ids": {
+                "songkick": external_id_for("976211"),
+            },
+        },
+    ]
+
+    service = SongkickEventImportService(
+        provider_manager=provider_manager,
+        event_repository=event_repository,
+        venue_repository=venue_repository,
+        artist_repository=repository_over(catalogue),
+    )
+
+    await service.sync_artist_events(
+        Artist(
+            name="Demi Lovato",
+            normalized_name="demi lovato",
+            slug="demi-lovato",
+            external_ids={"songkick": external_id_for("1715773")},
+        )
+    )
+
+    event_repository.upsert_event_by_provider.assert_awaited_once()
+
+    written = (
+        event_repository.upsert_event_by_provider
+        .call_args.args[0]
+    )
+
+    # The initiating artist first, the imported lineup member after it, and
+    # the lineup entry with no imported artist contributing nothing.
+    assert written.artist_slugs == ["demi-lovato", "weather"]
+
+
 # ============================================================
 # READING LINEUP IDS OUT OF A PAYLOAD
 # ============================================================

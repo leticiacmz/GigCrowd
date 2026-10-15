@@ -153,6 +153,49 @@ async def test_a_resync_still_delivers_values_the_source_does_state():
     assert after["date_status"] == "source"
 
 
+@pytest.mark.asyncio
+async def test_a_field_the_protection_does_not_cover_is_written_as_it_arrives():
+    """Absence is only shielded for the protected fields, and the shield stops.
+
+    The rules above protect a date, a festival, a lineup and their provenance.
+    Every other field is corrected by whatever the resync states - including a
+    deliberate `None`, which clears the stored value. Without this boundary the
+    protection would silently freeze the whole record, and a venue, a title or
+    a ticket link could never be corrected once first written.
+    """
+
+    database, repository, before = await stored_document()
+
+    # The stored record has a ticket link; the new listing states none.
+    await database["events"].update_one(
+        {"external_ids.songkick": SONGKICK_ID},
+        {"$set": {"ticket_url": "https://tickets.example/harvest"}},
+    )
+
+    incoming = listing_payload_dateless()
+    incoming.title = "Harvest Festival 2015"
+    incoming.ticket_url = None
+    incoming.venue_slug = "harvest-grounds"
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    # The unprotected fields obey the incoming listing...
+    assert after["title"] == "Harvest Festival 2015"
+    assert after["venue_slug"] == "harvest-grounds"
+    # ...including clearing: `None` here means the listing took the link back.
+    assert after["ticket_url"] is None
+
+    # While the protected date the same payload did not state still stands.
+    assert after["starts_at"] == RECOVERED_START
+
+
 # ============================================================
 # FESTIVAL AND LINEUP SURVIVE A BARE LISTING
 # ============================================================
@@ -404,3 +447,105 @@ async def test_an_insert_still_writes_the_incoming_artist_list():
     )
 
     assert stored["artist_slugs"] == ["alt-j"]
+
+
+# ============================================================
+# THE LEGACY BANDSINTOWN PATH OBEYS THE SAME RULES
+# ============================================================
+#
+# `update_event` is reachable only when a caller asks for the legacy provider
+# explicitly, but reachable is enough: it shares `_merge_for_resync` with the
+# provider path, and these tests pin that sharing so a later refactor cannot
+# leave the legacy path writing a full `$set` while the provider path stays
+# protected.
+
+BANDSINTOWN_ID = "b1234"
+
+
+def stored_event_bandsintown() -> dict:
+    document = stored_event_with_identity()
+    document["external_ids"] = {
+        "songkick": SONGKICK_ID,
+        "bandsintown": BANDSINTOWN_ID,
+    }
+    return document
+
+
+def legacy_payload_dateless() -> Event:
+    """The same event as a legacy listing that states neither festival nor lineup."""
+
+    return Event(
+        external_ids={
+            "songkick": SONGKICK_ID,
+            "bandsintown": BANDSINTOWN_ID,
+        },
+        artist_slugs=["alt-j"],
+        artist_slug="alt-j",
+        venue_slug="unknown-venue",
+        title="alt-J Harvest Festival 2015",
+        starts_at=None,
+        ends_at=None,
+        event_type="FestivalInstance",
+        date_status=None,
+        source={
+            "provider": "bandsintown",
+            "external_id": BANDSINTOWN_ID,
+            "url": SOURCE_URL,
+        },
+    )
+
+
+async def bandsintown_document():
+    database = FakeDatabase({"events": [stored_event_bandsintown()]})
+    repository = EventRepository(database)
+
+    return database, repository
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_resync_without_identity_does_not_erase_it():
+    """The Bandsintown path must not blank the festival, lineup or artists."""
+
+    database, repository = await bandsintown_document()
+
+    await repository.update_event(legacy_payload_dateless())
+
+    after = await database["events"].find_one(
+        {"external_ids.bandsintown": BANDSINTOWN_ID}
+    )
+
+    assert after["festival"] == STORED_FESTIVAL
+    assert after["lineup"] == STORED_LINEUP
+    assert after["artist_slugs"] == ["alt-j", "demi-lovato"]
+
+    # And the recovered date survives the same way it does on the provider path.
+    assert after["starts_at"] == RECOVERED_START
+    assert await database["events"].count_documents({}) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_resync_that_carries_values_still_writes_them():
+    """Protection is for absent values here too, not for freezing the record."""
+
+    database, repository = await bandsintown_document()
+
+    corrected = dict(STORED_FESTIVAL)
+    corrected["name"] = "Harvest Festival 2015"
+
+    incoming = legacy_payload_dateless()
+    incoming.festival = corrected
+    incoming.artist_slugs = ["alt-j", "demi-lovato", "legacy-add"]
+
+    await repository.update_event(incoming)
+
+    after = await database["events"].find_one(
+        {"external_ids.bandsintown": BANDSINTOWN_ID}
+    )
+
+    assert after["festival"] == corrected
+    # The union is additive on this path as well.
+    assert after["artist_slugs"] == [
+        "alt-j",
+        "demi-lovato",
+        "legacy-add",
+    ]

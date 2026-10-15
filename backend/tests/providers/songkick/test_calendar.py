@@ -483,6 +483,38 @@ class TestFestivalDates:
         # The specific performance date should be preserved
         assert enriched["start_date"] == "2026-09-16T19:00:00+0100"
 
+    def test_a_festival_is_written_with_the_canonical_type(self):
+        """Whatever spelling the row carried, enrichment stores the canonical one.
+
+        The mapper reads both `FestivalInstance` and the legacy lowercase
+        `festival`, but a writer that repeats the legacy spelling would keep
+        both alive forever and force every reader to guess which one a given
+        row holds. Enrichment is where a festival is recognised, so it is
+        where the canonical type is written.
+        """
+
+        event = {
+            "songkick_id": "42907787",
+            "is_festival": True,
+            "event_type": "festival",
+            "start_date": "2026-09-16T19:00:00+0100",
+            "end_date": None,
+        }
+
+        search_document = {
+            "name": "Rock In Rio 2026",
+            "date": "2026-09-15",
+            "end_date": "2026-09-20",
+            "event_type": "festival",
+        }
+
+        enriched = SongkickClient._enrich_event_with_search_data(
+            event,
+            {"42907787": search_document},
+        )
+
+        assert enriched["event_type"] == "FestivalInstance"
+
 
 # ============================================================
 # Preview vs Calendar Tests

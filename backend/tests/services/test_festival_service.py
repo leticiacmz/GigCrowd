@@ -159,6 +159,39 @@ class TestIdentity:
         assert festival.identity.series_id == SERIES
 
     @pytest.mark.asyncio
+    async def test_an_edition_name_with_a_venue_suffix_reaches_the_header(self):
+        """The header shows the stored edition name as it is.
+
+        Songkick names an edition "Festival @ Venue", and the local data holds
+        dozens of them. The name read off the festival's own block is a real
+        name, so it reaches `identity.name` unchanged - the artist-shape guard
+        is only for a title fallback, and must not strip a valid part of a
+        festival's name on its way to the page.
+        """
+
+        document = festival_document(
+            "507f1f77bcf86cd799439011",
+            "Primavera Sound Dia 1 2022",
+            starts_at=datetime(2022, 10, 31, 19, tzinfo=UTC),
+            festival={
+                "series_id": SERIES,
+                "name": "Rock In Rio 2022 @ Barra Olympic Park",
+                "url": CANONICAL,
+            },
+        )
+
+        service = build([document])
+
+        festival = await service.get_festival(
+            "507f1f77bcf86cd799439011"
+        )
+
+        assert (
+            festival.identity.name
+            == "Rock In Rio 2022 @ Barra Olympic Park"
+        )
+
+    @pytest.mark.asyncio
     async def test_the_identity_carries_no_single_date(self):
         """A six-day festival does not have one date to show."""
 

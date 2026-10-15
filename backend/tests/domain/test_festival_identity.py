@@ -118,6 +118,29 @@ def test_the_metadata_name_wins():
     assert festival_name(festival_event()) == "Harvest Festival"
 
 
+def test_a_metadata_name_with_a_venue_suffix_is_kept():
+    """Songkick names an edition "Festival @ Venue"; that is a real name.
+
+    The artist-shape guard applies to a *title* fallback, not to a name read
+    off the festival's own metadata, so an edition like "Rock In Rio 2022 @
+    Barra Olympic Park" - which the local data holds dozens of - is returned
+    unchanged rather than refused as if it were an artist's appearance page.
+    """
+
+    event = festival_event(
+        festival={
+            "series_id": "91231",
+            "name": "Rock In Rio 2022 @ Barra Olympic Park",
+            "url": SONGKICK_URL,
+            "edition": "2022",
+        },
+        artist_slugs=["demi-lovato"],
+        lineup=[{"name": "Demi Lovato", "songkick_id": "520117"}],
+    )
+
+    assert festival_name(event) == "Rock In Rio 2022 @ Barra Olympic Park"
+
+
 def test_a_title_beginning_with_a_lineup_artist_is_refused():
     """"Demi Lovato Rock In Rio 2022" names the artist's appearance page."""
 
