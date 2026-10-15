@@ -51,7 +51,16 @@ def _comparable(actual: Any, operand: Any) -> bool:
     can be ordered against a string. Rather than raising, this reports the pair
     as not comparable so the caller can treat it as "does not match", which is
     what Mongo's type-bracketed comparison rules amount to in practice.
+
+    `None` is a type of its own in that ordering: a stored null never
+    satisfies a bound stated against a number, string or date (`{rating:
+    {$gte: 1}}` matches neither an absent rating nor a null one), so any
+    pair involving it is reported as not comparable instead of raising
+    `TypeError` on `None >= 1`. No query here bounds against null itself.
     """
+
+    if actual is None or operand is None:
+        return False
 
     if isinstance(actual, datetime) or isinstance(operand, datetime):
         try:

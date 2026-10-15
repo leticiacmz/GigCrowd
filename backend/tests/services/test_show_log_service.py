@@ -746,13 +746,14 @@ class TestUserLists:
         assert [log.event_id for log in planned] == [going["id"]]
 
     @pytest.mark.asyncio
-    async def test_reviews_are_only_the_logs_that_carry_one(
+    async def test_reviews_are_the_logs_that_carry_an_opinion(
         self,
         service,
     ):
 
-        # A bare star rating is a score, not something to put on a profile, so
-        # it is not counted as a review.
+        # An opinion is a rating or some words, so all three logs count:
+        # the words written without stars, the bare star rating, and the
+        # photo that legacy rows were written with alongside their score.
         reviewed = an_event(
             _id="6a0000000000000000000001",
             starts_at=NOW - timedelta(days=10),
@@ -794,6 +795,7 @@ class TestUserLists:
         reviews = await service.get_user_reviews("user-1")
 
         assert [review.event_id for review in reviews] == [
+            rated["id"],
             reviewed["id"],
             photographed["id"],
         ]

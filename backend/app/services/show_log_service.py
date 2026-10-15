@@ -344,12 +344,18 @@ class ShowLogService:
             "$set": update_data,
         }
 
-        unset = self._review_unset(
-            show_log_data.status
-        )
+        # Only a stated status can withdraw attendance. A patch that leaves
+        # the status out is an edit of whatever it mentions - a review being
+        # rewritten - and unsetting the review fields under it would delete
+        # the very content the patch just wrote.
+        if show_log_data.status is not None:
 
-        if unset:
-            update["$unset"] = unset
+            unset = self._review_unset(
+                show_log_data.status
+            )
+
+            if unset:
+                update["$unset"] = unset
 
         updated = await self.show_log_repository.collection.find_one_and_update(
             {
@@ -390,11 +396,19 @@ class ShowLogService:
         self,
         user_id: str,
         event_id: str,
-        rating: int,
+        rating: int | None,
         review: str | None,
         photo_url: str | None = None,
         photo_public_id: str | None = None,
     ) -> ShowLogInDB:
+        """Write the opinion on an attended show.
+
+        The rating and the text are each optional, but not both at once: an
+        opinion is a rating or some words, never a photo alone and never an
+        empty submission. The route validates the same rule on its own body;
+        it is repeated here so a caller reaching the service directly is
+        held to it too.
+        """
 
         log = await self.show_log_repository.get_by_user_and_event(
             user_id,
@@ -411,6 +425,13 @@ class ShowLogService:
 
             raise ValueError(
                 "Reviews can only be created for attended events."
+            )
+
+        if rating is None and not (review or "").strip():
+
+            raise ValueError(
+                "A review needs a rating or some words - "
+                "a photo on its own is not one."
             )
 
         now = datetime.now(UTC)

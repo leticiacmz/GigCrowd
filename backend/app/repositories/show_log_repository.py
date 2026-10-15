@@ -253,15 +253,22 @@ class ShowLogRepository(BaseRepository):
     ) -> dict:
         """Match the logs of one user that carry a review.
 
-        A review needs more than a rating: text or a photo is what makes it
-        worth showing, so a bare star rating is not counted as one.
+        An opinion is a rating or some text, so either alone counts. The
+        photo clause is kept for a different reason: rows written under the
+        older rule can hold a photo without either, and they are reviews
+        already - reading them out would delete what they were recorded as.
         """
 
         return {
             **id_matches("user_id", user_id),
-            # `$exists` is part of the clause on purpose: in MongoDB `$nin`
-            # also matches a document where the field is absent, which would
-            # make every bare star rating count as a review.
+            # `$exists` is part of the text and photo clauses on purpose: in
+            # MongoDB `$nin` also matches a document where the field is
+            # absent, which would make every log *without* words a log
+            # *with* them. The rating clause needs no such guard: `$gte` is
+            # type-bracketed and matches only numbers, so `None` and the
+            # empty string some legacy rows carry are excluded for free -
+            # and a rating that was never stated stays absence rather than
+            # reading as a score.
             "$or": [
                 {
                     "review": {
@@ -273,6 +280,11 @@ class ShowLogRepository(BaseRepository):
                     "photo_url": {
                         "$exists": True,
                         "$nin": [None, ""],
+                    }
+                },
+                {
+                    "rating": {
+                        "$gte": 1,
                     }
                 },
             ],
@@ -481,7 +493,7 @@ class ShowLogRepository(BaseRepository):
         self,
         user_id: str,
         event_id: str,
-        rating: int,
+        rating: int | None,
         review: str | None,
     ):
 

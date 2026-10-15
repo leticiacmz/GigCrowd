@@ -15,6 +15,10 @@ from app.database.connection import (
     get_database,
 )
 
+from app.domain.show_log import (
+    log_carries_review,
+)
+
 from app.models.show_log import (
     AttendanceStatus,
     ReviewUpsert,
@@ -76,13 +80,16 @@ async def _record_show_log_activity(
 ) -> None:
     """Add a show log to the caller's unified timeline.
 
-    A log that carries a review is a review; one without is attendance. Both
-    are recorded against the show log document so the feed can resolve the
-    event behind them.
+    A log that carries a review is a review; one without is attendance. The
+    same predicate decides what carries a review everywhere else - words, a
+    rating, or the photo a legacy row was written with - so a rating-only
+    opinion reaches the feed as a review instead of as bare attendance.
+    Both are recorded against the show log document so the feed can resolve
+    the event behind them.
     """
     review = (getattr(log, "review", None) or "").strip()
 
-    if review:
+    if log_carries_review(log.model_dump()):
         activity_type = ActivityType.CREATE_REVIEW
     else:
         activity_type = ActivityType.ATTEND_EVENT

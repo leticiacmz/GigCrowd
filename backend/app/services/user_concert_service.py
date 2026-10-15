@@ -24,6 +24,10 @@ from app.domain.festival import (
     festival_key,
     festival_name,
 )
+from app.domain.show_log import (
+    log_carries_review,
+    stored_rating,
+)
 from app.models.show_log import AttendanceStatus
 from app.schemas.user_concert import (
     FestivalSummary,
@@ -378,10 +382,14 @@ class UserConcertService:
             ],
             status=log.get("status"),
             festival=festival,
-            # A show log becomes a review by carrying an opinion, so the two are
-            # the same row read two ways rather than two collections.
-            has_review=bool(log.get("review")),
-            rating=log.get("rating"),
+            # A show log becomes a review by carrying an opinion - a rating,
+            # some words, or a photo (that last one only from the older
+            # rule, which is exactly why it must keep counting) - so the two
+            # are the same row read two ways rather than two collections.
+            has_review=log_carries_review(log),
+            # Stated only when it is a score, so an absent rating stays
+            # absent in the diary marker instead of appearing as a 0.
+            rating=stored_rating(log),
         )
 
 
@@ -611,14 +619,14 @@ class UserConcertService:
             reviews.append(
                 ProfileReview(
                     **base.model_dump(
-                        # `rating` is stated below, because a review's rating is
-                        # required while a plain show's is not. Passing the base
+                        # `rating` is stated below: a review's rating is
+                        # exposed only when there is one, so an opinion
+                        # written without stars shows no stars at all
+                        # instead of a fabricated 0. Passing the base
                     # value as well would set it twice.
                         exclude={"rating"},
                     ),
-                    rating=int(
-                        log.get("rating") or 0
-                    ),
+                    rating=stored_rating(log),
                     review=log.get("review") or None,
                     photo_url=log.get("photo_url")
                     or None,

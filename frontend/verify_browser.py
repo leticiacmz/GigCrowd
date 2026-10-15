@@ -3596,8 +3596,8 @@ with sync_playwright() as p:
                 except Exception:
                     pass
 
-            # A rating alone is not a review, so the save stays disabled until
-            # there is text or a photo behind it.
+            # An opinion is a rating or some words: an empty form cannot be
+            # saved, while a rating on its own is already a complete review.
             save = pg.locator("[data-testid='review-save']")
             check(
                 "attendance: an empty review cannot be saved",
@@ -3607,8 +3607,8 @@ with sync_playwright() as p:
             pg.locator("[data-testid='review-star-4']").click()
             pg.wait_for_timeout(200)
             check(
-                "attendance: a rating on its own is still not a review",
-                save.first.is_disabled(),
+                "attendance: a rating on its own can be saved",
+                not save.first.is_disabled(),
             )
 
             marker = f"Reviewed from the browser {DATA['stamp']}"

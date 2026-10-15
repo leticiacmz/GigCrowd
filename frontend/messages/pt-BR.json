@@ -329,7 +329,7 @@
     "chooseRating": "Sua nota",
     "rateLabel": "{rating} de {max} estrelas",
     "characters": "Faltam {count} caracteres",
-    "needsSomething": "Escreva algo ou adicione uma foto: uma nota sozinha não é uma avaliação.",
+    "needsSomething": "Adicione uma nota ou escreva algo: uma foto sozinha não é uma avaliação.",
     "photoFailed": "Não foi possível enviar a foto. Tente de novo ou salve a avaliação sem ela.",
     "saveFailed": "Não foi possível salvar a avaliação. Tente de novo.",
     "deleteFailed": "Não foi possível excluir a avaliação. Tente de novo.",

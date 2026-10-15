@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 
 import Button from './ui/Button';
 import ReviewEditor from './ReviewEditor';
+import { logCarriesReview } from '@/app/lib/reviewValidation';
 import type { ReviewPayload, ShowLog } from '@/app/types/review';
 
 interface ReviewDialogProps {
@@ -88,7 +89,9 @@ export default function ReviewDialog({
               className="text-lg font-bold"
               data-testid="review-dialog-title"
             >
-              {showLog?.review ? t('editTitle') : t('writeTitle')}
+              {showLog && logCarriesReview(showLog)
+                ? t('editTitle')
+                : t('writeTitle')}
             </h2>
 
             <p className="mt-1 truncate text-sm text-muted">{eventTitle}</p>
@@ -113,7 +116,9 @@ export default function ReviewDialog({
           initialPhotoPublicId={showLog?.photo_public_id ?? null}
           onBusyChange={setBusy}
           onSave={onSave}
-          onDelete={showLog?.review || showLog?.photo_url ? onDelete : undefined}
+          onDelete={
+            showLog && logCarriesReview(showLog) ? onDelete : undefined
+          }
         />
 
         <div className="mt-6 flex justify-end border-t border-border pt-4">

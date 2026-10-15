@@ -329,7 +329,7 @@
     "chooseRating": "Tu puntuación",
     "rateLabel": "{rating} de {max} estrellas",
     "characters": "Quedan {count} caracteres",
-    "needsSomething": "Escribe algo o añade una foto: una puntuación por sí sola no es una reseña.",
+    "needsSomething": "Añade una puntuación o escribe algo: una foto por sí sola no es una reseña.",
     "photoFailed": "No se pudo subir la foto. Inténtalo de nuevo o guarda la reseña sin ella.",
     "saveFailed": "No se pudo guardar la reseña. Inténtalo de nuevo.",
     "deleteFailed": "No se pudo eliminar la reseña. Inténtalo de nuevo.",

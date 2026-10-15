@@ -100,12 +100,15 @@ class ProfileEvent(BaseModel):
 class ProfileReview(ProfileEvent):
     """A review, which is a show log that carries an opinion.
 
-    A review always has a rating. The photo and the text are optional, and
-    `reviewed_at` records when the opinion was written rather than when the
-    show happened, so "recent reviews" can be ordered honestly.
+    The opinion is a rating, a text, or - only for rows written under the
+    older rule - a photo, so the rating is optional: an opinion written
+    without stars reports no stars rather than a fabricated score. The
+    photo and the text are each optional as well, and `reviewed_at`
+    records when the opinion was written rather than when the show
+    happened, so "recent reviews" can be ordered honestly.
     """
 
-    rating: int
+    rating: Optional[int] = None
 
     review: Optional[str] = None
 

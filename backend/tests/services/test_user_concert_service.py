@@ -275,12 +275,14 @@ class TestReviews:
         assert review.city == "São Paulo"
 
     @pytest.mark.asyncio
-    async def test_a_bare_rating_is_not_a_review(
+    async def test_a_bare_rating_is_a_review(
         self,
         service,
         db,
     ):
 
+        # Stars with nothing written is an opinion, and a profile shows it
+        # as one - with the rating it carries and no invented text.
         await seed_user(db)
 
         event_id = await seed_event(
@@ -293,18 +295,19 @@ class TestReviews:
 
         result = await service.get_reviews("leticiacmz")
 
-        assert result["reviews"] == []
-        assert result["total"] == 0
+        assert result["total"] == 1
+        assert result["reviews"][0].rating == 3
+        assert result["reviews"][0].review is None
 
     @pytest.mark.asyncio
-    async def test_a_photo_alone_is_a_review(
+    async def test_a_text_without_a_rating_reports_no_rating(
         self,
         service,
         db,
     ):
 
-        # A photo of the show is an opinion too, and it is the only thing on
-        # some logs.
+        # An opinion written without stars keeps it that way: the review
+        # exists, and its rating is absent rather than a fabricated zero.
         await seed_user(db)
 
         event_id = await seed_event(
@@ -316,7 +319,37 @@ class TestReviews:
         await seed_log(
             db,
             event_id=event_id,
-            rating=4,
+            review="Worth the trip",
+            reviewed_at=NOW,
+        )
+
+        result = await service.get_reviews("leticiacmz")
+
+        assert result["total"] == 1
+        assert result["reviews"][0].rating is None
+        assert result["reviews"][0].review == "Worth the trip"
+
+    @pytest.mark.asyncio
+    async def test_a_photo_alone_is_a_review(
+        self,
+        service,
+        db,
+    ):
+
+        # A photo of the show is an opinion too, and it is the only thing on
+        # some logs. No rule may write those rows out of a profile now that
+        # creation refuses to make new ones.
+        await seed_user(db)
+
+        event_id = await seed_event(
+            db,
+            event_id="6a0000000000000000000001",
+            starts_at=NOW - timedelta(days=30),
+        )
+
+        await seed_log(
+            db,
+            event_id=event_id,
             photo_url="https://example.test/p.jpg",
             reviewed_at=NOW,
         )
@@ -327,6 +360,7 @@ class TestReviews:
         assert result["reviews"][0].photo_url == (
             "https://example.test/p.jpg"
         )
+        assert result["reviews"][0].rating is None
 
     @pytest.mark.asyncio
     async def test_reviews_are_newest_written_first(

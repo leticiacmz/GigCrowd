@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from app.core.logger import get_logger
+from app.domain.show_log import log_carries_review
 from app.models.activity import (
     SYSTEM_ACTOR_ID,
     NotificationType,
@@ -266,7 +267,9 @@ class EventLifecycleService:
 
             kind = plan_prompt(
                 log.get("status"),
-                bool(log.get("review")),
+                # A rating alone now is an opinion, same as words, so a show
+                # the person rated without writing is not prompted again.
+                log_carries_review(log),
             )
 
             if kind is None:

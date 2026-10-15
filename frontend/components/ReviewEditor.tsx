@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import Button from './ui/Button';
 import ReviewStars from './ReviewStars';
 import { mediaAPI } from '@/app/lib/api';
+import { reviewCanBeSaved } from '@/app/lib/reviewValidation';
 import type { ReviewPayload } from '@/app/types/review';
 
 /**
@@ -30,10 +31,13 @@ interface ReviewEditorProps {
 /**
  * The form a review is written in: a rating, some words, and optionally a photo.
  *
- * A rating alone is not a review, so the submit stays disabled until there is
- * text or a photo to go with it. The photo is uploaded through the project's
- * media endpoint before the review is saved, and a failure is reported in place
- * rather than silently dropping the picture.
+ * Every part is optional on its own - stars without words and words without
+ * stars are both complete opinions - but one of the two must be there: the
+ * submit stays disabled until the form holds a rating or some text, because
+ * a photo alone is evidence rather than an opinion and whitespace says
+ * nothing at all. The photo is uploaded through the project's media endpoint
+ * before the review is saved, and a failure is reported in place rather than
+ * silently dropping the picture.
  */
 export default function ReviewEditor({
   initialRating,
@@ -73,8 +77,8 @@ export default function ReviewEditor({
   }, [busy, onBusyChange]);
 
   const trimmed = review.trim();
-  const hasSomethingToSay = trimmed.length > 0 || Boolean(photoUrl);
-  const canSubmit = rating >= 1 && hasSomethingToSay && !busy;
+  const hasOpinion = reviewCanBeSaved(rating, review);
+  const canSubmit = hasOpinion && !busy;
   const remaining = MAX_REVIEW_LENGTH - review.length;
 
   async function handlePickPhoto(file: File) {
@@ -112,7 +116,9 @@ export default function ReviewEditor({
 
     try {
       await onSave({
-        rating,
+        // No stars given is stated as no rating at all, so the backend
+        // stores absence rather than a score nobody gave.
+        rating: rating >= 1 ? rating : null,
         review: trimmed.length > 0 ? trimmed : null,
         photo_url: photoUrl,
         photo_public_id: photoPublicId,
@@ -270,7 +276,7 @@ export default function ReviewEditor({
         </Button>
       </div>
 
-      {!hasSomethingToSay && (
+      {!hasOpinion && (
         <p className="text-xs text-muted-subtle">{t('needsSomething')}</p>
       )}
     </div>

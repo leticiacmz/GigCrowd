@@ -18,9 +18,11 @@ interface ReviewCardProps {
 /**
  * One review, as it appears on a profile and on the event it belongs to.
  *
- * The review is the opinion, so it shows the rating, whatever was written and
- * the photo if there is one. A review always carries a rating, and the stars are
- * labelled rather than left as five unlabelled symbols.
+ * The review is the opinion, so it shows whatever of it was written: the
+ * rating when the opinion has one, the words when there are any, the photo
+ * when there is one. A review written without stars draws no stars rather
+ * than an empty row of them, and the stars that are drawn are labelled
+ * rather than left as five unlabelled symbols.
  */
 export default function ReviewCard({
   review,
@@ -39,7 +41,16 @@ export default function ReviewCard({
       data-event-id={review.event_id}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <ReviewStars rating={review.rating} />
+        {typeof review.rating === 'number' ? (
+          <ReviewStars rating={review.rating} />
+        ) : (
+          /*
+            Nothing was rated, so nothing is drawn: an empty row of five
+            stars would read like a verdict of zero. The empty span keeps
+            the date on its side of the card either way.
+          */
+          <span aria-hidden="true" />
+        )}
 
         <time
           className="text-xs text-muted-subtle"

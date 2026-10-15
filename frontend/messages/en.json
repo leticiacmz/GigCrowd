@@ -329,7 +329,7 @@
     "chooseRating": "Your rating",
     "rateLabel": "{rating} of {max} stars",
     "characters": "{count} characters left",
-    "needsSomething": "Write something or add a photo: a rating on its own is not a review.",
+    "needsSomething": "Add a rating or write something: a photo on its own is not a review.",
     "photoFailed": "The photo could not be uploaded. Try again, or save the review without it.",
     "saveFailed": "The review could not be saved. Try again.",
     "deleteFailed": "The review could not be deleted. Try again.",

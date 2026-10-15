@@ -49,6 +49,7 @@ import ReviewDialog from '../../../../components/ReviewDialog';
 import LineupPerformerCard, {
   type LineupPerformer,
 } from '../../../../components/festival/LineupPerformerCard';
+import { logCarriesReview } from '../../../../app/lib/reviewValidation';
 import type {
   ReviewPayload,
   ShowLog,
@@ -538,9 +539,12 @@ export default function EventDetailPage() {
     The signed-in user's own review, rendered through the same card the profile
     uses. Reviews other people wrote are shown on the post tab instead, so a
     reader and a bystander never see the same event page with different rules.
+    The gate reads what the log carries - rating, words, or a legacy photo -
+    rather than only the rating, so an opinion written without stars is still
+    the person's review of the show.
   */
   const ownReview: ProfileReview | null =
-    showLog?.rating && isEventPast
+    showLog && isEventPast && logCarriesReview(showLog)
       ? {
           event_id: eventId,
           title: event?.title ?? '',
@@ -549,7 +553,7 @@ export default function EventDetailPage() {
           event_type: event?.event_type ?? 'Concert',
           artist_slugs: artistSlugs,
           artist_names: linkedArtists.map((artist) => artist.name),
-          rating: showLog.rating,
+          rating: showLog.rating ?? null,
           review: showLog.review ?? null,
           photo_url: showLog.photo_url ?? null,
           reviewed_at: showLog.reviewed_at ?? null,

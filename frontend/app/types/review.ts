@@ -7,8 +7,8 @@
 
 /** The body accepted when a review is written on its own. */
 export interface ReviewPayload {
-  /** 1 to 5 stars. Always required: a rating is the point of a review. */
-  rating: number;
+  /** 1 to 5 stars, or null when the opinion was written without one. */
+  rating: number | null;
 
   /** Optional free text. */
   review?: string | null;

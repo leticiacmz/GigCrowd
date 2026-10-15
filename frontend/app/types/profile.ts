@@ -153,7 +153,8 @@ export interface ProfileShowYearsResponse {
 
 /** A review: an attended show that carries an opinion about it. */
 export interface ProfileReview extends ProfileEvent {
-  rating: number;
+  /** Stated only when the opinion has one; without stars, absent. */
+  rating?: number | null;
   review?: string | null;
   photo_url?: string | null;
   reviewed_at?: string | null;

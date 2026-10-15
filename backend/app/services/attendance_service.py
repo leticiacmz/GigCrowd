@@ -57,7 +57,7 @@ class AttendanceService:
         self,
         event_id: str,
         user_id: str,
-        rating: int,
+        rating: int | None,
         review: str | None,
     ):
 
@@ -80,7 +80,20 @@ class AttendanceService:
                 detail="Only users who attended the event can leave a review.",
             )
 
-        if rating < 1 or rating > 5:
+        # The same rule every other door into a review holds to: a rating or
+        # some words, never neither - this endpoint takes no photo, so an
+        # empty submission here is exactly an empty review.
+        if rating is None and not (review or "").strip():
+
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "A review needs a rating or some words - "
+                    "a photo on its own is not one."
+                ),
+            )
+
+        if rating is not None and (rating < 1 or rating > 5):
 
             raise HTTPException(
                 status_code=400,
