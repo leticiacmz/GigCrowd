@@ -175,9 +175,10 @@ function Connections({
 
   if (loading) {
     return (
-      <p className="text-sm text-muted">
-        {t('loadingConnections')}
-      </p>
+      <LoadingState
+        size="inline"
+        message={t('loadingConnections')}
+      />
     );
   }
 

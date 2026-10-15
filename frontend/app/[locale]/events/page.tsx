@@ -710,7 +710,10 @@ export default function EventsPage() {
                 </h2>
 
                 {searchLoading && rows.length === 0 ? (
-                  <LoadingState message={t('searching')} />
+                  <LoadingState
+                    size="section"
+                    message={t('searching')}
+                  />
                 ) : rows.length === 0 ? (
                   <div
                     className="py-16 text-center"

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import LoadingState from '@/components/LoadingState';
@@ -18,6 +19,7 @@ import { getUser } from '@/app/lib/auth';
 function OwnProfileContent() {
   const params = useParams();
   const router = useRouter();
+  const tCommon = useTranslations('common');
 
   const locale = (params?.locale as string) || 'en';
 
@@ -34,7 +36,7 @@ function OwnProfileContent() {
 
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <LoadingState message="" />
+      <LoadingState message={tCommon('loading')} />
     </div>
   );
 }

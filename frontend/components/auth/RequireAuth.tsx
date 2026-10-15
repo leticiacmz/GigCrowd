@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 
 import { isAuthenticated } from '@/app/lib/auth';
+import LoadingState from '@/components/LoadingState';
 
 interface RequireAuthProps {
   locale: string;
@@ -24,6 +26,7 @@ export default function RequireAuth({
   children,
 }: RequireAuthProps) {
   const router = useRouter();
+  const tCommon = useTranslations('common');
   const [authorized, setAuthorized] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -49,7 +52,15 @@ export default function RequireAuth({
   }, [locale, router]);
 
   if (authorized !== true) {
-    return null;
+    // The session is read on the client, so there is a moment before it is
+    // known. It is a wait like any other and says so, instead of showing a
+    // blank page; a signed-out visitor never sees it long - the redirect
+    // above is already on its way.
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <LoadingState message={tCommon('loading')} />
+      </div>
+    );
   }
 
   return <>{children}</>;

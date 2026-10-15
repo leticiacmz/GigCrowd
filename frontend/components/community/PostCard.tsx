@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 
 import Card from '@/components/ui/Card';
 import CommentItem from '@/components/community/CommentItem';
+import LoadingState from '@/components/LoadingState';
 import UserChip from '@/components/community/UserChip';
 import type {
   CommunityComment,
@@ -192,9 +193,10 @@ export default function PostCard({
           )}
 
           {commentsLoading ? (
-            <p className="text-sm text-muted-subtle">
-              {t('loadingComments')}
-            </p>
+            <LoadingState
+              size="inline"
+              message={t('loadingComments')}
+            />
           ) : !comments || comments.length === 0 ? (
             <p className="text-sm text-muted-subtle">
               {t('noCommentsYet')}

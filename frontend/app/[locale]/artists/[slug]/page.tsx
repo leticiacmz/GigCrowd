@@ -14,6 +14,7 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import EventCard from '@/components/EventCard';
+import LoadingState from '@/components/LoadingState';
 import ArtistSyncLoading from '@/components/ui/ArtistSyncLoading';
 
 interface ArtistProfile {
@@ -129,6 +130,7 @@ export default function ArtistProfilePage() {
   const t = useTranslations('artist');
   const tEvent = useTranslations('event');
   const tCommunity = useTranslations('community');
+  const tCommon = useTranslations('common');
 
   const runAuthAction = useAuthAction({ locale });
 
@@ -312,7 +314,7 @@ export default function ArtistProfilePage() {
               className="shrink-0"
             >
               {followLoading
-                ? t('loadingRelated')
+                ? tCommon('loading')
                 : following
                   ? t('following')
                   : t('follow')}
@@ -451,7 +453,10 @@ export default function ArtistProfilePage() {
 
             {relatedLoading ? (
               <Card className="p-6 text-center text-muted">
-                {t('loadingRelated')}
+                <LoadingState
+                  size="section"
+                  message={t('loadingRelated')}
+                />
               </Card>
             ) : (
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

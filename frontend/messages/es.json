@@ -469,6 +469,7 @@
   },
   "artistEvents": {
     "allYears": "Todos los años",
+    "loading": "Cargando eventos...",
     "noEvents": "No se encontraron eventos."
   },
   "festivals": {

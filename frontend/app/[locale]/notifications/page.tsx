@@ -20,6 +20,7 @@ function NotificationsContent() {
   const params = useParams<{ locale: string }>();
   const locale = params?.locale ?? 'en';
   const t = useTranslations('notifications');
+  const tCommon = useTranslations('common');
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +114,7 @@ function NotificationsContent() {
       </header>
 
       {loading ? (
-        <LoadingState message={t('title')} />
+        <LoadingState message={tCommon('loading')} />
       ) : error ? (
         <Card className="p-6 text-center">
           <p className="mb-4 text-muted">{t('emptyDescription')}</p>

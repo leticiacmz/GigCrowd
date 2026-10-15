@@ -416,7 +416,7 @@ export default function ArtistEventsPage(){
         justify-center
       ">
 
-        <LoadingState message="Loading events..." />
+        <LoadingState message={t('loading')} />
 
       </div>
 

@@ -179,10 +179,18 @@ body {
 
 /*
  * The GigCrowd icon with a ring turning around it: the state shown while an
- * artist is being found or imported. The ring is the only moving part, and
- * it stops turning outright when the OS asks for reduced motion - the
- * blanket rule above shortens every animation but leaves it looping, so
- * this one is switched off completely and stays as a still, drawn ring.
+ * artist is being found or imported, and the shape every other loading state
+ * in the app now shares. The ring is drawn from the same gradient tokens
+ * every filled surface uses, carved down to a ring with a mask, and it is
+ * the only moving part. It stops turning outright when the OS asks for
+ * reduced motion - the blanket rule above shortens every animation but
+ * leaves it looping, so this one is switched off completely and stays as a
+ * still, drawn ring.
+ *
+ * The drawing below is one rule for both wrappers: `.artist-sync-orbit`
+ * (the artist flow, 5.5rem) and `.loading-orbit` (everywhere else, sized
+ * by its modifier class), so the two can never drift apart in colour or
+ * behaviour.
  */
 .artist-sync-orbit {
   position: relative;
@@ -193,13 +201,29 @@ body {
   height: 5.5rem;
 }
 
-.artist-sync-orbit::before {
+.artist-sync-orbit::before,
+.loading-orbit::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: 9999px;
-  border: 3px solid var(--border-strong);
-  border-top-color: var(--accent);
+  background: conic-gradient(
+    var(--gradient-from),
+    var(--gradient-to) 250deg,
+    transparent 340deg,
+    transparent 360deg
+  );
+  /* Carve the middle out so only a ring of the gradient remains. */
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    #000 calc(100% - 3px)
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    #000 calc(100% - 3px)
+  );
   animation: artist-sync-spin 1.1s linear infinite;
 }
 
@@ -209,8 +233,33 @@ body {
   }
 }
 
+/*
+ * The generic loading ring: same drawing, sized by context. The modifier
+ * classes exist because plain CSS in this file outranks Tailwind utilities
+ * at equal specificity - the size has to live here to be reliable.
+ */
+.loading-orbit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+}
+
+.loading-orbit--section {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.loading-orbit--inline {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .artist-sync-orbit::before {
+  .artist-sync-orbit::before,
+  .loading-orbit::before {
     animation: none !important;
   }
 }
