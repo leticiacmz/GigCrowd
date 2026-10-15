@@ -207,6 +207,36 @@ async def test_an_empty_lineup_resolves_to_the_initiator_alone():
 
 
 @pytest.mark.asyncio
+async def test_a_lineup_entry_whose_slug_differs_joins_by_the_stored_slug():
+    """Songkick's slug and ours are two namespaces; the id bridges them.
+
+    The local data holds entries like "Racionais MC's" whose lineup-row slug
+    differs from the imported artist's GigCrowd slug. The link is by Songkick
+    id, and the slug that joins the event's artist list is the stored one -
+    the lineup row's spelling never leaks in, and the entry is not skipped
+    over a spelling it never owned.
+    """
+
+    racionais = {
+        "name": "Racionais MC's",
+        "slug": "racionais-mc-s",
+        "external_ids": {
+            "songkick": external_id_for("147146"),
+        },
+    }
+
+    service = service_over([DEMI, racionais])
+
+    result = await service._resolve_artist_ids(
+        [],
+        "demi-lovato",
+        lineup_ids=["147146"],
+    )
+
+    assert result == ["demi-lovato", "racionais-mc-s"]
+
+
+@pytest.mark.asyncio
 async def test_the_import_loop_carries_the_payload_lineup_into_the_artist_list():
     """The seam between extraction and resolution, pinned end to end.
 

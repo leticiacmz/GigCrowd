@@ -31,6 +31,10 @@ import {
   isHappeningNow,
   isPastEvent,
 } from '../../../lib/dates';
+import {
+  eventDisplayTitle,
+  festivalDisplayName,
+} from '../../../lib/festivalTitle';
 
 import Button from '../../../../components/ui/Button';
 import Card from '../../../../components/ui/Card';
@@ -336,34 +340,22 @@ export default function EventDetailPage() {
         : 'border-accent/30 bg-accent/5 text-accent';
 
   /*
-    The festival's own name when the importer recorded one. The event title is
-    a fallback only, and only after the artist prefix is stripped: Songkick
-    titles a festival date from the artist's page ("Demi Lovato Rock In Rio
-    2022"), and using that as the festival's name would render the header as
-    "Demi Lovato @ Demi Lovato Rock In Rio 2022" - the artist introduced as if
-    they were the festival. A title that is nothing but the artist's name
-    yields no festival name at all, and the generic label shows instead.
+    The festival's own name when the importer recorded one; the event title
+    is a fallback only, and only after the artist prefix is stripped. The
+    header title then adds the artist's name just once - a name that already
+    contains the artist, or already reads as a complete "Festival @ Venue"
+    descriptor, is shown as it is. The shared rules live in
+    `lib/festivalTitle`, so the festival card further down this page and any
+    future caller cannot drift from what the header shows.
   */
-  const titleAsFestivalName = (() => {
-    const title = event?.title?.trim();
-    if (!title) return '';
+  const linkedArtistName = linkedArtists[0]?.name;
 
-    const artist = linkedArtists[0]?.name?.trim();
-    if (!artist) return title;
-
-    if (title.toLowerCase().startsWith(artist.toLowerCase())) {
-      return title.slice(artist.length).trim();
-    }
-
-    return title;
-  })();
-
-  const festivalName = event?.festival?.name || titleAsFestivalName;
-
-  const displayTitle = isFestival && linkedArtists.length > 0
-    ? festivalName
-      ? `${linkedArtists[0].name} @ ${festivalName}`
-      : linkedArtists[0].name
+  const displayTitle = isFestival
+    ? eventDisplayTitle({
+        festivalName: event?.festival?.name,
+        title: event?.title,
+        artistName: linkedArtistName,
+      })
     : event?.title || '';
 
   // Marking attendance changes user-specific data. Signed-out visitors are
@@ -779,7 +771,11 @@ export default function EventDetailPage() {
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
                       <h2 className="text-xl font-bold">
-                        {event.festival.name || event.title}
+                        {festivalDisplayName({
+                          festivalName: event.festival.name,
+                          title: event.title,
+                          artistName: linkedArtistName,
+                        })}
                       </h2>
 
                       <p className="text-sm text-muted-subtle mt-1">{t('lineupHint')}</p>
