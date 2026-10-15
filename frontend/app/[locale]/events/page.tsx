@@ -932,10 +932,13 @@ function EventResultRow({
    * carries - the `festival` block the API only writes when a series id backs
    * it, and `event_type` - so a festival edition that has not been tied to a
    * series yet still reads as one instead of silently becoming a concert.
+   * `event_type` matches case-insensitively because rows written before the
+   * canonicalisation carry lowercase `festival`, the same dual-read the
+   * backend's `_is_festival_event` applies.
    */
   const isFestivalRow =
     Boolean(row.festival?.series_id) ||
-    row.event_type === 'FestivalInstance';
+    (row.event_type ?? '').toLowerCase().includes('festival');
 
   /*
    * The trusted artist relationship, surfaced as slugs rather than as nested

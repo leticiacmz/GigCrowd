@@ -204,7 +204,19 @@ export default function FestivalPage() {
   }
 
   const festivalName = identity.name || t('title');
-  const sourceUrl = identity.official_url || identity.url;
+
+  /*
+    Rendered as an `<a href>`, so only an address a browser can open is worth
+    rendering. The API validates this before sending, but rows written before
+    that validation existed can still hold a relative path, and a relative
+    `href` would silently become a link into GigCrowd itself instead of back
+    to the source.
+  */
+  const candidateUrl = identity.official_url || identity.url;
+  const sourceUrl =
+    candidateUrl && /^https?:\/\//i.test(candidateUrl)
+      ? candidateUrl
+      : null;
 
   return (
     <div className="min-h-screen">

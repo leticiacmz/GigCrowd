@@ -31,6 +31,49 @@ logger = get_logger(
     "songkick_event_import"
 )
 
+
+def _lineup_songkick_ids(payload: dict) -> list[str]:
+    """The Songkick artist ids stated in a payload's lineup, in bill order.
+
+    Only what the source actually stated: an entry without an id contributes
+    nothing, and nothing is guessed from a name. Both spellings the payload
+    may carry are read, because the detail page and the JSON-LD parse of it
+    do not agree on one. Duplicates are removed while the announced order is
+    kept, so the first artist on the bill resolves before the last.
+    """
+
+    entries = (
+        payload.get("lineup")
+        or payload.get("performers")
+        or []
+    )
+
+    if not isinstance(entries, list):
+        return []
+
+    ids: list[str] = []
+
+    for entry in entries:
+
+        if not isinstance(entry, dict):
+            continue
+
+        value = (
+            entry.get("songkick_id")
+            or entry.get("songkickId")
+        )
+
+        if not value:
+            continue
+
+        text = str(value).strip()
+
+        if text and text not in ids:
+
+            ids.append(text)
+
+    return ids
+
 # ============================================================
 # EXTRACTION GAPS
 # ============================================================
@@ -529,6 +572,9 @@ class SongkickEventImportService:
                 await self._resolve_artist_ids(
                     artist_ids,
                     artist.slug,
+                    lineup_ids=(
+                        _lineup_songkick_ids(payload)
+                    ),
                 )
             )
 
@@ -1011,11 +1057,22 @@ class SongkickEventImportService:
         self,
         artist_ids: list[int],
         initiating_artist_slug: str,
+        lineup_ids: list[str] | None = None,
     ) -> list[str]:
         """
         Resolve Songkick numeric artist IDs to local artist slugs.
 
-        The initiating artist is always included.
+        The initiating artist is always included and always first, so the
+        event's primary artist is the one whose sync wrote the record.
+
+        `lineup_ids` are the Songkick artist ids stated in the event's own
+        lineup. A festival date's artist list in a gigography payload usually
+        names only the artist being browsed, while the stored record may hold
+        more - lineup members resolved on an earlier run - so the caller must
+        never replace the stored list with this one; the repository merges it
+        additively. An id that does not resolve to an imported artist is
+        skipped rather than guessed at, which is the same rule the lineup
+        resolver applies when it renders a page.
         """
 
         artist_slugs = [
@@ -1060,6 +1117,31 @@ class SongkickEventImportService:
                     f"Could not resolve Songkick "
                     f"artist ID: {songkick_id}"
                 )
+
+        # Lineup members resolve through the same identifier the pages are
+        # keyed by, so a lineup artist already imported as a stub joins the
+        # event's artist list instead of staying a name only the lineup row
+        # knows about. One query for the whole lineup, not one per artist.
+        if lineup_ids:
+
+            from app.services.lineup_artist_resolver import (
+                LineupArtistResolver,
+                stored_id_of,
+            )
+
+            resolved = await LineupArtistResolver(
+                self.artist_repository,
+            ).resolve(lineup_ids)
+
+            for lineup_id in lineup_ids:
+
+                slug = resolved.get(
+                    stored_id_of(lineup_id)
+                )
+
+                if slug and slug not in artist_slugs:
+
+                    artist_slugs.append(slug)
 
         if unresolved_ids:
 

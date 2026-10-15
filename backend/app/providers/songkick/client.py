@@ -12,6 +12,7 @@ from app.config import settings
 from app.core.logger import get_logger
 from app.domain.festival import (
     festival_data_from_url,
+    http_url_or_none,
     songkick_artist_reference,
 )
 from app.domain.artist_image import resolve_artist_image
@@ -2615,7 +2616,8 @@ class SongkickClient:
 
         is_festival = bool(
             event.get("is_festival")
-            or event.get("event_type") == "festival"
+            or "festival"
+            in str(event.get("event_type") or "").casefold()
         )
 
         if (
@@ -3002,7 +3004,11 @@ class SongkickClient:
         enriched = dict(event)
 
         enriched["is_festival"] = True
-        enriched["event_type"] = "festival"
+        # Canonical type on write. The mapper accepts both spellings, but
+        # writing the canonical one here means every stored event carries it
+        # regardless of which path wrote it, and a reader never has to guess
+        # which spelling a given row holds.
+        enriched["event_type"] = "FestivalInstance"
 
         # --------------------------------------------------------
         # Canonical festival name
@@ -3215,14 +3221,25 @@ class SongkickClient:
             )
         )
 
-        url = (
-            cls._first_non_empty(
-                search_document.get("url"),
-                search_document.get("web_url"),
-                search_document.get("uri"),
-                original_event.get("url"),
-            )
-        )
+        url = None
+
+        for candidate in (
+            search_document.get("url"),
+            search_document.get("web_url"),
+            search_document.get("uri"),
+            original_event.get("url"),
+        ):
+
+            # A URL is persisted only in the shape a browser can open.
+            # Songkick's search documents also carry relative `uri` values,
+            # and persisting one would later render as a link into GigCrowd
+            # itself rather than back to the source. The first candidate that
+            # is a real http(s) address wins; a malformed one is skipped, not
+            # repaired.
+            url = http_url_or_none(candidate)
+
+            if url:
+                break
 
         tracking_count = (
             cls._first_non_none(
@@ -5116,7 +5133,12 @@ class SongkickClient:
         metadata = {
             "series_id": str(series_id),
             "name": data.get("name"),
-            "url": str(url).split("?")[0],
+            # Validated in the same way the search path validates: the series
+            # was parsed from the raw address above, but what is persisted as
+            # the link must be one a browser can open.
+            "url": http_url_or_none(
+                str(url).split("?")[0]
+            ),
             "official_url": None,
             "edition": None,
             "tracking_count": None,

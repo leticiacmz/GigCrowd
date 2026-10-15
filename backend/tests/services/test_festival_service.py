@@ -855,3 +855,58 @@ class TestAnEditionImportedWithoutItsFestivalBlock:
             )
             is None
         )
+
+
+class TestAnArtistShapedTitleIsNeverTheFestivalName:
+    """A header that would introduce the artist as if they were the festival.
+
+    Songkick titles a festival date from the artist's own page, so an edition
+    imported without its festival block can carry a title like "Demi Lovato
+    Rock In Rio 2022". Showing that as the festival's name renders the header
+    as "Demi Lovato @ Demi Lovato Rock In Rio 2022". The page still opens -
+    the address states the series - but the header shows no name rather than
+    the artist's.
+    """
+
+    ARRIVAL_ID = "507f1f77bcf86cd799439031"
+
+    def arrival(self) -> dict:
+        return festival_document(
+            self.ARRIVAL_ID,
+            "Demi Lovato Primavera Sound São Paulo 2022",
+            starts_at=datetime(2022, 11, 6, 20, tzinfo=UTC),
+            festival=None,
+            artist_slugs=["demi-lovato"],
+            lineup=[
+                {
+                    "name": "Demi Lovato",
+                    "songkick_id": "1715773",
+                    "slug": "demi-lovato",
+                    "url": (
+                        "https://www.songkick.com/artists/"
+                        "1715773-demi-lovato"
+                    ),
+                    "image": None,
+                    "genres": [],
+                    "order": 0,
+                }
+            ],
+            source={
+                "provider": "songkick",
+                "external_id": "40385600",
+                "url": (
+                    "https://www.songkick.com/festivals/"
+                    "3441108-primavera/id/40385600-primavera-2022"
+                ),
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_page_still_opens_with_no_name_in_the_header(self):
+        service = build([DAY_ONE, self.arrival()])
+
+        festival = await service.get_festival(self.ARRIVAL_ID)
+
+        assert festival is not None
+        assert festival.identity.series_id == SERIES
+        assert festival.identity.name is None

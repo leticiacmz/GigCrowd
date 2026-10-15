@@ -223,7 +223,15 @@ export default function EventDetailPage() {
   */
   const isEventPast = isPastEvent(event);
   const isEventHappening = isHappeningNow(event);
-  const isFestival = event?.event_type === 'FestivalInstance';
+  /*
+    `FestivalInstance` is the canonical type, but rows written before the
+    canonicalisation carry lowercase `festival`, so the check is a case-
+    insensitive match on the substring the backend's `_is_festival_event`
+    also accepts. Both spellings must render the same page.
+  */
+  const isFestival = (event?.event_type ?? '')
+    .toLowerCase()
+    .includes('festival');
 
   // A cancelled or postponed show says so beside its status badge; an event
   // whose source stated no scheduling word simply carries no badge.
@@ -327,10 +335,35 @@ export default function EventDetailPage() {
         ? 'border-accent/40 bg-accent/10 text-accent'
         : 'border-accent/30 bg-accent/5 text-accent';
 
-  const festivalName = event?.festival?.name || event?.title;
+  /*
+    The festival's own name when the importer recorded one. The event title is
+    a fallback only, and only after the artist prefix is stripped: Songkick
+    titles a festival date from the artist's page ("Demi Lovato Rock In Rio
+    2022"), and using that as the festival's name would render the header as
+    "Demi Lovato @ Demi Lovato Rock In Rio 2022" - the artist introduced as if
+    they were the festival. A title that is nothing but the artist's name
+    yields no festival name at all, and the generic label shows instead.
+  */
+  const titleAsFestivalName = (() => {
+    const title = event?.title?.trim();
+    if (!title) return '';
+
+    const artist = linkedArtists[0]?.name?.trim();
+    if (!artist) return title;
+
+    if (title.toLowerCase().startsWith(artist.toLowerCase())) {
+      return title.slice(artist.length).trim();
+    }
+
+    return title;
+  })();
+
+  const festivalName = event?.festival?.name || titleAsFestivalName;
 
   const displayTitle = isFestival && linkedArtists.length > 0
-    ? `${linkedArtists[0].name} @ ${festivalName}`
+    ? festivalName
+      ? `${linkedArtists[0].name} @ ${festivalName}`
+      : linkedArtists[0].name
     : event?.title || '';
 
   // Marking attendance changes user-specific data. Signed-out visitors are

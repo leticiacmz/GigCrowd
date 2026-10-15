@@ -32,6 +32,7 @@ import re
 import unicodedata
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from app.domain.event_schedule import as_utc
 
@@ -125,8 +126,134 @@ def festival_key(event: Any) -> Optional[str]:
         return f"{TITLE_KEY_PREFIX}{normalized_title}"
 
 
+def http_url_or_none(
+    value: Any,
+) -> Optional[str]:
+    """The value only when it is an absolute http(s) address.
+
+    A festival identity may carry a URL from any parse that ever ran, including
+    ones that stored a relative path (`/festivals/238588-...`) or a malformed
+    string. The page renders this as an `<a href>` to the official site, and a
+    relative path would silently become a link into GigCrowd itself while a
+    `javascript:` scheme would be a hole. So a URL is exposed only in the shape
+    a browser can actually open; anything else is treated as absent rather
+    than repaired, because inventing a host for a path is a guess about where
+    the festival lives.
+    """
+
+    if not value:
+        return None
+
+    text = str(value).strip()
+
+    if not text:
+        return None
+
+    parsed = urlparse(text)
+
+    if parsed.scheme in ("http", "https") and parsed.netloc:
+        return text
+
+    return None
+
+
+def _artist_names(event: Any) -> list[str]:
+    """The names the event's own artists are known by.
+
+    Two sources, both already stored on the record: the lineup's stated names,
+    and the artist slugs (`demi-lovato` reads as its words). The initiating
+    artist of a gigography import is reliably in one of the two even when the
+    lineup was never obtained, so a title shaped after that artist can be
+    recognised without any external lookup.
+    """
+
+    if isinstance(event, dict):
+        lineup = event.get("lineup")
+        slugs = event.get("artist_slugs")
+    else:
+        lineup = getattr(event, "lineup", None)
+        slugs = getattr(event, "artist_slugs", None)
+
+    names: list[str] = []
+
+    for entry in lineup or []:
+
+        if isinstance(entry, dict):
+            name = entry.get("name")
+        else:
+            name = getattr(entry, "name", None)
+
+        if name:
+            names.append(str(name))
+
+    for slug in slugs or []:
+        words = str(slug).replace("-", " ").strip()
+        if words:
+            names.append(words)
+
+    return names
+
+
+def _is_artist_shaped_title(
+    event: Any,
+    title: Any,
+) -> bool:
+    """Whether a title names an artist's appearance rather than the festival.
+
+    Songkick addresses a festival date from the artist's own page, and the
+    title it publishes there is about the artist: "Demi Lovato Rock In Rio
+    2022" is how Demi Lovato's page states the show, not the festival's name,
+    and "Demi Lovato @ Barra Olympic Park" is the same representation for a
+    plain concert. Used as a festival's name either would introduce the artist
+    as if they were the festival, so a title in one of these shapes is refused
+    rather than displayed.
+
+    Two shapes are refused, both decided from data already on the record:
+    a title containing ` @ `, and a title that begins with the name of one of
+    the event's own artists. Years and venue words after the name are left
+    alone, so "Rock In Rio 2022" is unaffected.
+    """
+
+    text = str(title).strip()
+
+    if not text:
+        return False
+
+    if " @ " in text:
+        return True
+
+    normalized_title = _normalize(text)
+
+    if not normalized_title:
+        return False
+
+    for name in _artist_names(event):
+
+        normalized_name = _normalize(name)
+
+        if not normalized_name:
+            continue
+
+        if (
+            normalized_title == normalized_name
+            or normalized_title.startswith(
+                f"{normalized_name} "
+            )
+        ):
+            return True
+
+    return False
+
+
 def festival_name(event: Any) -> Optional[str]:
-    """The name to show for an event's festival."""
+    """The name to show for an event's festival.
+
+    The metadata's own name wins, because it was read off the festival rather
+    than inferred. The event title is a fallback only, and only when it is not
+    shaped after one of the event's artists: an artist-prefixed title names the
+    appearance, not the festival, so this returns `None` and the caller shows a
+    generic label instead of the artist's name as if it were the festival's.
+    """
 
     metadata = festival_metadata(event)
 
@@ -138,11 +265,18 @@ def festival_name(event: Any) -> Optional[str]:
             return name
 
     if festival_key(event):
-        return (
+
+        title = (
             event.get("title")
             if isinstance(event, dict)
             else getattr(event, "title", None)
         )
+
+        if title and not _is_artist_shaped_title(
+            event,
+            title,
+        ):
+            return title
 
     return None
 
@@ -372,11 +506,16 @@ def festival_identity(
     if not series_id:
         return None
 
+    # Validation happens at the point of exposure, not before the parse: a
+    # stored relative path still states its series and is still structured
+    # source data, but what the page renders as an "official site" link must
+    # be an address a browser can open. A malformed value degrades to no link
+    # rather than to a broken one.
     identity: dict[str, Any] = {
         "series_id": str(series_id),
         "name": name,
-        "url": url,
-        "official_url": official_url,
+        "url": http_url_or_none(url),
+        "official_url": http_url_or_none(official_url),
         "edition": edition,
     }
 

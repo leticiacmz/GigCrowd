@@ -29,6 +29,16 @@ from bson import ObjectId
 # catalogue holds. A listing that *does* carry one still corrects it, because
 # a present value is written as it arrives.
 #
+# `festival` and `lineup` belong here for the same reason as the dates, with
+# one wrinkle worth stating: their absence arrives as an empty value rather
+# than as `None`. The mapper defaults a missing festival block to `None` and a
+# missing lineup to `[]`, and a gigography listing routinely carries neither -
+# while the stored event may hold a festival identity recovered from the
+# event's own page and a lineup an earlier extraction already obtained. A
+# resync that overwrote them with "nothing here" would erase them on every
+# run, so an empty incoming value is treated exactly like a missing one. A
+# resync that *does* carry a festival block or a lineup still corrects it.
+#
 # These are omitted from the update when the incoming value is `None`, not
 # written as `None`. The distinction matters: writing `None` erases the stored
 # value, and `$unset` would remove the field and turn a dated event back into
@@ -42,6 +52,17 @@ _NEVER_BLANKED_BY_A_RESYNC = frozenset(
         "description",
         "image_url",
         "event_status",
+        "festival",
+        "lineup",
+    }
+)
+
+# Protected fields whose absence arrives as an empty collection instead of
+# `None`. The mapper cannot emit "no lineup key" - it emits `[]` - so the
+# `value is None` rule alone would let a bare listing wipe a stored lineup.
+_EMPTY_IS_ABSENT = frozenset(
+    {
+        "lineup",
     }
 )
 
@@ -72,19 +93,79 @@ def _without_absent_protected(
     A `None` in the incoming document means "this listing said nothing", which
     is not the same claim as "this field is now empty". Writing it would erase
     whatever is stored, so the field is dropped from the update entirely and
-    MongoDB leaves the stored value where it is.
+    MongoDB leaves the stored value where it is. For a field in
+    `_EMPTY_IS_ABSENT` an empty collection carries the same meaning, because
+    the mapper has no way to emit "no lineup key" - it emits `[]`.
 
     Only the names in `protected` are treated this way. Everything else is
     written as it arrives, because a resync legitimately corrects a venue, a
-    description or a lineup - and because only these three are fields whose
+    description or a lineup - and because only these fields are ones whose
     absence is routinely informative rather than a correction.
     """
 
     return {
         name: value
         for name, value in incoming.items()
-        if not (name in protected and value is None)
+        if not (
+            name in protected
+            and (
+                value is None
+                or (
+                    name in _EMPTY_IS_ABSENT
+                    and not value
+                )
+            )
+        )
     }
+
+
+def _merge_for_resync(incoming: dict) -> dict:
+    """The update document for a resync: what to `$set`, and what to add.
+
+    Three rules are applied here, all of them about the record rather than
+    about the provider that happens to be writing:
+
+    * attendance is dropped, because a listing never measured it;
+    * a protected field the listing did not state is dropped, so the stored
+      value survives (see `_without_absent_protected`);
+    * `artist_slugs` is merged additively with `$addToSet` instead of being
+      replaced. The list is who the show belongs to, and the incoming half of
+      a resync routinely knows fewer artists than the stored one - a
+      gigography listing names the artist being browsed, while the stored set
+      may already hold that artist plus lineup members resolved on an earlier
+      run. Replacing it would shed valid associations every sync, and an
+      empty incoming list would shed all of them. So the union is what
+      persists: an association is only ever added, never dropped by a
+      listing that failed to mention it.
+    """
+
+    for name in _NEVER_OWNED_BY_A_PROVIDER:
+        incoming.pop(name, None)
+
+    updates = _without_absent_protected(
+        incoming,
+        _NEVER_BLANKED_BY_A_RESYNC,
+    )
+
+    artist_slugs = updates.pop(
+        "artist_slugs",
+        None,
+    ) or []
+
+    updates["updated_at"] = datetime.now(UTC)
+
+    update_document: dict = {
+        "$set": updates,
+    }
+
+    if artist_slugs:
+        update_document["$addToSet"] = {
+            "artist_slugs": {
+                "$each": artist_slugs,
+            },
+        }
+
+    return update_document
 
 
 class EventRepository(BaseRepository):
@@ -539,23 +620,13 @@ class EventRepository(BaseRepository):
             exclude={"id"}
         )
 
-        for name in _NEVER_OWNED_BY_A_PROVIDER:
-            incoming.pop(name, None)
-
-        updates = _without_absent_protected(
-            incoming,
-            _NEVER_BLANKED_BY_A_RESYNC,
-        )
-
-        updates["updated_at"] = datetime.now(UTC)
-
         await self.collection.update_one(
             {
                 "external_ids.bandsintown": bandsintown_id
             },
-            {
-                "$set": updates
-            },
+            _merge_for_resync(
+                incoming,
+            ),
         )
 
     # ============================================================
@@ -730,22 +801,14 @@ class EventRepository(BaseRepository):
 
         Nor does a listing speak for attendance. Its counters are defaults it
         never measured, so they are dropped from the update entirely rather than
-        written as zero.
+        written as zero. The same goes for `artist_slugs`, which is merged
+        additively: a listing that names fewer artists than the stored record
+        does not revoke the ones it failed to mention (see `_merge_for_resync`).
         """
 
         incoming = event.model_dump(
             exclude={"id"}
         )
-
-        for name in _NEVER_OWNED_BY_A_PROVIDER:
-            incoming.pop(name, None)
-
-        updates = _without_absent_protected(
-            incoming,
-            _NEVER_BLANKED_BY_A_RESYNC,
-        )
-
-        updates["updated_at"] = datetime.now(UTC)
 
         await self.collection.update_one(
             {
@@ -753,5 +816,7 @@ class EventRepository(BaseRepository):
                     event.external_ids[provider]
                 )
             },
-            {"$set": updates},
+            _merge_for_resync(
+                incoming,
+            ),
         )

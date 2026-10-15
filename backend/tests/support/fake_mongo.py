@@ -313,6 +313,20 @@ def _apply_update(document: dict, update: dict) -> None:
         elif operator == "$inc":
             for path, value in fields.items():
                 document[path] = document.get(path, 0) + value
+        elif operator == "$addToSet":
+            # Only the `$each` form is used by the code under test, and only
+            # on array fields. Values already present are left alone, which is
+            # the whole point: the operation adds without ever removing.
+            for path, value in fields.items():
+                each = (
+                    value.get("$each", [])
+                    if isinstance(value, dict)
+                    else [value]
+                )
+                stored = document.setdefault(path, [])
+                for item in each:
+                    if item not in stored:
+                        stored.append(item)
         else:
             raise NotImplementedError(
                 f"FakeMongo does not implement update operator {operator!r}"

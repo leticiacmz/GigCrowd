@@ -28,7 +28,10 @@ from app.domain.event_schedule import (
     event_date,
     event_reference_date,
 )
-from app.domain.festival import festival_identity
+from app.domain.festival import (
+    festival_identity,
+    festival_name,
+)
 from app.domain.event_provenance import (
     trusted_listing_filter,
 )
@@ -213,9 +216,16 @@ class FestivalService:
             reverse=True,
         )
 
+        # A title is a fallback for the name, and only for a title that is not
+        # shaped after one of the event's artists: "Demi Lovato Rock In Rio
+        # 2022" names the artist's appearance, so showing it as the festival's
+        # name would introduce the artist as if they were the festival.
+        # `festival_name` applies that rule, returning `None` when the only
+        # candidate is refused - and the caller of the response then shows a
+        # generic label instead.
         name = (
             identity.get("name")
-            or selected.get("title")
+            or festival_name(selected)
         )
 
         # Every edition's lineup is read first, then all of them are resolved
