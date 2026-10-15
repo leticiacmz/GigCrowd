@@ -32,7 +32,7 @@ import re
 import unicodedata
 from datetime import datetime
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from app.domain.event_schedule import as_utc
 
@@ -390,6 +390,72 @@ def festival_data_from_url(
             else None
         ),
     }
+
+
+def festival_name_from_url(
+    url: Any,
+    venue: Any = None,
+) -> Optional[str]:
+    """The edition's name exactly as the official address states it.
+
+    Songkick addresses a concrete festival date as
+    `/festivals/{series}-{series-slug}/id/{event}-{edition-slug}`, and the
+    edition slug is the festival's own words for that date:
+    `lollapalooza-2027` reads as "Lollapalooza 2027". Two rules keep this a
+    reading rather than a guess:
+
+    * only the edition slug (after `/id/{event}-`) is read, never the
+      series slug - the series names the festival as a whole, not the
+      edition;
+    * the slug must end in a four-digit year standing as its own word,
+      because that is what makes the words an edition's name. A slug that
+      does not says nothing about what to call it, so `None` is returned
+      and the caller shows no name rather than an invented one.
+
+    The venue the source states for the date is appended in the shape
+    Songkick itself names editions ("Reading Festival 2026 @ Richfield
+    Avenue"), which also keeps two same-year editions of one series apart.
+    A `TBA` venue is absence, not a name, so nothing is appended for it.
+    """
+
+    if not url:
+        return None
+
+    match = re.search(
+        r"/id/\d+-([^/?#]+)",
+        str(url),
+    )
+
+    if not match:
+        return None
+
+    slug = unquote(match.group(1))
+
+    # An encoded separator would put path characters into a display name.
+    if any(character in slug for character in "/?#"):
+        return None
+
+    words = " ".join(
+        slug
+        .replace("-", " ")
+        .split()
+    )
+
+    if not words:
+        return None
+
+    if not re.search(r"(?:^|\s)\d{4}$", words):
+        return None
+
+    name = words.title()
+
+    hint = str(venue or "").strip()
+
+    if hint and hint.casefold().rstrip(".") != "tba":
+        if " @ " not in hint:
+            return f"{name} @ {hint}"
+
+    return name
 
 
 def songkick_artist_reference(

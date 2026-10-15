@@ -119,6 +119,51 @@ def _without_absent_protected(
     }
 
 
+def _is_absent_value(value) -> bool:
+    """Whether an incoming value states nothing at all.
+
+    Used for the keys inside a block that must not be written piece by
+    piece with absences. `None` is the shape a parse that read nothing
+    emits; an empty string, list or dict says the same thing - the source
+    was asked and answered nothing. `0` and `False` are statements and
+    pass through: a tracking count of zero is a figure, not silence.
+    """
+
+    if value is None:
+        return True
+
+    if isinstance(value, str):
+        return not value.strip()
+
+    if isinstance(value, (list, dict)):
+        return not value
+
+    return False
+
+
+def _festival_sub_updates(festival_block) -> dict:
+    """The festival fields a resync may write, keyed by dotted path.
+
+    The block arrives whole from every parse - including one that read no
+    name and therefore carries `name: None` - so writing it wholesale would
+    replace the stored block with the listing's silences. Each sub-key is
+    instead written under its own path (`festival.name`) only when it
+    states something, which leaves the stored value for every key the
+    listing did not mention, and writes nothing at all for a block that
+    mentions nothing. A block that is not a dictionary is not a block and
+    is dropped rather than overwriting one.
+    """
+
+    if not isinstance(festival_block, dict):
+        return {}
+
+    return {
+        f"festival.{key}": value
+        for key, value in festival_block.items()
+        if not _is_absent_value(value)
+    }
+
+
 def _merge_for_resync(incoming: dict) -> dict:
     """The update document for a resync: what to `$set`, and what to add.
 
@@ -127,7 +172,9 @@ def _merge_for_resync(incoming: dict) -> dict:
 
     * attendance is dropped, because a listing never measured it;
     * a protected field the listing did not state is dropped, so the stored
-      value survives (see `_without_absent_protected`);
+      value survives (see `_without_absent_protected`), and the festival
+      block - which every parse sends whole - is written key by key for
+      exactly the same reason (see `_festival_sub_updates`);
     * `artist_slugs` is merged additively with `$addToSet` instead of being
       replaced. The list is who the show belongs to, and the incoming half of
       a resync routinely knows fewer artists than the stored one - a
@@ -145,6 +192,17 @@ def _merge_for_resync(incoming: dict) -> dict:
     updates = _without_absent_protected(
         incoming,
         _NEVER_BLANKED_BY_A_RESYNC,
+    )
+
+    festival_block = updates.pop(
+        "festival",
+        None,
+    )
+
+    updates.update(
+        _festival_sub_updates(
+            festival_block,
+        )
     )
 
     artist_slugs = updates.pop(

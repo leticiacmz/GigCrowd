@@ -12,6 +12,7 @@ from app.config import settings
 from app.core.logger import get_logger
 from app.domain.festival import (
     festival_data_from_url,
+    festival_name_from_url,
     http_url_or_none,
     songkick_artist_reference,
 )
@@ -3230,6 +3231,32 @@ class SongkickClient:
         return name
 
     @classmethod
+    def _venue_hint(cls, *candidates):
+        """The venue name the source states, in whichever shape it arrived.
+
+        A search document carries `venue_name` (and sometimes a bare
+        `venue`), a page document carries a venue object - the hint is the
+        name in any of those shapes, or `None` when none states one. It is
+        only ever appended to a name read from the official address; it is
+        never a name on its own.
+        """
+
+        for candidate in candidates:
+
+            if isinstance(candidate, dict):
+                candidate = candidate.get("name")
+
+            if candidate is None:
+                continue
+
+            text = str(candidate).strip()
+
+            if text:
+                return text
+
+        return None
+
+    @classmethod
     def _build_festival_metadata(
         cls,
         search_document: dict,
@@ -3329,6 +3356,25 @@ class SongkickClient:
             name,
             artist_names,
         )
+
+        # Nothing on the page named the festival in its own words - every
+        # candidate was the artist's appearance page. The official address
+        # still does: the edition slug after `/id/` is the festival's own
+        # name for this date, read only when it ends in the edition's year,
+        # and passed through the same artist refusal as any other name.
+        if not name:
+            name = cls._festival_name_for(
+                festival_name_from_url(
+                    url,
+                    cls._venue_hint(
+                        search_document.get("venue_name"),
+                        search_document.get("venue"),
+                        original_event.get("venue_name"),
+                        original_event.get("venue"),
+                    ),
+                ),
+                artist_names,
+            )
 
         festival = {
             "series_id": series_id,
@@ -4975,16 +5021,37 @@ class SongkickClient:
                 # may have been read off the artist's own page, where the
                 # microformat names the date after the performer. Such a
                 # name names the appearance, not the festival.
+                artist_names = [
+                    entry.get("name")
+                    for entry in lineup
+                    if isinstance(entry, dict)
+                ]
+
                 festival_metadata[
                     "name"
                 ] = cls._festival_name_for(
                     festival_metadata.get("name"),
-                    [
-                        entry.get("name")
-                        for entry in lineup
-                        if isinstance(entry, dict)
-                    ],
+                    artist_names,
                 )
+
+                # When the page named nothing usable, the official address
+                # still names the edition: the slug after `/id/` is the
+                # festival's own words for this date, accepted only when it
+                # ends in the year - and passed through the same artist
+                # refusal, so no derivation can reintroduce the performer
+                # as if they were the festival.
+                if not festival_metadata["name"]:
+                    festival_metadata[
+                        "name"
+                    ] = cls._festival_name_for(
+                        festival_name_from_url(
+                            festival_metadata.get("url") or url,
+                            venue.get("name")
+                            if isinstance(venue, dict)
+                            else None,
+                        ),
+                        artist_names,
+                    )
 
         image = data.get(
             "image"

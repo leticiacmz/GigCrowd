@@ -349,6 +349,87 @@ async def test_a_resync_that_carries_a_festival_block_still_corrects_it():
     assert after["festival"] == corrected
 
 
+@pytest.mark.asyncio
+async def test_a_resync_that_states_no_festival_name_keeps_the_stored_one():
+    """The block arrives whole, often with `name: None` after a refusal.
+
+    Writing the block wholesale erased names that an earlier read had
+    obtained - three Lollapalooza 2027 editions in the local database
+    lost theirs to exactly this shape minutes after the refusal landed.
+    Each key is therefore written under its own path only when the
+    listing states it: the stored name and edition stand, while the
+    series id and url the listing does state are still written.
+    """
+
+    database, repository = await identity_document()
+
+    incoming = listing_payload_dateless()
+    incoming.festival = {
+        "series_id": "91231",
+        "name": None,
+        "url": STORED_FESTIVAL["url"],
+        "edition": None,
+        "artist_ids": [],
+        "artists": [],
+    }
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    assert after["festival"] == STORED_FESTIVAL
+
+
+@pytest.mark.asyncio
+async def test_a_resync_stating_a_festival_name_corrects_only_that():
+    """Absence is shielded; a value the source states still lands."""
+
+    database, repository = await identity_document()
+
+    incoming = listing_payload_dateless()
+    incoming.festival = {"name": "Harvest Festival 2015"}
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    expected = dict(STORED_FESTIVAL)
+    expected["name"] = "Harvest Festival 2015"
+
+    assert after["festival"] == expected
+
+
+@pytest.mark.asyncio
+async def test_an_empty_festival_block_writes_nothing_at_all():
+    """A block that mentions nothing is not a correction of anything."""
+
+    database, repository = await identity_document()
+
+    incoming = listing_payload_dateless()
+    incoming.festival = {}
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    assert after["festival"] == STORED_FESTIVAL
+
+
 # ============================================================
 # ARTIST SLUGS MERGE, NEVER SHRINK
 # ============================================================
@@ -549,3 +630,25 @@ async def test_a_legacy_resync_that_carries_values_still_writes_them():
         "demi-lovato",
         "legacy-add",
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_resync_that_states_no_festival_name_keeps_it():
+    """The legacy path shares the merge; its silences are shielded too."""
+
+    database, repository = await bandsintown_document()
+
+    incoming = legacy_payload_dateless()
+    incoming.festival = {
+        "series_id": "91231",
+        "name": None,
+        "url": STORED_FESTIVAL["url"],
+    }
+
+    await repository.update_event(incoming)
+
+    after = await database["events"].find_one(
+        {"external_ids.bandsintown": BANDSINTOWN_ID}
+    )
+
+    assert after["festival"] == STORED_FESTIVAL
