@@ -1,6 +1,5 @@
 {
   "nav": {
-    "feed": "Feed",
     "community": "Comunidade",
     "events": "Eventos",
     "profile": "Perfil",
@@ -19,7 +18,7 @@
   },
   "artistSync": {
     "searching": "Buscando artista...",
-    "events": "Buscando os eventos do artista...",
+    "events": "Buscando os eventos do artista…",
     "importing": "Importando o artista e sincronizando os eventos dele...",
     "failed": "Não foi possível abrir este artista.",
     "unidentifiable": "Este artista ainda não pode ser identificado com segurança.",
@@ -469,7 +468,8 @@
   },
   "artistEvents": {
     "allYears": "Todos os anos",
-    "loading": "Carregando eventos...",
+    "loading": "Buscando os eventos do artista…",
+    "loadError": "Não foi possível carregar os eventos deste artista.",
     "noEvents": "Nenhum evento encontrado."
   },
   "festivals": {

@@ -1,6 +1,15 @@
 export interface PublicNavLink {
   href: string;
   label: string;
+  /**
+   * Which inline icon names this destination, when it is drawn as one.
+   *
+   * Only destinations whose meaning is carried by a conventional glyph get
+   * one: a magnifier means "find events", and needs no word beside it on a
+   * desktop bar. The label is still the link's accessible name, so an icon
+   * is never the only thing telling a screen reader where the link goes.
+   */
+  icon?: 'search';
 }
 
 /**
@@ -21,6 +30,10 @@ export function publicNavItems(
   labels: Record<string, string | undefined>,
 ): PublicNavLink[] {
   return [
-    { href: `/${locale}/events`, label: labels.events ?? 'Events' },
+    {
+      href: `/${locale}/events`,
+      label: labels.events ?? 'Events',
+      icon: 'search',
+    },
   ];
 }

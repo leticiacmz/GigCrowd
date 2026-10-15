@@ -32,6 +32,30 @@ interface NavbarMessages {
   common?: Record<string, string>;
 }
 
+/**
+ * The magnifier the Events entry draws on the desktop bar.
+ *
+ * Decorative on purpose: the link's accessible name comes from its
+ * localised label, never from the drawing, so the icon is hidden from
+ * assistive technology.
+ */
+function SearchIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.5-3.5" />
+    </svg>
+  );
+}
+
 function resolveLocale(pathname: string): string {
   const segment = pathname.split('/')[1];
   return locales.includes(segment as (typeof locales)[number])
@@ -102,15 +126,11 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
    * Artists tab is absent too - artists are opened one at a time from a
    * lineup, an event or a search - and the one list both the desktop bar
    * and the mobile menu read lives in `lib/navigation`.
+   *
+   * A Feed tab is absent for the same reason: the logo is the timeline,
+   * for a signed-in reader, and it is one press away from anywhere.
    */
-  const publicLinks = publicNavItems(locale, nav);
-
-  const navLinks = isLoggedIn
-    ? [
-        { href: `/${locale}/feed`, label: nav.feed ?? 'Feed' },
-        ...publicLinks,
-      ]
-    : publicLinks;
+  const navLinks = publicNavItems(locale, nav);
 
   function handleLogout() {
     logout();
@@ -143,12 +163,21 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
             <Link
               key={link.href}
               href={link.href}
+              aria-label={link.label}
+              title={link.label}
+              data-testid={link.icon ? 'nav-events' : undefined}
               aria-current={pathname === link.href ? 'page' : undefined}
-              className={`transition-colors duration-200 ${
+              className={`inline-flex min-h-[44px] items-center gap-2 rounded-lg px-2 transition-colors duration-200 ${
                 pathname === link.href ? activeLinkClass : inactiveLinkClass
               }`}
             >
-              {link.label}
+              {link.icon === 'search' && <SearchIcon />}
+              {/*
+                On the bar the magnifier stands in for the word - the
+                label moves to `aria-label` and `title` - so the icon is
+                never the only thing naming the destination.
+              */}
+              {!link.icon && link.label}
             </Link>
           ))}
         </div>
@@ -271,13 +300,22 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
                 key={link.href}
                 href={link.href}
                 onClick={handleNavigation}
+                data-testid={link.icon ? 'nav-events' : undefined}
                 aria-current={pathname === link.href ? 'page' : undefined}
-                className={`flex min-h-[44px] items-center rounded-lg px-3 py-2 transition-colors hover:bg-card-hover ${
+                className={`flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-card-hover ${
                   pathname === link.href
                     ? 'bg-card-hover font-semibold text-foreground'
                     : 'text-muted'
                 }`}
               >
+                {/*
+                  In the menu the label is written out beside the icon:
+                  here there is room for both, and a list of destinations
+                  reads faster as words than as a row of glyphs.
+                */}
+                {link.icon === 'search' && (
+                  <SearchIcon className="h-5 w-5 shrink-0" />
+                )}
                 {link.label}
               </Link>
             ))}
