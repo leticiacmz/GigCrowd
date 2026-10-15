@@ -30,7 +30,7 @@ import {
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
-import { eventAPI } from '../../../lib/api';
+import { artistAPI, eventAPI } from '../../../lib/api';
 
 import type { Locale } from '../../../i18n';
 
@@ -38,8 +38,10 @@ import {
   resolveLocale,
   formatEventDateRange,
 } from '../../../lib/dates';
+import { createArtistOpener } from '../../../lib/artistSync';
 
 import SectionHeader from '../../../../components/ui/SectionHeader';
+import ArtistSyncLoading from '../../../../components/ui/ArtistSyncLoading';
 import LoadingState from '../../../../components/LoadingState';
 import LineupPerformerCard, {
   type LineupPerformer,
@@ -177,6 +179,73 @@ export default function FestivalPage() {
     return null;
   }, [identity, locale]);
 
+  /*
+    Pressing a lineup name that has no page here yet starts the on-demand
+    import - same single-operation rule as the event page: one overlay, and
+    the opener deduplicates by Songkick id while a call is in flight. The
+    entry's own `slug` field is Songkick's namespace and is never looked up;
+    the Songkick id is the identity.
+  */
+  const [openingArtist, setOpeningArtist] = useState<{
+    phase: 'searching' | 'importing';
+    performer: LineupArtist;
+  } | null>(null);
+  const [openFailure, setOpenFailure] = useState<{
+    reason: 'failed' | 'unidentifiable';
+    performer: LineupArtist;
+  } | null>(null);
+
+  const artistOpener = useMemo(
+    () =>
+      createArtistOpener({
+        getArtist: (slug) => artistAPI.getArtist(slug),
+        importArtist: (songkickId, provider, data) =>
+          artistAPI.importArtist(songkickId, provider, data),
+        navigate: (slug) => router.push(`/${locale}/artists/${slug}`),
+      }),
+    [router, locale],
+  );
+
+  function handleLineupArtistOpen(performer: LineupArtist) {
+    if (openingArtist) {
+      return;
+    }
+
+    setOpenFailure(null);
+    setOpeningArtist({ phase: 'searching', performer });
+
+    artistOpener
+      .open(
+        {
+          slug: performer.artist_slug ?? null,
+          songkickId: performer.songkick_id,
+          name: performer.name,
+          url: performer.url,
+        },
+        (phase) =>
+          setOpeningArtist((current) =>
+            current
+              ? {
+                  ...current,
+                  phase:
+                    phase === 'import' ? 'importing' : 'searching',
+                }
+              : current,
+          ),
+      )
+      .then(() => setOpeningArtist(null))
+      .catch((error) => {
+        setOpeningArtist(null);
+        setOpenFailure({
+          reason:
+            (error as { reason?: string })?.reason === 'unidentifiable'
+              ? 'unidentifiable'
+              : 'failed',
+          performer,
+        });
+      });
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -220,6 +289,41 @@ export default function FestivalPage() {
 
   return (
     <div className="min-h-screen">
+      {(openingArtist || openFailure) && (
+        <div
+          className="
+            fixed
+            inset-0
+            z-50
+            flex
+            items-center
+            justify-center
+            bg-background/80
+            backdrop-blur-sm
+            px-4
+          "
+          data-testid="artist-open-overlay"
+        >
+          <div className="rounded-2xl border border-border bg-card-bg p-8 shadow-xl">
+            <ArtistSyncLoading
+              phase={openingArtist?.phase ?? 'searching'}
+              artistName={
+                (openingArtist ?? openFailure)?.performer.name
+              }
+              failure={openFailure?.reason ?? null}
+              onRetry={
+                openFailure
+                  ? () => handleLineupArtistOpen(openFailure.performer)
+                  : undefined
+              }
+              onClose={
+                openFailure ? () => setOpenFailure(null) : undefined
+              }
+            />
+          </div>
+        </div>
+      )}
+
       <main className="max-w-6xl mx-auto px-4 py-8">
         <Link
           href={`/${locale}/events/${festival.selected_event_id ?? eventId}`}
@@ -513,6 +617,7 @@ export default function FestivalPage() {
                   }
                   performer={artist}
                   locale={locale}
+                  onOpen={handleLineupArtistOpen}
                 />
               ))}
             </div>

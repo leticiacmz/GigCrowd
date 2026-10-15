@@ -7,26 +7,34 @@ import type { Locale } from '@/app/i18n';
 /**
  * One announced performer, on a festival or an event page.
  *
- * An entry links when its identity was validated, and is a plain name when it was
- * not. There were two other states here first, and both were wrong in the same
- * way: a name carrying "not on GigCrowd yet", and a link straight out to
+ * An entry links when its identity was validated, and is a plain name when it
+ * was not. There were two other states here first, and both were wrong in the
+ * same way: a name carrying "not on GigCrowd yet", and a link straight out to
  * Songkick for an id taken off a festival page. One announced a gap in the
  * middle of a poster; the other dressed an unchecked id up as a confirmed one.
  *
  * So the rule is one line: a link claims an artist exists here, and that claim
  * is only made once the artist's own Songkick page has confirmed it. Everything
- * else renders as the name it is.
+ * else renders as the name it is - and, when the page hands in an `onOpen`
+ * handler, as a control that *requests* that confirmation: pressing it starts
+ * the on-demand import, which validates the identity server-side against the
+ * artist's own page. The control asserts nothing; the import is the check.
  *
- * Nothing here creates an artist. The record is written on the import path, by
- * `LineupArtistImporter`, never by a page load.
+ * A card is names only. There are no photographs and no avatars here: a lineup
+ * used to render faces looked up from artist documents, and that lookup existed
+ * only to dress this list. Nothing in this component fetches anything - no
+ * image, no artist, no event. Nothing here creates an artist either; the
+ * record is written on the import path, triggered by an explicit press, never
+ * by a page load.
  */
 export interface LineupPerformer {
   name: string;
   songkick_id?: string | null;
+  /** The lineup entry's own Songkick-namespace slug. Data, never a link. */
   slug?: string | null;
   url?: string | null;
-  image?: string | null;
   genres?: string[];
+  /** The GigCrowd page this entry resolved to, when one exists. */
   artist_slug?: string | null;
 }
 
@@ -60,11 +68,18 @@ export default function LineupPerformerCard({
   locale,
   variant = 'poster',
   testId = 'festival-lineup-entry',
+  onOpen,
 }: {
   performer: LineupPerformer;
   locale: Locale;
   variant?: 'poster' | 'row';
   testId?: string;
+  /**
+   * Starts the on-demand import for an entry with a Songkick id but no
+   * page here. Entries without an id keep rendering as a plain name: with
+   * no id there is nothing safe to identify the artist by.
+   */
+  onOpen?: (performer: LineupPerformer) => void;
 }) {
   const t = useTranslations('festivals');
 
@@ -83,29 +98,65 @@ export default function LineupPerformerCard({
     not a failure, and not something to announce with an error-shaped message
     in the middle of a festival lineup.
 
-    So the text is plain, and the absence of a link carries no accusation.
+    When a handler is available and the entry states a Songkick id, the name
+    becomes a control that asks for that proof - pressing it imports the
+    artist on demand, under the same identity rules every other import has.
   */
   if (!href) {
-    return (
-      <div
+    const canOpen =
+      Boolean(onOpen) && Boolean(performer.songkick_id);
+
+    const text = (
+      <span
         className={
           isRow
-            ? 'flex items-center gap-3 rounded-xl border border-border bg-background/20 p-4'
-            : 'rounded-xl border border-border bg-background/20 p-2'
+            ? 'block font-medium truncate'
+            : 'break-words text-sm font-semibold leading-snug'
         }
+      >
+        {performer.name}
+      </span>
+    );
+
+    const className = isRow
+      ? 'flex items-center gap-3 rounded-xl border border-border bg-background/20 p-4'
+      : 'rounded-xl border border-border bg-background/20 p-2';
+
+    if (!canOpen) {
+      return (
+        <div
+          className={className}
+          data-testid={testId}
+          data-lineup-linked="false"
+        >
+          {text}
+        </div>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => onOpen?.(performer)}
+        className={`${className} w-full text-left transition-colors hover:border-accent hover:bg-card-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent`}
         data-testid={testId}
         data-lineup-linked="false"
+        data-lineup-action="import"
       >
+        {text}
+
         <span
-          className={
-            isRow
-              ? 'block font-medium truncate'
-              : 'break-words text-sm font-semibold leading-snug'
-          }
+          className="
+            mt-1
+            block
+            text-[11px]
+            leading-tight
+            text-muted-subtle
+          "
         >
-          {performer.name}
+          {t('openArtist')}
         </span>
-      </div>
+      </button>
     );
   }
 
@@ -123,37 +174,6 @@ export default function LineupPerformerCard({
         text-left
       "
     >
-      {performer.image ? (
-        <img
-          src={performer.image}
-          alt=""
-          loading="lazy"
-          className="
-            h-12
-            w-12
-            rounded-full
-            object-cover
-            shrink-0
-          "
-        />
-      ) : (
-        <div
-          className="
-            flex
-            h-12
-            w-12
-            items-center
-            justify-center
-            rounded-full
-            bg-card-hover
-            text-lg
-            shrink-0
-          "
-        >
-          ♪
-        </div>
-      )}
-
       <span className="min-w-0 flex-1">
         <span className="block font-medium truncate">
           {performer.name}
@@ -175,39 +195,6 @@ export default function LineupPerformerCard({
     </div>
   ) : (
     <>
-      {performer.image ? (
-        <img
-          src={performer.image}
-          alt=""
-          loading="lazy"
-          className="
-            mb-2
-            aspect-square
-            w-full
-            rounded-lg
-            object-cover
-            shrink-0
-          "
-        />
-      ) : (
-        <div
-          className="
-            mb-2
-            flex
-            aspect-square
-            w-full
-            items-center
-            justify-center
-            rounded-lg
-            bg-card-hover
-            text-3xl
-            shrink-0
-          "
-        >
-          ♪
-        </div>
-      )}
-
       <p
         className="
           break-words

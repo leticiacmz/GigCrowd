@@ -78,11 +78,14 @@ export default function ArtistCommunityPage() {
     return (
       <div className="mx-auto flex min-h-[60vh] w-full max-w-3xl flex-col items-center justify-center gap-4 px-4">
         <p className="text-center text-muted">{tArtist('notFound')}</p>
+        {/* Events, not the general artists list: that list is no longer a
+            destination of its own - an artist is found from a lineup or an
+            event, so this is where an unknown name should send the reader. */}
         <Link
-          href={`/${locale}/artists`}
+          href={`/${locale}/events`}
           className="text-accent-text underline-offset-2 hover:underline"
         >
-          {tEvent('backToArtists')}
+          {tEvent('backToEvents')}
         </Link>
       </div>
     );

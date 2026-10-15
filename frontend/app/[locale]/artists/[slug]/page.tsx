@@ -14,7 +14,7 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import EventCard from '@/components/EventCard';
-import LoadingState from '@/components/LoadingState';
+import ArtistSyncLoading from '@/components/ui/ArtistSyncLoading';
 
 interface ArtistProfile {
   id?: string;
@@ -232,10 +232,16 @@ export default function ArtistProfilePage() {
     }
   }, [artistSlug, following]);
 
+  /*
+    The first open of an artist who only existed as a lineup name fetches
+    their whole gigography server-side, once, under a claim - which can take
+    minutes. So the wait is an intentional, branded state rather than a bare
+    spinner: the GigCrowd icon turning until the page behind it is real.
+  */
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <LoadingState message={t('loadingArtist')} />
+        <ArtistSyncLoading phase="searching" />
       </div>
     );
   }
@@ -245,10 +251,10 @@ export default function ArtistProfilePage() {
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4">
         <p className="text-center text-muted">{error || t('notFound')}</p>
         <Link
-          href={`/${locale}/artists`}
+          href={`/${locale}/events`}
           className="text-accent-text underline-offset-2 hover:underline"
         >
-          {tEvent('backToArtists')}
+          {tEvent('backToEvents')}
         </Link>
       </div>
     );

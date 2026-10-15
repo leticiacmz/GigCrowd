@@ -603,12 +603,12 @@ class TestLineup:
 
         await service.get_festival("507f1f77bcf86cd799439011")
 
-        # Two batched reads of the artists collection, and no more: one
-        # resolves which performers have pages, one fetches their photos.
-        # Both stay a single `$in` however long the bill is - the failure
-        # this test exists to catch is a query *per performer*, and the
-        # photo lookup must not reintroduce it.
-        assert len(queries) == 2
+        # Exactly one batched read of the artists collection: the resolver.
+        # It stays a single `$in` however long the bill is - the failure this
+        # test exists to catch is a query *per performer*. The photo lookup
+        # that used to make this two queries is gone: a lineup renders names
+        # and links, and nothing is fetched to dress it.
+        assert len(queries) == 1
         assert all("$in" in str(query) for query in queries)
 
     @pytest.mark.asyncio
@@ -687,17 +687,19 @@ class TestLineup:
         assert festival.lineup[0].order == 0
 
 
-class TestLineupImages:
-    """The photo on a performer card, read from the artist document.
+class TestTheLineupCarriesNoArtistPhotos:
+    """A lineup is names and links; nothing is fetched to put faces on it.
 
-    The lineup entry's own `image` slot has never been filled by import, so a
-    card with a face needs the lookup this suite pins: batched, keyed by the
-    same Songkick id the link uses, and never overwriting a photo that
-    already exists.
+    The artist document holds a photograph, and the lineup used to look it
+    up for every resolved id. That lookup existed only to dress this list -
+    and a face beside a name claims *who* this is exactly as a link does.
+    The list now renders with no photo lookup at all: the only image a
+    lineup entry can carry is its own stored one, passed through as import
+    wrote it, and an artist document's photograph never reaches the bill.
     """
 
     @pytest.mark.asyncio
-    async def test_an_imported_artists_photo_reaches_the_card(self):
+    async def test_an_imported_artists_photo_never_reaches_the_lineup(self):
         artists = [
             {
                 "_id": 1,
@@ -720,13 +722,13 @@ class TestLineupImages:
             for entry in festival.lineup
         }
 
-        assert (
-            by_id["520117"].image
-            == "https://images.example/arctic-monkeys.jpg"
+        # The link still resolves - only the face is gone.
+        assert by_id["520117"].artist_slug == (
+            "arctic-monkeys-gigcrowd"
         )
+        assert by_id["520117"].image is None
 
-        # The second entry has no imported artist at all: it gets no face
-        # either, because there is no artist whose face it could be.
+        # The second entry has no imported artist at all: no face either.
         assert by_id["999999"].image is None
 
     @pytest.mark.asyncio
@@ -749,8 +751,12 @@ class TestLineupImages:
         assert festival.lineup[0].image is None
 
     @pytest.mark.asyncio
-    async def test_an_entries_own_image_is_never_replaced(self):
-        """A photo chosen for this bill outranks the document's."""
+    async def test_an_entries_own_image_passes_through_untouched(self):
+        """The entry's own stored image is data, not a lookup; it stays.
+
+        Nothing is read from the artist document to replace or fill it, and
+        the document's different photo is ignored entirely.
+        """
 
         lineup = [
             {

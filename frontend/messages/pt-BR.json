@@ -2,7 +2,6 @@
   "nav": {
     "feed": "Feed",
     "community": "Comunidade",
-    "artists": "Artistas",
     "events": "Eventos",
     "profile": "Perfil",
     "settings": "Configurações",
@@ -17,6 +16,14 @@
     "notifications": "Notificações",
     "home": "Início",
     "menu": "Menu"
+  },
+  "artistSync": {
+    "searching": "Buscando artista...",
+    "importing": "Importando o artista e sincronizando os eventos dele...",
+    "failed": "Não foi possível abrir este artista.",
+    "unidentifiable": "Este artista ainda não pode ser identificado com segurança.",
+    "retry": "Tentar novamente",
+    "close": "Fechar"
   },
   "auth": {
     "welcomeBack": "Bem-vindo de Volta",

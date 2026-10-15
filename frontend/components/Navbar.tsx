@@ -14,6 +14,7 @@ import {
   clearStaleAuth,
 } from '@/app/lib/auth';
 import { locales, defaultLocale } from '@/app/i18n';
+import { publicNavItems } from '@/app/lib/navigation';
 
 interface AuthUser {
   id: string;
@@ -97,12 +98,12 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
 
   /*
    * Community is deliberately absent: it only exists inside an artist, so
-   * there is no global Community destination to link to.
+   * there is no global Community destination to link to. The general
+   * Artists tab is absent too - artists are opened one at a time from a
+   * lineup, an event or a search - and the one list both the desktop bar
+   * and the mobile menu read lives in `lib/navigation`.
    */
-  const publicLinks = [
-    { href: `/${locale}/artists`, label: nav.artists ?? 'Artists' },
-    { href: `/${locale}/events`, label: nav.events ?? 'Events' },
-  ];
+  const publicLinks = publicNavItems(locale, nav);
 
   const navLinks = isLoggedIn
     ? [

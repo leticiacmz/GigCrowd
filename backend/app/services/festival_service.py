@@ -48,7 +48,6 @@ from app.schemas.festival_response import (
     FestivalResponse,
 )
 from app.services.lineup_artist_resolver import LineupArtistResolver
-from app.services.lineup_images import lineup_images
 
 logger = get_logger("festival")
 
@@ -250,40 +249,19 @@ class FestivalService:
             ]
         )
 
-        # The photos, keyed only by the ids that resolved above. One query
-        # for every edition's bill together: per-entry lookups would be an
-        # N+1 across the hundreds of performers a festival lists, and a
-        # photo must name the same artist the link next to it names - so
-        # it is read only for ids the resolver settled unambiguously.
-        images = await lineup_images(
-            self.artist_repository,
-            slugs,
-        )
-
+        # The lineup carries no artist photographs: rendering a bill used to
+        # look up every resolved artist's photo in a second batched query,
+        # and that query existed only to put faces on this list. A lineup is
+        # now names and links, so the resolver's single query is all the
+        # artists collection is asked for.
         def attach(lineup: list[dict]) -> list[dict]:
-            attached = []
-
-            for entry in lineup:
-                songkick_id = str(
-                    entry.get("songkick_id") or ""
-                ).strip()
-
-                attached.append(
-                    {
-                        **entry,
-                        "artist_slug": _slug_of(entry, slugs),
-                        # The entry's own image wins: it was chosen for this
-                        # bill. The artist document's photo fills the slot
-                        # import never wrote, and only for a resolved id,
-                        # so face and link always name the same artist.
-                        "image": (
-                            entry.get("image")
-                            or images.get(songkick_id)
-                        ),
-                    }
-                )
-
-            return attached
+            return [
+                {
+                    **entry,
+                    "artist_slug": _slug_of(entry, slugs),
+                }
+                for entry in lineup
+            ]
 
         venues = await self._venues(
             [

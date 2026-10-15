@@ -35,9 +35,11 @@ import {
   eventDisplayTitle,
   festivalDisplayName,
 } from '../../../lib/festivalTitle';
+import { createArtistOpener } from '../../../lib/artistSync';
 
 import Button from '../../../../components/ui/Button';
 import Card from '../../../../components/ui/Card';
+import ArtistSyncLoading from '../../../../components/ui/ArtistSyncLoading';
 import LoadingState from '../../../../components/LoadingState';
 import ReviewCard from '../../../../components/ReviewCard';
 import ReviewDialog from '../../../../components/ReviewDialog';
@@ -183,7 +185,20 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<EventTab>('information');
-  const [loadingArtistSlug, setLoadingArtistSlug] = useState<string | null>(null);
+  /*
+    Pressing a lineup name that has no page here yet starts the on-demand
+    import. These two states are the reader's view of that one operation:
+    what is running, and - when it failed - who it was about, so a retry
+    can repeat the very same request rather than ask to be pressed again.
+  */
+  const [openingArtist, setOpeningArtist] = useState<{
+    phase: 'searching' | 'importing';
+    performer: LineupArtist;
+  } | null>(null);
+  const [openFailure, setOpenFailure] = useState<{
+    reason: 'failed' | 'unidentifiable';
+    performer: LineupArtist;
+  } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
 
@@ -265,10 +280,10 @@ export default function EventDetailPage() {
    * empty list. The event carries its own lineup now, with each performer's
    * Songkick id, so the same data the festival page shows is available here.
    *
-   * Entries are shown as names rather than links: this endpoint does not resolve
-   * them to GigCrowd artists, and a link to a page that may not exist - or an
-   * artist created on click to make one - would both be worse than the name.
-   * The festival page resolves and links them.
+   * Each entry carries the GigCrowd page it resolved to, so a performer this
+   * catalogue knows is a link - and one this catalogue does not know is a
+   * name that becomes an on-demand import when pressed. Resolution is the
+   * backend's, by Songkick id; this page never matches a name to a slug.
    */
   const lineup = useMemo(() => {
     return byNameInLocale(
@@ -467,52 +482,67 @@ export default function EventDetailPage() {
         }
       : null;
 
-  async function handleFestivalArtistClick(artist: ArtistSummary) {
-    if (!artist.slug) {
+  /*
+    One operation per press: the opener deduplicates by Songkick id while a
+    call is in flight, so a second click - or any re-render that calls this
+    again - shares the running import instead of starting another one. The
+    identity is the lineup's Songkick id; the entry's own `slug` field is
+    Songkick's namespace and is deliberately never looked up here (that is
+    what the dead handler this replaced used to do).
+  */
+  const artistOpener = useMemo(
+    () =>
+      createArtistOpener({
+        getArtist: (slug) => artistAPI.getArtist(slug),
+        importArtist: (songkickId, provider, data) =>
+          artistAPI.importArtist(songkickId, provider, data),
+        navigate: (slug) => router.push(`/${locale}/artists/${slug}`),
+      }),
+    [router, locale],
+  );
+
+  function handleLineupArtistOpen(performer: LineupArtist) {
+    // One overlay, one operation: a press while the previous is still
+    // running belongs to the artist already being opened.
+    if (openingArtist) {
       return;
     }
 
-    try {
-      setLoadingArtistSlug(artist.slug);
+    setOpenFailure(null);
+    setOpeningArtist({ phase: 'searching', performer });
 
-      try {
-        const existingArtist = await artistAPI.getArtist(artist.slug);
-
-        if (existingArtist?.slug) {
-          router.push(`/${locale}/artists/${existingArtist.slug}`);
-          return;
-        }
-      } catch (error) {
-        // Artist is probably not imported under the Songkick slug yet.
-      }
-
-      if (!artist.songkick_id) {
-        router.push(`/${locale}/artists/${artist.slug}`);
-        return;
-      }
-
-      const importedArtist = await artistAPI.importArtist(
-        artist.songkick_id,
-        'songkick',
+    artistOpener
+      .open(
         {
-          name: artist.name,
-          slug: artist.slug,
-          image: artist.image,
-          url: artist.url,
-        }
-      );
-
-      if (importedArtist?.slug) {
-        router.push(`/${locale}/artists/${importedArtist.slug}`);
-        return;
-      }
-
-      router.push(`/${locale}/artists/${artist.slug}`);
-    } catch (error) {
-      console.error('Failed opening festival artist', error);
-    } finally {
-      setLoadingArtistSlug(null);
-    }
+          // The GigCrowd slug, when the entry resolved to one. This
+          // control only renders for entries that did not, so it is null.
+          slug: performer.artist_slug ?? null,
+          songkickId: performer.songkick_id,
+          name: performer.name,
+          url: performer.url,
+        },
+        (phase) =>
+          setOpeningArtist((current) =>
+            current
+              ? {
+                  ...current,
+                  phase:
+                    phase === 'import' ? 'importing' : 'searching',
+                }
+              : current,
+          ),
+      )
+      .then(() => setOpeningArtist(null))
+      .catch((error) => {
+        setOpeningArtist(null);
+        setOpenFailure({
+          reason:
+            (error as { reason?: string })?.reason === 'unidentifiable'
+              ? 'unidentifiable'
+              : 'failed',
+          performer,
+        });
+      });
   }
 
   if (loading) {
@@ -542,6 +572,48 @@ export default function EventDetailPage() {
 
   return (
     <div className="min-h-screen">
+      {/*
+        Pressed a lineup name with no page here yet? This overlay is the whole
+        time between the press and that artist's page - the lookup, and on a
+        first open the gigography import behind it. It is intentional, themed
+        and centred rather than a black gap, and a failure lands in the same
+        panel with a retry instead of leaving the page silently stuck.
+      */}
+      {(openingArtist || openFailure) && (
+        <div
+          className="
+            fixed
+            inset-0
+            z-50
+            flex
+            items-center
+            justify-center
+            bg-background/80
+            backdrop-blur-sm
+            px-4
+          "
+          data-testid="artist-open-overlay"
+        >
+          <div className="rounded-2xl border border-border bg-card-bg p-8 shadow-xl">
+            <ArtistSyncLoading
+              phase={openingArtist?.phase ?? 'searching'}
+              artistName={
+                (openingArtist ?? openFailure)?.performer.name
+              }
+              failure={openFailure?.reason ?? null}
+              onRetry={
+                openFailure
+                  ? () => handleLineupArtistOpen(openFailure.performer)
+                  : undefined
+              }
+              onClose={
+                openFailure ? () => setOpenFailure(null) : undefined
+              }
+            />
+          </div>
+        </div>
+      )}
+
       <main className="max-w-6xl mx-auto px-4 py-8">
         <Link
           href={`/${locale}/events`}
@@ -1051,6 +1123,7 @@ export default function EventDetailPage() {
                       locale={locale}
                       variant="row"
                       testId="event-lineup-entry"
+                      onOpen={handleLineupArtistOpen}
                     />
                   ))}
                 </div>

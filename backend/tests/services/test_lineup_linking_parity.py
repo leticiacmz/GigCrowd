@@ -237,16 +237,17 @@ class TestTheEventPageLinksItsLineup:
 
 
 class TestThePhotosFollowTheIdentity:
-    """A photo claims *who* this is, exactly as the link beside it does.
+    """A lineup renders with no artist photographs at all.
 
-    The lineup entry never carried a photo (import filled only the artist
-    document), so the page has to look it up - and the lookup must agree with
-    the link on every point: resolved ids only, never a name, ambiguity
-    dropping both together, and an image that already exists left alone.
+    The artist document holds a photograph, and both pages used to look it
+    up beside every resolved link. The lookup existed only to put faces on
+    these lists, so it is gone from both routes together: what the two
+    pages still share - and still have to agree on - is the link, and the
+    only image an entry can show is its own stored one, passed through.
     """
 
     @pytest.mark.asyncio
-    async def test_a_saved_photo_reaches_both_pages(self):
+    async def test_a_saved_photo_reaches_neither_page(self):
         database = a_world()
 
         for artist in database.artists.documents:
@@ -263,19 +264,21 @@ class TestThePhotosFollowTheIdentity:
         for payload in (event, festival):
             entries = by_name(payload.lineup)
 
-            assert (
-                entries["Marina Sena"].image
-                == "https://cdn.example/marina.jpg"
-            )
+            # The link still resolves - the document's photo stays on the
+            # document, on both routes.
+            assert entries["Marina Sena"].artist_slug == "marina-sena"
+            assert entries["Marina Sena"].image is None
 
-            # No stored photo stays no photo - it never borrows a face from
-            # another entry just to fill the slot.
             assert entries["Tim Bernardes"].image is None
             assert entries["Victo"].image is None
 
     @pytest.mark.asyncio
-    async def test_an_entries_own_photo_is_never_replaced(self):
-        """A photo chosen for this bill outranks the document's."""
+    async def test_an_entries_own_photo_passes_through_on_both_pages(self):
+        """An image stored on the entry itself is data; it is passed as-is.
+
+        The artist document's different photo is ignored entirely - nothing
+        is looked up to fill, replace or outrank the entry's own slot.
+        """
 
         database = a_world()
 

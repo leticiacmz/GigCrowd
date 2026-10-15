@@ -177,6 +177,44 @@ body {
   }
 }
 
+/*
+ * The GigCrowd icon with a ring turning around it: the state shown while an
+ * artist is being found or imported. The ring is the only moving part, and
+ * it stops turning outright when the OS asks for reduced motion - the
+ * blanket rule above shortens every animation but leaves it looping, so
+ * this one is switched off completely and stays as a still, drawn ring.
+ */
+.artist-sync-orbit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 5.5rem;
+  height: 5.5rem;
+}
+
+.artist-sync-orbit::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 3px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: artist-sync-spin 1.1s linear infinite;
+}
+
+@keyframes artist-sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artist-sync-orbit::before {
+    animation: none !important;
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

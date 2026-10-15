@@ -6,7 +6,6 @@ from app.mappers.event_response_mapper import EventResponseMapper
 from app.services.lineup_artist_resolver import (
     LineupArtistResolver,
 )
-from app.services.lineup_images import lineup_images
 
 
 class EventService:
@@ -54,19 +53,15 @@ class EventService:
             event.lineup
         )
 
-        # The photos for exactly the ids that resolved above, so a face and
-        # the link beneath it always name the same artist. One query for the
-        # whole bill, and none at all when nothing resolves.
-        lineup_photos = await lineup_images(
-            self.artist_repository,
-            lineup_slugs,
-        )
-
+        # No photo lookup follows. The lineup used to fetch the resolved
+        # artists' photographs in a second query, and that query existed only
+        # to put faces on this list; the bill renders as names and links, so
+        # the resolver's single query is all this page asks of the artists
+        # collection.
         return EventResponseMapper.from_domain(
             event=event,
             venue=venue,
             lineup_slugs=lineup_slugs,
-            lineup_images=lineup_photos,
         )
 
     async def _lineup_slugs(

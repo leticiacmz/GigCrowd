@@ -16,17 +16,19 @@ class EventResponseMapper:
         event: Event,
         venue,
         lineup_slugs: Optional[dict] = None,
-        lineup_images: Optional[dict] = None,
     ) -> EventResponse:
         """One event, shaped for the client.
 
         `lineup_slugs` maps a lineup entry's Songkick artist id to the GigCrowd
-        page that exists for it. `lineup_images` maps the same ids - already
-        resolved, so a face never names a different artist than the link
-        beside it - to the photo stored on that artist document. Both are
-        supplied by the caller rather than resolved here, because the mapper
-        has no repository and the answers change every time an artist is
-        imported.
+        page that exists for it. It is supplied by the caller rather than
+        resolved here, because the mapper has no repository and the answers
+        change every time an artist is imported.
+
+        The lineup deliberately carries no artist-document photographs. They
+        used to be looked up by the caller and merged in beside the link, but
+        a lineup is read as names - and the lookup existed only to serve this
+        list. An entry's own stored `image` still passes through untouched;
+        nothing is fetched to fill it.
         """
 
         venue_response = None
@@ -66,19 +68,10 @@ class EventResponseMapper:
                     songkick_id=entry.songkick_id,
                     slug=entry.slug,
                     url=entry.url,
-                    # The entry's own image first - a photo chosen for this
-                    # bill is never replaced by the lookup - then the artist
-                    # document's photo, for the ids the caller resolved.
-                    image=(
-                        entry.image
-                        or (
-                            (lineup_images or {}).get(
-                                str(entry.songkick_id)
-                            )
-                            if entry.songkick_id
-                            else None
-                        )
-                    ),
+                    # An entry's own stored image, as import wrote it. No
+                    # artist-document photo is merged in: a lineup renders
+                    # names and links, and nothing is looked up to dress it.
+                    image=entry.image,
                     genres=entry.genres,
                     order=entry.order,
                     # Which of these performers this catalogue has a page for.
