@@ -13,6 +13,7 @@ import Card from '@/components/ui/Card';
 import Select from '@/components/ui/Select';
 import LoadingState from '@/components/LoadingState';
 import EmptyState from '@/components/EmptyState';
+import ReviewStars from '@/components/ReviewStars';
 import { feedAPI, type FeedCategory } from '@/app/lib/api';
 
 const PAGE_SIZE = 15;
@@ -280,57 +281,72 @@ function FeedRow({ item, locale }: { item: FeedItem; locale: string }) {
         )}
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm leading-snug text-muted">
-            {item.user.username ? (
-              <Link
-                href={`/${locale}/profile/${item.user.username}`}
-                className="font-semibold text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                data-testid="feed-actor-link"
-              >
-                {actorName}
-              </Link>
-            ) : (
-              <span className="font-semibold text-foreground">
-                {actorName}
-              </span>
-            )}{' '}
-            <span data-testid="feed-verb">{verb}</span>
-          </p>
+          {/*
+            The header reads as one line: who did it, what, and when - with
+            the timestamp on the far right instead of sharing a wrapping meta
+            row with the links below, so it never drifts onto its own line
+            mid-sentence on a narrow card.
+          */}
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <p className="text-sm leading-snug text-muted">
+              {item.user.username ? (
+                <Link
+                  href={`/${locale}/profile/${item.user.username}`}
+                  className="font-semibold text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  data-testid="feed-actor-link"
+                >
+                  {actorName}
+                </Link>
+              ) : (
+                <span className="font-semibold text-foreground">
+                  {actorName}
+                </span>
+              )}{' '}
+              <span data-testid="feed-verb">{verb}</span>
+            </p>
+
+            <time
+              dateTime={item.created_at}
+              data-testid="feed-timestamp"
+              className="shrink-0 text-xs text-muted-subtle"
+            >
+              {format(new Date(item.created_at), 'MMM d, yyyy HH:mm')}
+            </time>
+          </div>
+
+          {/*
+            Where this leads, as its own line and its own weight: the target
+            is the one thing a reader can act on, so it reads as a link to
+            somewhere real - the show, the community - and not as one more
+            fragment of the meta row.
+          */}
+          {target.href ? (
+            <Link
+              href={target.href}
+              data-testid="feed-target-link"
+              className="mt-1.5 inline-flex min-h-[32px] items-center text-[15px] font-semibold text-accent-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {target.label}
+            </Link>
+          ) : null}
+
+          {/*
+            A rating is drawn by the same read-only stars every review in the
+            product uses, above the words it rates - never as a row of `★`
+            characters in the meta line, which read as decoration and said
+            nothing to assistive technology.
+          */}
+          {item.rating ? (
+            <div className="mt-2">
+              <ReviewStars rating={item.rating} />
+            </div>
+          ) : null}
 
           {item.content && (
             <p className="mt-2 whitespace-pre-wrap break-anywhere text-[15px] leading-relaxed text-foreground">
               {item.content}
             </p>
           )}
-
-          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-            {item.rating ? (
-              <span className="text-sm text-warning">
-                {'★'.repeat(item.rating)}
-                <span className="sr-only">
-                  {t('rating', { rating: item.rating })}
-                </span>
-              </span>
-            ) : null}
-
-            {target.href ? (
-              <Link
-                href={target.href}
-                data-testid="feed-target-link"
-                className="inline-flex min-h-[32px] items-center text-sm font-medium text-accent-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                {target.label}
-              </Link>
-            ) : null}
-
-            <time
-              dateTime={item.created_at}
-              data-testid="feed-timestamp"
-              className="text-xs text-muted-subtle"
-            >
-              {format(new Date(item.created_at), 'MMM d, yyyy HH:mm')}
-            </time>
-          </div>
         </div>
 
         {/*
@@ -474,11 +490,15 @@ function communityTarget(
 ) {
   const slug = item.target?.artist_slug ?? item.artist?.slug ?? null;
 
+  /*
+   * The link names where it goes - the artist's community - rather than
+   * appending a "view post" suffix to the artist's name: the destination
+   * is already in the sentence above, and a link labelled "go here" next
+   * to the name of the place is one label too many.
+   */
   return {
     href: slug ? `/${locale}/artists/${slug}/community` : undefined,
-    label: artistName
-      ? `${artistName} · ${t('viewPost')}`
-      : t('viewPost'),
+    label: artistName || t('viewPost'),
   };
 }
 
@@ -487,13 +507,16 @@ function eventTarget(
   t: ReturnType<typeof useTranslations<'feed'>>,
   locale: string
 ) {
+  /*
+   * The show's own title is the label. "View event" appended to it was the
+   * row's second redundant instruction - the sentence above already says
+   * what happened - so the title alone carries the link.
+   */
   return {
     href: item.target?.id
       ? `/${locale}/events/${item.target.id}`
       : undefined,
-    label: item.target?.title
-      ? `${item.target.title} · ${t('viewEvent')}`
-      : t('viewEvent'),
+    label: item.target?.title || t('viewEvent'),
   };
 }
 
