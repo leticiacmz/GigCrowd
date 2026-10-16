@@ -50,6 +50,7 @@ nobody read would be the dishonesty this design exists to avoid.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable, Optional
@@ -346,13 +347,38 @@ class LineupEnrichmentService:
         them across processes. A result is skipped when the event is not
         claimable - already finished, already running elsewhere, or out of
         attempts - which is the dedup working, not a failure.
+
+        One summary line closes the batch: the drain is background work that
+        used to run for tens of minutes without a trace, and its size and
+        length are the two facts a reader needs to tell a normal pass from a
+        queue that has become a scraper.
         """
+
+        started_at = time.perf_counter()
 
         outcomes: dict[str, str] = {}
 
         for event_id in event_ids:
 
             outcomes[str(event_id)] = await self.process(event_id)
+
+        counts: dict[str, int] = {}
+
+        for state in outcomes.values():
+
+            counts[state] = counts.get(state, 0) + 1
+
+        by_state = ", ".join(
+            f"{state}={count}"
+            for state, count in sorted(counts.items())
+        )
+
+        logger.info(
+            "[LINEUP ENRICHMENT] batch finished: "
+            f"{len(outcomes)} edition(s) in "
+            f"{time.perf_counter() - started_at:.2f}s "
+            f"| {by_state}"
+        )
 
         return outcomes
 

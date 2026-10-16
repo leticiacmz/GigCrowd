@@ -611,7 +611,9 @@ async def test_an_undated_festival_is_not_queued():
 
 
 @pytest.mark.asyncio
-async def test_a_future_festival_not_read_in_this_run_is_queued():
+async def test_a_future_festival_not_read_in_this_run_is_queued(
+    caplog,
+):
     """The deferred pass is exactly the read this run did not make."""
 
     enrichment = RecordingEnrichment()
@@ -624,9 +626,18 @@ async def test_a_future_festival_not_read_in_this_run_is_queued():
         enrichment,
     )
 
-    await service.sync_artist_events(_initiating_artist())
+    with caplog.at_level("INFO", logger="songkick_event_import"):
+        await service.sync_artist_events(_initiating_artist())
 
     # The queue carries the bare event id: festival editions are stored
     # under it, which is what `enqueue_events` resolves against.
     assert enrichment.enqueued == ["8100001"]
     assert enrichment.scheduled == ["8100001"]
+
+    # The summary states how many Songkick requests this run made. The
+    # fake provider never touched the client, and the number says so
+    # rather than describing some other run.
+    assert any(
+        "Songkick HTTP requests in this run: 0" in record.message
+        for record in caplog.records
+    )

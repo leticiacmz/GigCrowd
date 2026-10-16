@@ -64,7 +64,7 @@ class EventImportService:
         started_at = time.perf_counter()
 
         logger.info(
-            f"🎤 Synchronizing artist: '{artist.name}' from {provider}"
+            f"Synchronizing artist: '{artist.name}' from {provider}"
         )
 
         if provider == "songkick":
@@ -114,7 +114,7 @@ class EventImportService:
             )
         
         logger.info(
-            f"📥 Received {len(payloads)} events from provider."
+            f"Received {len(payloads)} events from provider."
         )
 
         venues_created = 0
@@ -178,40 +178,44 @@ class EventImportService:
 
         elapsed = time.perf_counter() - started_at
 
+        # Every line below is plain ASCII on purpose. A log line is written to
+        # whatever stream the process inherited, and on a cp1252 console one
+        # emoji is a UnicodeEncodeError that costs the entire line - the
+        # diagnostic being kept is the first thing lost to the decoration.
         logger.info(
-            "──────── Synchronization Summary ────────"
+            "-------- Synchronization Summary --------"
         )
 
         logger.info(
-            f"🎤 Artist: {artist.name}"
+            f"Artist: {artist.name}"
         )
 
         logger.info(
-            f"📥 Events received: {len(payloads)}"
+            f"Events received: {len(payloads)}"
         )
 
         logger.info(
-            f"✅ New events: {events_created}"
+            f"New events: {events_created}"
         )
 
         logger.info(
-            f"♻️ Existing events: {events_existing}"
+            f"Existing events: {events_existing}"
         )
 
         logger.info(
-            f"🏟️ New venues: {venues_created}"
+            f"New venues: {venues_created}"
         )
 
         logger.info(
-            f"♻️ Existing venues: {len(existing_venues)}"
+            f"Existing venues: {len(existing_venues)}"
         )
 
         logger.info(
-            f"⏱️ Finished in {elapsed:.2f}s"
+            f"Finished in {elapsed:.2f}s"
         )
 
         logger.info(
-            "─────────────────────────────────────────"
+            "-----------------------------------------"
         )
 
         return {

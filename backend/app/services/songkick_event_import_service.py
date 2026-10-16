@@ -8,6 +8,11 @@ from app.domain.event_schedule import (
     is_upcoming,
 )
 
+from app.providers.songkick.client import (
+    reset_songkick_requests,
+    songkick_requests_this_run,
+)
+
 from app.mappers.songkick_event_mapper import SongkickEventMapper
 
 from app.repositories.event_repository import (
@@ -212,8 +217,13 @@ class SongkickEventImportService:
 
         started_at = time.perf_counter()
 
+        # The request count in the summary describes this run only: a
+        # deliberate reset rather than an accumulated process total, which
+        # would grow across imports and describe none of them.
+        reset_songkick_requests()
+
         logger.info(
-            f"🎤 Synchronizing Songkick events for: "
+            f"Synchronizing Songkick events for: "
             f"'{artist.name}'"
         )
 
@@ -461,7 +471,7 @@ class SongkickEventImportService:
             )
 
         logger.info(
-            f"📥 Received {len(payloads)} events from Songkick."
+            f"Received {len(payloads)} events from Songkick."
         )
 
         # --------------------------------------------------
@@ -1045,47 +1055,55 @@ class SongkickEventImportService:
             - started_at
         )
 
+        # Plain ASCII in every line below, same reason as the generic
+        # importer: an emoji on a cp1252 stream is a UnicodeEncodeError that
+        # silently costs the whole summary line.
         logger.info(
-            "──────── Songkick Synchronization Summary ────────"
+            "------ Songkick Synchronization Summary ------"
         )
 
         logger.info(
-            f"🎤 Artist: {artist.name}"
+            f"Artist: {artist.name}"
         )
 
         logger.info(
-            f"📥 Events received: {len(payloads)}"
+            f"Events received: {len(payloads)}"
         )
 
         logger.info(
-            f"🏟️ Upcoming festivals received: "
+            f"Songkick HTTP requests in this run: "
+            f"{songkick_requests_this_run()}"
+        )
+
+        logger.info(
+            f"Upcoming festivals received: "
             f"{len(upcoming_festival_ids)}"
         )
 
         logger.info(
-            f"🏟️ Upcoming festivals included in payloads: "
+            f"Upcoming festivals included in payloads: "
             f"{len(canonical_festival_ids)}"
         )
 
         logger.info(
-            f"❌ Upcoming festivals missing from payloads: "
+            f"Upcoming festivals missing from payloads: "
             f"{len(missing_festival_ids)}"
         )
 
         logger.info(
-            f"✅ New events: {events_created}"
+            f"New events: {events_created}"
         )
 
         logger.info(
-            f"♻️ Existing events: {events_existing}"
+            f"Existing events: {events_existing}"
         )
 
         logger.info(
-            f"⏭️ Skipped events: {events_skipped}"
+            f"Skipped events: {events_skipped}"
         )
 
         logger.info(
-            f"🔎 Event pages read during extraction: "
+            f"Event pages read during extraction: "
             f"{extraction.get('event_pages_read', 0)} "
             f"(bound {extraction.get('limit', 0)}), "
             f"unreadable: {extraction.get('event_pages_failed', 0)}"
@@ -1094,7 +1112,7 @@ class SongkickEventImportService:
         if extraction.get("event_pages_skipped"):
 
             logger.warning(
-                f"⚠️ Event pages left unread because the per-run "
+                f"Event pages left unread because the per-run "
                 f"bound was reached: "
                 f"{extraction.get('event_pages_skipped')}"
             )
@@ -1102,43 +1120,43 @@ class SongkickEventImportService:
         if events_with_gaps:
 
             logger.warning(
-                f"⚠️ Extraction gaps (absent in every page this run "
+                f"Extraction gaps (absent in every page this run "
                 f"read): {events_with_gaps} event(s) "
                 f"{gap_counts}"
             )
 
         else:
 
-            logger.info("✅ Extraction gaps: 0")
+            logger.info("Extraction gaps: 0")
 
         if events_date_parse_failed:
 
             logger.error(
-                f"❌ Extraction failures (the source states a value "
+                f"Extraction failures (the source states a value "
                 f"this run could not read): "
                 f"{events_date_parse_failed}"
             )
 
         if lineup_report is not None:
             logger.info(
-                f"🎪 Lineup artists: "
+                f"Lineup artists: "
                 f"{lineup_report.summary()}"
             )
 
         logger.info(
-            f"🏟️ New venues: {venues_created}"
+            f"New venues: {venues_created}"
         )
 
         logger.info(
-            f"♻️ Existing venues: {venues_existing}"
+            f"Existing venues: {venues_existing}"
         )
 
         logger.info(
-            f"⏱️ Finished in {elapsed:.2f}s"
+            f"Finished in {elapsed:.2f}s"
         )
 
         logger.info(
-            "─────────────────────────────────────────"
+            "---------------------------------------------"
         )
 
         return {

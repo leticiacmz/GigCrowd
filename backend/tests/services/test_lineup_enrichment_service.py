@@ -646,6 +646,36 @@ class TestThePass:
         assert len(client.requests) == 2
 
 
+    @pytest.mark.asyncio
+    async def test_a_batch_logs_one_line_with_size_and_duration(self, caplog):
+        """The drain used to run for minutes without a trace.
+
+        One summary line per batch is what lets a reader tell a normal pass
+        from a queue that has become a scraper - without a write per event.
+        """
+        service, database, client, _ = build(
+            [
+                festival_event(_id="e1"),
+                festival_event(_id="e2", external_ids={"songkick": "43456088"}),
+            ],
+            client=PageClient({"date_status": "unavailable"}),
+        )
+
+        with caplog.at_level("INFO", logger="lineup_enrichment"):
+            await service.process_batch(["e1", "e2"])
+
+        lines = [
+            record.message
+            for record in caplog.records
+            if "batch finished" in record.message
+        ]
+
+        assert len(lines) == 1
+        assert "2 edition(s)" in lines[0]
+        assert " in " in lines[0] and "s |" in lines[0]
+        assert "empty=2" in lines[0]
+
+
 class TestWhatThePageIsTold:
     """The festival page's `lineup_state` never flatters the data."""
 

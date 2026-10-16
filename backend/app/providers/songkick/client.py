@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import quote, urljoin
@@ -26,6 +27,42 @@ from app.domain.songkick_identity import (
 
 
 logger = get_logger("songkick_client")
+
+
+# ============================================================
+# REQUEST ACCOUNTING
+# ============================================================
+#
+# How many Songkick requests the current run has made - an import, a
+# scheduler pass, an enrichment batch. It lives in a ContextVar and not on
+# the client because one client instance serves several concurrent runs, and
+# a total that silently mixes two of them is worse than no total at all:
+# each asyncio task counts its own requests, and a run resets the count
+# before it starts so the number in its summary describes exactly that run.
+#
+# Counted at the async boundary (`_request`) rather than inside the request,
+# because that half runs in a worker thread and context writes made there
+# do not propagate back to the caller.
+
+_requests_this_run: ContextVar[int] = ContextVar(
+    "songkick_requests_this_run",
+    default=0,
+)
+
+
+def songkick_requests_this_run() -> int:
+    """How many Songkick requests the current run has made so far."""
+
+    return _requests_this_run.get()
+
+
+def reset_songkick_requests() -> int:
+    """Start counting a new run. Returns what the previous one left."""
+
+    previous = _requests_this_run.get()
+    _requests_this_run.set(0)
+
+    return previous
 
 
 class SongkickNotFound(Exception):
@@ -117,6 +154,11 @@ class SongkickClient:
             "text/html,application/xhtml+xml"
         ),
     ):
+        # Counted here, on the caller's context, for the reason the
+        # accounting block above gives: the thread this hands off to cannot
+        # write the count back.
+        _requests_this_run.set(_requests_this_run.get() + 1)
+
         return await asyncio.to_thread(
             self._request_sync,
             url,
@@ -3988,7 +4030,7 @@ class SongkickClient:
                 href=True,
             )
 
-            logger.info(
+            logger.debug(
                 "[UPCOMING DEBUG] "
                 f"#coming-up found with "
                 f"{len(anchors)} links"
@@ -4066,7 +4108,7 @@ class SongkickClient:
                     }
                 )
 
-            logger.info(
+            logger.debug(
                 "[UPCOMING DEBUG] "
                 "#coming-up event references="
                 f"{len(coming_up_references)}"
@@ -4074,7 +4116,7 @@ class SongkickClient:
 
             for reference in coming_up_references:
 
-                logger.info(
+                logger.debug(
                     "[UPCOMING DEBUG] "
                     "COMING-UP REF | "
                     f"type={reference['event_type']} | "
@@ -4086,7 +4128,7 @@ class SongkickClient:
 
         else:
 
-            logger.warning(
+            logger.debug(
                 "[UPCOMING DEBUG] "
                 "#coming-up section NOT FOUND"
             )
@@ -4121,7 +4163,7 @@ class SongkickClient:
                 upcoming_only=False,
             )
 
-        logger.info(
+        logger.debug(
             "[UPCOMING DEBUG] "
             "JSON-LD parsed: "
             f"{len(all_jsonld_events)} concerts/events, "
@@ -4179,7 +4221,7 @@ class SongkickClient:
 
             if not matching_event:
 
-                logger.warning(
+                logger.debug(
                     "[UPCOMING DEBUG] "
                     "NO JSON-LD MATCH | "
                     f"type={reference['event_type']} | "
@@ -4190,7 +4232,7 @@ class SongkickClient:
 
                 continue
 
-            logger.info(
+            logger.debug(
                 "[UPCOMING DEBUG] "
                 "JSON-LD MATCH | "
                 f"type={matching_event.get('event_type')} | "
@@ -4280,7 +4322,7 @@ class SongkickClient:
         # FINAL UPCOMING DEBUG
         # --------------------------------------------------------
 
-        logger.info(
+        logger.debug(
             "[UPCOMING DEBUG] "
             "Final upcoming result: "
             f"{len(upcoming_events)} concerts/events, "
@@ -4292,7 +4334,7 @@ class SongkickClient:
             + upcoming_festivals
         ):
 
-            logger.info(
+            logger.debug(
                 "[UPCOMING DEBUG] "
                 "FINAL | "
                 f"type={event.get('event_type')} | "
