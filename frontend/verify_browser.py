@@ -37,10 +37,19 @@ NAV_WAIT = "domcontentloaded"
 # One page of the timeline, as the feed route sizes it.
 #
 # Used to decide whether the timeline *has* to page before a check can mean
-# anything. Taken from the route rather than guessed, so the two cannot drift:
-# a check that compares against 15 because 15 rows once filled a screen is
-# asserting a property of the fixture.
-FEED_PAGE_SIZE = 20
+# anything. Read from the feed page rather than hardcoded, so the two cannot
+# drift: this constant once said 20 while the route has always paged at 15,
+# which turned the check below into a check of the fixture's size rather than
+# of the timeline.
+def _feed_page_size() -> int:
+    source = (
+        Path(__file__).parent / "app" / "[locale]" / "feed" / "page.tsx"
+    ).read_text(encoding="utf-8")
+    match = re.search(r"const PAGE_SIZE = (\d+);", source)
+    return int(match.group(1)) if match else 15
+
+
+FEED_PAGE_SIZE = _feed_page_size()
 
 results = []
 
@@ -48,6 +57,26 @@ results = []
 def check(name, passed, detail=""):
     results.append((name, passed, detail))
     print(f"[{'PASS' if passed else 'FAIL'}] {name}" + (f" :: {detail}" if detail else ""))
+
+
+def wait_for(pg, selector=None, js=None, timeout=20000):
+    """Wait for what the following checks read, rather than for a clock.
+
+    A fixed sleep after a navigation measures the machine, not the page: on a
+    loaded one the sleep ends before React has hydrated or a fetch has
+    answered, and the checks below then report a page that was merely early.
+    Waiting for the element or condition the assertions actually read keeps
+    every assertion identical and removes the race. Giving up is never a
+    pass - the check then reads whatever is really there and says so.
+    """
+
+    try:
+        if selector is not None:
+            pg.wait_for_selector(selector, timeout=timeout)
+        elif js is not None:
+            pg.wait_for_function(js, timeout=timeout)
+    except Exception:
+        pass
 
 
 def force_utf8_output():
@@ -774,7 +803,7 @@ with sync_playwright() as p:
             f"{BASE}/en/profile/{DATA['author']['username']}",
             wait_until=NAV_WAIT,
         )
-        pg.wait_for_timeout(1500)
+        wait_for(pg, "[data-testid='profile-stat-reviews']")
 
         # The figures are buttons on a borderless container, so the surface to
         # read is the one the reader actually sees.
@@ -854,9 +883,22 @@ with sync_playwright() as p:
         )
 
     layout_before = chrome_height()
-    pg.locator("button[data-testid='theme-toggle']").first.click()
-    pg.wait_for_timeout(250)
-    toggled = pg.evaluate("document.documentElement.getAttribute('data-theme')")
+
+    # The toggle is served in the markup before React attaches its handler, so
+    # a click in the first moment lands on inert HTML and nothing happens.
+    # Retry briefly until the theme answers, and read the real state either
+    # way: the checks below fail on their own if the toggle never works.
+    toggled = None
+
+    for _ in range(8):
+        pg.locator("button[data-testid='theme-toggle']").first.click()
+        pg.wait_for_timeout(500)
+        toggled = pg.evaluate(
+            "document.documentElement.getAttribute('data-theme')"
+        )
+        if toggled == "dark":
+            break
+
     check("theme: toggle overrides the system preference", toggled == "dark", f"->{toggled}")
     check(
         "theme: choice is persisted",
@@ -1135,7 +1177,7 @@ with sync_playwright() as p:
     pg.goto(f"{BASE}/en/artists/{SLUG}/community", wait_until=NAV_WAIT)
     store_token(pg, DATA["visitor_token"], DATA["visitor"])
     pg.reload(wait_until=NAV_WAIT)
-    pg.wait_for_timeout(800)
+    wait_for(pg, "[data-testid='participation-gate']")
 
     gate = pg.locator("[data-testid='participation-gate']")
     check("non-follower: gate is shown", gate.count() == 1)
@@ -1664,10 +1706,43 @@ with sync_playwright() as p:
     pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
     store_token(pg, DATA["author_token"], DATA["author"])
     pg.goto(f"{BASE}/en", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(800)
+    # The bar renders signed-out first and swaps in the signed-in entries
+    # once the stored token is read; the checks below read exactly those.
+    wait_for(
+        pg,
+        js=(
+            "() => document.querySelector("
+            "\"nav a[href='/en/feed']\") !== null"
+        ),
+    )
 
     nav = pg.locator("nav").first.inner_text()
     check("nav: no global Community entry", "Community" not in nav, nav.replace("\n", " | "))
+    # The bar carries no Feed tab: the logo is the timeline, so the word
+    # "Feed" has no business being printed in the navigation at all.
+    check("nav: no Feed tab - the logo is the timeline", "Feed" not in nav, nav.replace("\n", " | "))
+    logo = pg.locator("nav a").first
+    check(
+        "nav: the logo takes a signed-in reader to the timeline",
+        (logo.get_attribute("href") or "") == "/en/feed",
+        logo.get_attribute("href") or "",
+    )
+    events = pg.locator("nav a[data-testid='nav-events']")
+    check(
+        "nav: the Events entry is present for every reader",
+        events.count() == 1,
+        f"{events.count()} links",
+    )
+    check(
+        "nav: the Events entry is a locale-prefixed link",
+        (events.first.get_attribute("href") or "") == "/en/events",
+        events.first.get_attribute("href") or "",
+    )
+    check(
+        "nav: the Events entry has an accessible name beyond its icon",
+        (events.first.get_attribute("aria-label") or "").strip() != "",
+        events.first.get_attribute("aria-label") or "",
+    )
     bell = pg.locator("nav a[data-testid='notifications-link']")
     check(
         "nav: Notifications is present for a signed-in user",
@@ -1693,7 +1768,7 @@ with sync_playwright() as p:
 
     # The author was followed, liked and commented on, so they have a full inbox.
     pg.goto(f"{BASE}/en/notifications", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(1200)
+    wait_for(pg, "[data-testid='notification-item']")
     check("notifications: route is reachable", "/en/notifications" in pg.url, pg.url)
 
     items = pg.locator("[data-testid='notification-item']")
@@ -1751,7 +1826,7 @@ with sync_playwright() as p:
 
     # Mark one as read through its own control.
     pg.goto(f"{BASE}/en/notifications", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(1200)
+    wait_for(pg, "[data-testid='notification-item']")
     unread_before = pg.locator("[data-testid='notification-unread-dot']").count()
     first = pg.locator("[data-testid='notification-item']").first
     mark = first.locator("[data-testid='notification-mark-read']")
@@ -1762,7 +1837,16 @@ with sync_playwright() as p:
     )
     if mark.count():
         mark.click()
-        pg.wait_for_timeout(1500)
+        # The dot disappears when the API has answered; wait for the row to
+        # have changed rather than for a clock.
+        wait_for(
+            pg,
+            js=(
+                "() => document.querySelectorAll("
+                "\"[data-testid='notification-unread-dot']\").length"
+                f" === {max(unread_before - 1, 0)}"
+            ),
+        )
     unread_after = pg.locator("[data-testid='notification-unread-dot']").count()
     check(
         "notifications: opening one marks it read",
@@ -1812,7 +1896,7 @@ with sync_playwright() as p:
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{BASE}/en/profile/{DATA['author']['username']}", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(1000)
+    wait_for(pg, "[data-testid='profile-followers-toggle']")
 
     for kind in ("followers", "following"):
         toggle = pg.locator(f"[data-testid='profile-{kind}-toggle']")
@@ -1837,7 +1921,7 @@ with sync_playwright() as p:
             continue
 
         toggle.click()
-        pg.wait_for_timeout(1500)
+        wait_for(pg, "[data-testid='profile-connection-link']")
         listed = pg.locator(f"[data-testid='profile-{kind}']")
         entries = listed.locator("[data-testid='profile-connection-link']")
         check(
@@ -1938,7 +2022,7 @@ with sync_playwright() as p:
     # Localized community gate copy. A signed-out visitor is offered sign in,
     # not a Follow button, so assert the instruction the gate is built around.
     pg.goto(f"{BASE}/pt-BR/artists/{SLUG}/community", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(800)
+    wait_for(pg, "[data-testid='participation-gate']")
     pt_gate = pg.locator("[data-testid='participation-gate']")
     check(
         "i18n: pt-BR community gate is in Portuguese",
@@ -1947,7 +2031,7 @@ with sync_playwright() as p:
         pt_gate.inner_text().replace("\n", " | ")[:140] if pt_gate.count() else "no gate",
     )
     pg.goto(f"{BASE}/es/artists/{SLUG}/community", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(800)
+    wait_for(pg, "[data-testid='participation-gate']")
     es_gate = pg.locator("[data-testid='participation-gate']")
     check(
         "i18n: es community gate is in Spanish",
@@ -2007,7 +2091,9 @@ with sync_playwright() as p:
         return "rgb(255, 255, 255)"
 
     audit_targets = [
-        ("navbar link", f"{BASE}/en", "nav a[href$='/artists']"),
+        # The bar's one public destination is Events; the old artists-targeted
+        # selector here measured an element the design deliberately removed.
+        ("navbar link", f"{BASE}/en", "nav a[href$='/events']"),
         ("feed timestamp", f"{BASE}/en/feed", "[data-testid='feed-timestamp']"),
         ("feed verb", f"{BASE}/en/feed", "[data-testid='feed-verb']"),
         (
@@ -3540,7 +3626,7 @@ with sync_playwright() as p:
         pg.goto(f"{BASE}/en/events/{event_id}", wait_until=NAV_WAIT)
         store_token(pg, DATA["visitor_token"], DATA["visitor"])
         pg.reload(wait_until=NAV_WAIT)
-        pg.wait_for_timeout(1500)
+        wait_for(pg, "[data-testid='event-mark-went']")
 
         went = pg.locator("[data-testid='event-mark-went']")
 
@@ -4362,7 +4448,15 @@ with sync_playwright() as p:
         response = pg.goto(
             f"{BASE}/{locale}/no-such-page-here", wait_until=NAV_WAIT
         )
-        pg.wait_for_timeout(900)
+        # The not-found page is rendered inside the locale layout, so wait
+        # for the copy the assertions read rather than for a clock.
+        wait_for(
+            pg,
+            js=(
+                "() => document.body &&"
+                f" document.body.innerText.includes({heading!r})"
+            ),
+        )
 
         check(
             f"404: /{locale} answers with a real 404",
@@ -4449,7 +4543,9 @@ with sync_playwright() as p:
     check("mobile: the menu opens", mobile_menu.count() == 1
           and burger.first.get_attribute("aria-expanded") == "true")
     mobile_nav = mobile_menu.inner_text()
-    check("mobile: menu shows Artists", "Artistas" in mobile_nav)
+    # The menu carries the same public destinations as the bar - the events
+    # entry, with its label written out - and no retired tabs.
+    check("mobile: menu shows Events", "Eventos" in mobile_nav, mobile_nav.replace("\n", " | "))
     check("mobile: menu has no Community", "Comunidade" not in mobile_nav, mobile_nav.replace("\n", " | "))
     check("mobile: menu shows Notifications", "Notifica" in mobile_nav, mobile_nav.replace("\n", " | "))
     check(
@@ -4559,7 +4655,16 @@ with sync_playwright() as p:
             if search_input.count():
                 search_input.fill("zzzznomatch")
                 search_input.press("Enter")
-                pg.wait_for_timeout(1500)
+                # The search asks the API on Enter; wait for the answer to
+                # have emptied the list rather than for a clock.
+                wait_for(
+                    pg,
+                    js=(
+                        "() => document.querySelectorAll("
+                        "\"[data-testid='event-search-row']\").length"
+                        " === 0"
+                    ),
+                )
 
                 combined = pg.locator(
                     "[data-testid='event-search-row']"
@@ -5173,7 +5278,7 @@ with sync_playwright() as p:
 
     # Mobile notifications and feed.
     pg.goto(f"{BASE}/pt-BR/feed", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(1000)
+    wait_for(pg, "[data-testid='feed-item']")
     feed_items = pg.locator("[data-testid='feed-item']")
     check(
         "mobile: the feed renders at 390px",
@@ -5248,7 +5353,7 @@ with sync_playwright() as p:
     pg.goto(f"{BASE}/pt-BR", wait_until=NAV_WAIT)
     store_token(pg, DATA["author_token"], DATA["author"])
     pg.goto(f"{BASE}/pt-BR/notifications", wait_until=NAV_WAIT)
-    pg.wait_for_timeout(1200)
+    wait_for(pg, "[data-testid='notification-item']")
     notif_items = pg.locator("[data-testid='notification-item']")
     check(
         "mobile: notifications render at 390px",
@@ -5357,7 +5462,7 @@ with sync_playwright() as p:
                 f"{BASE}/{locale}/events/{festival_event_id}",
                 wait_until=NAV_WAIT,
             )
-            pg.wait_for_timeout(1200)
+            wait_for(pg, "a[href*='/festivals/']")
 
             festival_links = pg.locator(
                 "a[href*='/festivals/']"
@@ -5386,7 +5491,7 @@ with sync_playwright() as p:
                 pg.goto(
                     f"{BASE}{href}", wait_until=NAV_WAIT
                 )
-                pg.wait_for_timeout(1200)
+                wait_for(pg, "[data-testid='festival-lineup-entry']")
 
                 body = pg.inner_text("body")
 
@@ -5511,7 +5616,9 @@ with sync_playwright() as p:
                     )
 
                     pg.goto(f"{BASE}{href}", wait_until=NAV_WAIT)
-                    pg.wait_for_timeout(900)
+                    # Back on the festival page, the dates are the thing the
+                    # next check reads; wait for them rather than for a clock.
+                    wait_for(pg, "[data-testid^='festival-edition-']")
 
                 check(
                     f"festival: the {locale} lineup renders every performer",
@@ -5663,7 +5770,16 @@ with sync_playwright() as p:
                 f"{BASE}/{locale}/events/{undated}",
                 wait_until=NAV_WAIT,
             )
-            pg.wait_for_timeout(1200)
+            # The date field is the thing being asserted on, so wait for it
+            # rather than for a clock.
+            wait_for(
+                pg,
+                js=(
+                    "() => Array.from(document.querySelectorAll('p'))"
+                    ".some(p => /^(date|data|fecha)$/i"
+                    ".test(p.textContent.trim()))"
+                ),
+            )
 
             body = pg.inner_text("body")
 
@@ -5716,7 +5832,7 @@ with sync_playwright() as p:
     pg.goto(
         f"{BASE}/en/profile/{profile_user}", wait_until=NAV_WAIT
     )
-    pg.wait_for_timeout(1500)
+    wait_for(pg, "[data-testid='profile-latest-reviews']")
 
     check(
         "profile: reviews are visible before any section is opened",
