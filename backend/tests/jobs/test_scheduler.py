@@ -20,7 +20,11 @@ import asyncio
 
 import pytest
 
-from app.jobs.scheduler import BackgroundScheduler
+from app.jobs.scheduler import (
+    ARTIST_SYNC_JOB_ID,
+    JOB_ID,
+    BackgroundScheduler,
+)
 
 
 
@@ -388,6 +392,121 @@ class TestWhatATickIsAllowedToDo:
 
         finally:
             scheduler.shutdown()
+
+
+class TestThePassesHaveTheirOwnClocks:
+    """The artist interval is a working setting, not a printed number.
+
+    The refresh used to run on the lifecycle tick while its own configured
+    interval was merely reported. These tests pin the fix: two jobs, each
+    on its own interval, each calling only its own pass.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_registered_jobs_carry_their_own_intervals(self):
+        scheduler = BackgroundScheduler(
+            enabled=True,
+            interval_minutes=60,
+            artist_sync_enabled=True,
+            artist_sync_interval_minutes=90,
+        )
+
+        try:
+            assert scheduler.start() is True
+
+            lifecycle_job = scheduler._scheduler.get_job(JOB_ID)
+            artist_job = scheduler._scheduler.get_job(
+                ARTIST_SYNC_JOB_ID
+            )
+
+            assert lifecycle_job is not None
+            assert artist_job is not None
+            assert (
+                lifecycle_job.trigger.interval.total_seconds()
+                == 60 * 60
+            )
+            assert (
+                artist_job.trigger.interval.total_seconds()
+                == 90 * 60
+            )
+
+        finally:
+            scheduler.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_each_job_runs_only_its_own_pass(self):
+        ran: list[str] = []
+
+        async def catalogue(*_):
+            ran.append("catalogue")
+
+        async def lifecycle(*_):
+            ran.append("lifecycle")
+
+        scheduler = BackgroundScheduler(
+            enabled=True,
+            artist_sync_enabled=True,
+            artist_sync_runner=catalogue,
+            synchronization_factory=lambda: object(),
+            lifecycle_enabled=True,
+            lifecycle_runner=lifecycle,
+        )
+
+        try:
+            assert scheduler.start() is True
+
+            lifecycle_job = scheduler._scheduler.get_job(JOB_ID)
+            artist_job = scheduler._scheduler.get_job(
+                ARTIST_SYNC_JOB_ID
+            )
+
+            # Fired the way APScheduler fires them. One call must produce
+            # exactly one entry: if either job still called `run()`, both
+            # passes would appear twice.
+            await lifecycle_job.func()
+            await artist_job.func()
+
+            assert ran == ["lifecycle", "catalogue"]
+
+        finally:
+            scheduler.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_an_off_artist_pass_has_no_timer_at_all(self):
+        # "Off" must be visible as the absence of a next run, not as a next
+        # run that will do nothing.
+        scheduler = BackgroundScheduler(
+            enabled=True,
+            artist_sync_enabled=False,
+        )
+
+        try:
+            assert scheduler.start() is True
+
+            assert (
+                scheduler._scheduler.get_job(ARTIST_SYNC_JOB_ID)
+                is None
+            )
+
+        finally:
+            scheduler.shutdown()
+
+    def test_the_default_artist_interval_is_one_day(self):
+        from app.config import Settings
+
+        # A catalogue refresh visits Songkick on its own initiative; a day
+        # between passes is the explicit intent of the setting, and the
+        # scheduler constructor agrees with the field default.
+        assert (
+            Settings.model_fields[
+                "ARTIST_SYNC_SCHEDULER_INTERVAL_MINUTES"
+            ].default
+            == 1440
+        )
+        assert (
+            BackgroundScheduler().artist_sync_interval_minutes
+            == 1440
+        )
 
 
 class TestTheApplicationWiresItUp:

@@ -178,9 +178,12 @@ class Settings(BaseSettings):
 
     ARTIST_SYNC_SCHEDULER_ENABLED: bool = False
 
-    # How long to wait between passes. Generous by design: a full artist sync is
-    # one gigography page, and doing the whole catalogue daily is plenty.
-    ARTIST_SYNC_SCHEDULER_INTERVAL_MINUTES: int = 360
+    # How long to wait between passes. The scheduler has a clock of its own
+    # for this pass, separate from the lifecycle tick: a full artist sync is
+    # one gigography per artist, and doing the whole catalogue daily is
+    # plenty. Sharing the lifecycle tick made this setting look like a
+    # working interval while the pass actually ran on the other one.
+    ARTIST_SYNC_SCHEDULER_INTERVAL_MINUTES: int = 1440
 
     # How many artists one pass may visit. Bounded so a tick can never become a
     # full-catalog scrape, and so a pass that falls behind catches up over several

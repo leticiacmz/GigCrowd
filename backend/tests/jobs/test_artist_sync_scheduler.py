@@ -1,10 +1,13 @@
 """Artist synchronization on the real scheduler.
 
-It shares one clock, one switch and one status endpoint with the lifecycle
-pass, and it earns its place there because that is where the work it
-replaced used to hide - inside a GET request. The properties that matter are that
-it is off unless configuration turns it on, that it cannot be started twice, that
-it survives a broken pass, and that a pass can be triggered deliberately rather
+It shares one scheduler, one status endpoint and the application's lifecycle
+switch, but it has a clock of its own: artist synchronization runs on
+`ARTIST_SYNC_SCHEDULER_INTERVAL_MINUTES` (registered as its own job only
+when the pass is switched on), never piggybacking on the lifecycle tick -
+the coupling that used to make the configured interval a reported number
+rather than a working setting. The properties that matter are that it is off
+unless configuration turns it on, that it cannot be started twice, that it
+survives a broken pass, and that a pass can be triggered deliberately rather
 than only on the next tick.
 
 It is also the pass that owns event discovery: it synchronizes through the same

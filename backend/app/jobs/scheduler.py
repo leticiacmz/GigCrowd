@@ -1,10 +1,17 @@
 """The background scheduler.
 
-The project has exactly one scheduler and this is it. It owns a clock and
-nothing else: on each tick it refreshes artist event catalogues through the
-same extraction pipeline a manual sync uses, and it runs the event lifecycle
-pass. Both are off unless configuration turns them on, and each pass decides
-for itself what one run does.
+The project has exactly one scheduler and this is it. It owns two clocks and
+nothing else: one ticks the event lifecycle pass, the other - only when
+switched on - refreshes artist event catalogues through the same extraction
+pipeline a manual sync uses. Two clocks rather than one because the two
+passes do work at completely different rates: a catalogue refresh is a
+day's errand over the whole catalogue, while the lifecycle pass is a
+punctuality check that wants to run far more often than that. Sharing one
+clock, as this used to, meant the configured artist interval was reported
+and ignored - the refresh simply ran on the lifecycle tick as well.
+
+Both are off unless configuration turns them on, and each pass decides for
+itself what one run does.
 
 What it deliberately does *not* own: a pass over events because they were
 written short of a field. That used to exist here and it was removed with the
@@ -20,9 +27,11 @@ Two behaviours are deliberate and should not be "simplified" away:
 
 1. It is off unless configuration turns it on. Starting the API locally must
    never begin making outbound requests to Songkick.
-2. Runs never overlap. A run that overruns its interval is skipped rather than
-   stacked behind itself, because two passes over the same rows would double
-   the request rate for no benefit.
+2. The same pass never overlaps itself. A run that overruns its interval is
+   skipped rather than stacked behind itself, because two passes over the
+   same rows would double the request rate for no benefit. The two passes
+   are independent of each other: one failing, or one still walking, never
+   silences or blocks the other.
 """
 from __future__ import annotations
 
@@ -41,8 +50,14 @@ from app.jobs.artist_sync_job import (
 
 logger = get_logger("scheduler")
 
-# The name APScheduler knows this job by.
+# The name APScheduler knows the lifecycle tick by. Kept as it always was so
+# anything reading the status endpoint keeps finding the same job.
 JOB_ID = "songkick_refresh"
+
+# The name APScheduler knows the artist catalogue refresh by. Its own job so
+# it can have its own interval: `ARTIST_SYNC_SCHEDULER_INTERVAL_MINUTES` used
+# to be reported from the tick it never actually controlled.
+ARTIST_SYNC_JOB_ID = "artist_sync"
 
 
 class BackgroundScheduler:
@@ -66,7 +81,7 @@ class BackgroundScheduler:
         artist_sync_enabled: bool = False,
         artist_sync_batch_size: int = 10,
         artist_sync_delay_seconds: float = 1.5,
-        artist_sync_interval_minutes: int = 360,
+        artist_sync_interval_minutes: int = 1440,
         artist_sync_run_on_startup: bool = False,
         artist_sync_provider: str = "songkick",
         synchronization_factory: Optional[Callable[[], Any]] = None,
@@ -86,10 +101,12 @@ class BackgroundScheduler:
         self.lifecycle_lookback_hours = int(lifecycle_lookback_hours)
         self.lifecycle_runner = lifecycle_runner
 
-        # The pass that keeps catalogues fresh, on the same clock. Artist
+        # The pass that keeps catalogues fresh, on a clock of its own. Artist
         # synchronization is here because it used to happen inside a GET
         # request; giving it its own scheduler would have been a second thing
-        # to remember to start, stop and reason about.
+        # to remember to start, stop and reason about, but giving it its own
+        # *interval* is the difference between a setting that works and one
+        # that is only printed in the status endpoint.
         #
         # Off unless configuration turns it on, for the reason the others are
         # off: a pass visits Songkick without anybody asking, so booting the API
@@ -112,10 +129,15 @@ class BackgroundScheduler:
 
         self._scheduler: Optional[AsyncIOScheduler] = None
 
-        # Guards against a second run starting while one is still walking. The
-        # APScheduler job itself also refuses to overlap, but this flag is what
-        # protects a manual `run_now` from colliding with a scheduled run.
+        # Guards against a second run of the *same* pass starting while one is
+        # still walking. The APScheduler jobs themselves also refuse to overlap
+        # (`max_instances=1`), but these flags are what protect a manual
+        # trigger from colliding with a scheduled one, and they are separate
+        # so a long artist refresh never blocks the lifecycle tick or the
+        # other way around - the passes do unrelated work.
         self._running = False
+        self._artist_sync_running = False
+        self._lifecycle_running = False
 
         self.last_lifecycle_result: Optional[dict] = None
 
@@ -154,12 +176,12 @@ class BackgroundScheduler:
             )
 
             scheduler.add_job(
-                self.run,
+                self.run_lifecycle_tick,
                 trigger=IntervalTrigger(
                     minutes=max(1, self.interval_minutes)
                 ),
                 id=JOB_ID,
-                name="Songkick catalog refresh",
+                name="Event lifecycle pass",
                 # One pass at a time. If a pass overruns the interval the next
                 # one is dropped, never queued behind it.
                 max_instances=1,
@@ -170,6 +192,29 @@ class BackgroundScheduler:
                 misfire_grace_time=None,
                 replace_existing=True,
             )
+
+            # The artist refresh gets its own job, and only when it is
+            # switched on: an off pass has no timer, so "off" is visible as
+            # the absence of a next run rather than as a next run that will
+            # do nothing. Its interval is the artist setting itself - the
+            # configured value used to be reported while the pass actually
+            # ran on the lifecycle tick above.
+            if self.artist_sync_enabled:
+                scheduler.add_job(
+                    self.run_artist_sync,
+                    trigger=IntervalTrigger(
+                        minutes=max(
+                            1,
+                            self.artist_sync_interval_minutes,
+                        )
+                    ),
+                    id=ARTIST_SYNC_JOB_ID,
+                    name="Artist catalogue refresh",
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=None,
+                    replace_existing=True,
+                )
 
             scheduler.start()
 
@@ -186,9 +231,11 @@ class BackgroundScheduler:
 
         logger.info(
             f"[SCHEDULER] background scheduler started; "
-            f"every {max(1, self.interval_minutes)} minute(s), "
-            f"artist_sync={'on' if self.artist_sync_enabled else 'off'}, "
-            f"lifecycle={'on' if self.lifecycle_enabled else 'off'}"
+            f"lifecycle every {max(1, self.interval_minutes)} minute(s) "
+            f"({'on' if self.lifecycle_enabled else 'off'}), "
+            f"artist_sync every "
+            f"{max(1, self.artist_sync_interval_minutes)} minute(s) "
+            f"({'on' if self.artist_sync_enabled else 'off'})"
         )
 
         if self.artist_sync_run_on_startup:
@@ -247,12 +294,18 @@ class BackgroundScheduler:
     # ============================================================
 
     async def run(self) -> Optional[ArtistSyncJobResult]:
-        """Run one tick: refresh catalogues, then the lifecycle pass.
+        """Run both passes by hand: refresh catalogues, then the lifecycle.
 
-        There is no third pass. Both are wrapped separately on purpose: a
-        catalog refresh that fails must not silence the prompts that are
-        already overdue for real people, and a notification problem must not
-        leave gigographies stale.
+        There is no third pass. The scheduled jobs call each pass on its own
+        clock (`run_lifecycle_tick` for the lifecycle, `run_artist_sync` for
+        the catalogue refresh); this method is the deliberate trigger - a
+        runbook, a test, an operator - and still runs both in one call so
+        one command keeps meaning "do the work".
+
+        Both are wrapped separately on purpose: a catalog refresh that fails
+        must not silence the prompts that are already overdue for real
+        people, and a notification problem must not leave gigographies
+        stale.
         """
 
         if self._running:
@@ -274,7 +327,7 @@ class BackgroundScheduler:
                 )
 
             try:
-                await self._run_lifecycle()
+                await self.run_lifecycle_tick()
             except Exception as exc:  # pragma: no cover - defensive
                 logger.error(
                     f"[SCHEDULER] lifecycle pass failed: "
@@ -286,6 +339,41 @@ class BackgroundScheduler:
 
         return self.last_artist_sync_result
 
+    async def run_lifecycle_tick(self) -> None:
+        """One scheduled tick of the lifecycle pass, if it is switched on.
+
+        What APScheduler calls on `interval_minutes`. It runs the lifecycle
+        pass alone: the artist refresh has its own job and its own interval,
+        so a punctuality check that should run often cannot drag a
+        catalogue-wide scrape along with it - that coupling is what used to
+        make `ARTIST_SYNC_SCHEDULER_INTERVAL_MINUTES` a reported number
+        rather than a working setting.
+
+        The flag keeps a manual `run()` from walking this pass while the
+        scheduled tick is already in flight, and vice versa.
+        """
+
+        if self._lifecycle_running:
+            logger.info(
+                "[SCHEDULER] a lifecycle pass is already running; "
+                "skipping this tick"
+            )
+            return
+
+        self._lifecycle_running = True
+
+        try:
+            try:
+                await self._run_lifecycle()
+            except Exception as exc:
+                logger.error(
+                    f"[SCHEDULER] lifecycle pass failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        finally:
+            self._lifecycle_running = False
+
     async def run_artist_sync(
         self,
     ) -> Optional[ArtistSyncJobResult]:
@@ -296,11 +384,33 @@ class BackgroundScheduler:
         manual import runs, with the same extraction, the same joins and the
         same reporting. Public and callable on its own so a pass can be
         triggered deliberately - from a script, a test or an operator - rather
-        than only waiting for the next tick.
+        than only waiting for the next tick. This is also what APScheduler
+        calls on the artist clock (`ARTIST_SYNC_JOB_ID`), which is why the
+        overlap flag lives here: a scheduled pass and a hand-triggered one
+        must not walk the catalogue at the same time.
         """
 
         if not self.artist_sync_enabled:
             return None
+
+        if self._artist_sync_running:
+            logger.info(
+                "[SCHEDULER] an artist sync pass is already "
+                "running; skipping this tick"
+            )
+            return None
+
+        self._artist_sync_running = True
+
+        try:
+            return await self._run_artist_sync_pass()
+        finally:
+            self._artist_sync_running = False
+
+    async def _run_artist_sync_pass(
+        self,
+    ) -> Optional[ArtistSyncJobResult]:
+        """Build the service and walk one batch, with every failure inside."""
 
         try:
             service = self._synchronization_service()
@@ -397,6 +507,7 @@ class BackgroundScheduler:
         """
 
         next_run = None
+        artist_sync_next_run = None
 
         if self._scheduler is not None:
             job = self._scheduler.get_job(JOB_ID)
@@ -404,10 +515,21 @@ class BackgroundScheduler:
             if job is not None and job.next_run_time:
                 next_run = job.next_run_time.isoformat()
 
+            artist_job = self._scheduler.get_job(ARTIST_SYNC_JOB_ID)
+
+            if artist_job is not None and artist_job.next_run_time:
+                artist_sync_next_run = (
+                    artist_job.next_run_time.isoformat()
+                )
+
         return {
             "enabled": self.enabled,
             "running": self._scheduler is not None,
-            "in_progress": self._running,
+            "in_progress": (
+                self._running
+                or self._artist_sync_running
+                or self._lifecycle_running
+            ),
             "interval_minutes": self.interval_minutes,
             "next_run_at": next_run,
             "lifecycle": {
@@ -419,6 +541,10 @@ class BackgroundScheduler:
             "artist_sync": {
                 "enabled": self.artist_sync_enabled,
                 "interval_minutes": self.artist_sync_interval_minutes,
+                # The artist clock, read from the job that actually runs it.
+                # Without it the status could only repeat the configured
+                # number while the pass ran on some other schedule.
+                "next_run_at": artist_sync_next_run,
                 "run_on_startup": self.artist_sync_run_on_startup,
                 "config": self.artist_sync_config.describe(),
                 "last_run": (
