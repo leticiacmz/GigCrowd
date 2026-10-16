@@ -6,6 +6,7 @@ from app.domain.event_schedule import (
     parse_source_datetime,
     valid_interval_end,
 )
+from app.domain.festival import http_url_or_none
 from app.domain.lineup import LineupEntry
 from app.domain.venue import Venue
 
@@ -287,13 +288,51 @@ class SongkickEventMapper:
                 ),
             }
 
-            event_url = songkick_event_data.get(
-                "url"
-            )
+        else:
 
-            if event_url:
+            # Copied so the payload's own block is never mutated in place;
+            # two payloads aliasing one source dict must not surprise each
+            # other below.
+            source = dict(source)
 
-                source["url"] = event_url
+        # Defensive backfill of a missing address. A payload may carry a
+        # `source` block stating the provider and the id but no URL - the
+        # enrichment writes exactly that shape when the search document has
+        # no URL - while the payload itself states a perfectly usable one.
+        # Storing the block as it arrived would claim a provider with
+        # nothing to check it against, which the provenance rule hides for
+        # every future event. So a missing address is filled from the
+        # payload's own fields - the event's own address first, then the
+        # festival block's - and only in the shape a browser can open. An
+        # address already held is never replaced.
+        if not http_url_or_none(
+            source.get("url")
+        ):
+
+            candidates = [
+                songkick_event_data.get("url"),
+            ]
+
+            if isinstance(
+                festival,
+                dict,
+            ):
+
+                candidates.append(
+                    festival.get("url")
+                )
+
+            for candidate in candidates:
+
+                address = http_url_or_none(
+                    candidate
+                )
+
+                if address:
+
+                    source["url"] = address
+
+                    break
 
         # ========================================================
         # EVENT

@@ -3174,11 +3174,35 @@ class SongkickClient:
             }
         )
 
-        if search_url:
-            source["url"] = (
-                str(search_url)
-                .split("?")[0]
-            )
+        # The source address has to survive even when the search document
+        # states none. The JSON-LD listing read for this event routinely
+        # carries its own Songkick address, and without it a future event
+        # stores a provider with nothing to check it against - which the
+        # provenance rule is right to hide. So the same candidate chain
+        # `_build_festival_metadata` reads for the festival block is read
+        # here for the source: the search document first, then the event's
+        # own address, and only in the shape a browser can open. An address
+        # already held on the payload is never replaced.
+        if not http_url_or_none(
+            source.get("url")
+        ):
+
+            for candidate in (
+                search_url,
+                enriched.get("url"),
+                event.get("url"),
+            ):
+
+                if not candidate:
+                    continue
+
+                address = http_url_or_none(
+                    str(candidate).split("?")[0]
+                )
+
+                if address:
+                    source["url"] = address
+                    break
 
         enriched["source"] = source
 

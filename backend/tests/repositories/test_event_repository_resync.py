@@ -531,6 +531,74 @@ async def test_an_insert_still_writes_the_incoming_artist_list():
 
 
 # ============================================================
+# THE SOURCE ADDRESS SURVIVES A RESYNC THAT STATES NONE
+# ============================================================
+#
+# The source block arrives whole from every parse, usually as just
+# `{provider, event_id}` when the search document carried no URL. Written
+# wholesale it erased the address an earlier enrichment stored - turning a
+# verified future event back into one the provenance rule hides, which is
+# exactly how the Lollapalooza 2027 rows went dark. It is therefore written
+# key by key, like the festival block: a silence is skipped, a stated
+# address still lands.
+
+
+@pytest.mark.asyncio
+async def test_a_resync_whose_source_states_no_address_keeps_the_stored_one():
+    """The shape that erased the address: provider and id, no URL."""
+
+    database, repository, _ = await stored_document()
+
+    incoming = listing_payload_dateless()
+    incoming.source = {
+        "provider": "songkick",
+        "external_id": SONGKICK_ID,
+    }
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    assert after["source"]["url"] == SOURCE_URL
+    assert after["source"]["provider"] == "songkick"
+
+
+@pytest.mark.asyncio
+async def test_a_resync_that_states_a_source_address_still_writes_it():
+    """Absence is shielded; a value the source states still lands."""
+
+    database, repository, _ = await stored_document()
+
+    corrected = (
+        "https://www.songkick.com/festivals/91231-harvest/"
+        "id/23537708-harvest-festival-2015-edition"
+    )
+
+    incoming = listing_payload_dateless()
+    incoming.source = {
+        "provider": "songkick",
+        "external_id": SONGKICK_ID,
+        "url": corrected,
+    }
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    assert after["source"]["url"] == corrected
+
+
+# ============================================================
 # THE LEGACY BANDSINTOWN PATH OBEYS THE SAME RULES
 # ============================================================
 #

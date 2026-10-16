@@ -141,8 +141,11 @@ def _is_absent_value(value) -> bool:
     return False
 
 
-def _festival_sub_updates(festival_block) -> dict:
-    """The festival fields a resync may write, keyed by dotted path.
+def _festival_sub_updates(
+    festival_block,
+    prefix: str = "festival",
+) -> dict:
+    """The fields a resync may write from one whole block, keyed by dotted path.
 
     The block arrives whole from every parse - including one that read no
     name and therefore carries `name: None` - so writing it wholesale would
@@ -152,13 +155,18 @@ def _festival_sub_updates(festival_block) -> dict:
     listing did not mention, and writes nothing at all for a block that
     mentions nothing. A block that is not a dictionary is not a block and
     is dropped rather than overwriting one.
+
+    `prefix` lets the same rule govern any block that arrives whole:
+    `source` is written the same way, so a listing's source block without
+    an address cannot erase the address an earlier read stored - the exact
+    erasure the festival block used to suffer.
     """
 
     if not isinstance(festival_block, dict):
         return {}
 
     return {
-        f"festival.{key}": value
+        f"{prefix}.{key}": value
         for key, value in festival_block.items()
         if not _is_absent_value(value)
     }
@@ -172,9 +180,9 @@ def _merge_for_resync(incoming: dict) -> dict:
 
     * attendance is dropped, because a listing never measured it;
     * a protected field the listing did not state is dropped, so the stored
-      value survives (see `_without_absent_protected`), and the festival
-      block - which every parse sends whole - is written key by key for
-      exactly the same reason (see `_festival_sub_updates`);
+      value survives (see `_without_absent_protected`), and the blocks that
+      every parse sends whole - `festival` and `source` - are written key by
+      key for exactly the same reason (see `_festival_sub_updates`);
     * `artist_slugs` is merged additively with `$addToSet` instead of being
       replaced. The list is who the show belongs to, and the incoming half of
       a resync routinely knows fewer artists than the stored one - a
@@ -202,6 +210,23 @@ def _merge_for_resync(incoming: dict) -> dict:
     updates.update(
         _festival_sub_updates(
             festival_block,
+        )
+    )
+
+    # The source block is written the same way the festival block is: key
+    # by key, skipping silences. A resync whose source states no address
+    # must not erase the address an earlier enrichment stored - that is
+    # precisely how a trusted future event turns back into one the
+    # provenance rule hides. An address the listing does state still lands.
+    source_block = updates.pop(
+        "source",
+        None,
+    )
+
+    updates.update(
+        _festival_sub_updates(
+            source_block,
+            prefix="source",
         )
     )
 
