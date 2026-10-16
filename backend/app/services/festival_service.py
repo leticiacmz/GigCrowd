@@ -461,7 +461,11 @@ class FestivalService:
                     ),
                     lineup=resolved_lineups[index],
                     lineup_state=_lineup_state(
-                        resolved_lineups[index]
+                        resolved_lineups[index],
+                        document,
+                    ),
+                    lineup_state_updated_at=(
+                        _lineup_state_updated_at(document)
                     ),
                 )
                 for index, document in enumerate(editions)
@@ -469,7 +473,13 @@ class FestivalService:
             selected_event_id=str(selected["_id"]),
             lineup=resolved_lineups[selected_index],
             lineup_state=_lineup_state(
-                resolved_lineups[selected_index]
+                resolved_lineups[selected_index],
+                editions[selected_index],
+            ),
+            lineup_state_updated_at=(
+                _lineup_state_updated_at(
+                    editions[selected_index]
+                )
             ),
         )
 
@@ -585,17 +595,67 @@ class FestivalService:
         return documents
 
 
-def _lineup_state(lineup: list) -> str:
-    """`ok` when performers are held, `unknown` when none are stored.
+def _lineup_state(
+    lineup: list,
+    document: Optional[dict] = None,
+) -> str:
+    """Whether performers are held for this date, and what the record says.
 
-    `unknown` is the only honest label for an empty list at read time: the
-    stored record cannot say whether the source named no one, the read failed,
-    or it never ran, and claiming any of the three would invent knowledge the
-    data does not hold. A complete-empty read is never a licence to erase a
-    lineup held earlier - see the repository's never-blank rule for `lineup`.
+    `unknown` is the only honest label for an empty list when nothing
+    recorded the work: the stored record cannot say whether the source named
+    no one, the read failed, or it never ran, and claiming any of the three
+    would invent knowledge the data does not hold. A complete-empty read is
+    never a licence to erase a lineup held earlier - see the repository's
+    never-blank rule for `lineup`.
+
+    What *can* record the work is the event's own `lineup_state`, written by
+    the enrichment that reads the edition's own page (see
+    `LineupEnrichmentService`). When the row carries one it is reported as it
+    stands: `pending`/`active`/`partial` are that pass working, `failed` is
+    it asking for a retry, `empty` is a finished read that announced no one,
+    and `complete` is a finished read with a lineup - spelled `ok` here so
+    existing clients see no change.
+
+    A row that carries no state - every edition imported before the
+    enrichment existed - keeps the old honest reading above. Claiming
+    `complete` for a row nobody read is exactly the dishonesty the states
+    exist to avoid: the absence of a state is not evidence of anything.
     """
 
+    if isinstance(document, dict):
+
+        stored = document.get("lineup_state")
+
+        if stored == "complete":
+            return "ok"
+
+        if stored in (
+            "pending",
+            "active",
+            "partial",
+            "failed",
+            "empty",
+        ):
+            return stored
+
     return "ok" if lineup else "unknown"
+
+
+def _lineup_state_updated_at(
+    document: Optional[dict],
+) -> Optional[datetime]:
+    """When this edition's lineup state was last written, if it is recorded.
+
+    A row without a state has no moment to report either - the same absence
+    said a second way, rather than a guessed timestamp.
+    """
+
+    if not isinstance(document, dict):
+        return None
+
+    updated = document.get("lineup_state_updated_at")
+
+    return updated if isinstance(updated, datetime) else None
 
 
 def _slug_of(

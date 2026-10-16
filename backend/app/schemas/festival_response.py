@@ -69,12 +69,31 @@ class FestivalEventResponse(BaseModel):
     )
 
     # Whether performers are actually held for this date. `unknown` is the
-    # only honest label for an empty list at read time: the stored record
-    # cannot say whether the source named no one, the read failed, or it
-    # never ran - so the response must not present an empty list as "the
-    # festival announced no one". Telling those apart needs a persisted
-    # marker, and a marker is a write.
-    lineup_state: Literal["ok", "unknown"] = "unknown"
+    # only honest label for an empty list when nothing recorded the work:
+    # the stored record cannot say whether the source named no one, the read
+    # failed, or it never ran - so the response must not present an empty
+    # list as "the festival announced no one".
+    #
+    # A row the lineup enrichment has touched carries its own answer instead,
+    # and the states keep their literal meanings: `pending` and `active` are
+    # the pass working, `partial` says performers are stored but the pass
+    # stopped short of finishing, `complete` is a finished pass with a lineup
+    # (`ok` keeps its old spelling for it, so existing clients read no
+    # change), `failed` is retryable, and `empty` is a finished pass that
+    # read a page announcing no one.
+    lineup_state: Literal[
+        "ok",
+        "unknown",
+        "pending",
+        "active",
+        "partial",
+        "failed",
+        "empty",
+    ] = "unknown"
+
+    # When that state was last written, so a page can tell a worker still
+    # reading from one that died mid-read and left `active` behind.
+    lineup_state_updated_at: Optional[datetime] = None
 
 
 class FestivalResponse(BaseModel):
@@ -101,5 +120,18 @@ class FestivalResponse(BaseModel):
         default_factory=list,
     )
 
-    # `ok` when the selected edition's lineup is held, `unknown` when none is.
-    lineup_state: Literal["ok", "unknown"] = "unknown"
+    # The selected edition's lineup state, spelled exactly as the per-edition
+    # `lineup_state` above: the same record, the same meanings.
+    lineup_state: Literal[
+        "ok",
+        "unknown",
+        "pending",
+        "active",
+        "partial",
+        "failed",
+        "empty",
+    ] = "unknown"
+
+    # When that state was last written, for the same staleness reading as
+    # on the editions.
+    lineup_state_updated_at: Optional[datetime] = None

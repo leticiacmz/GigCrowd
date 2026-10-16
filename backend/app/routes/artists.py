@@ -16,6 +16,10 @@ from app.repositories.venue_repository import VenueRepository
 from app.services.event_import_service import EventImportService
 from app.services.event_service import EventService
 
+from app.services.lineup_enrichment_service import (
+    service_for_database,
+)
+
 from app.services.artist_service import ArtistService
 
 from app.services.synchronization_service import (
@@ -123,16 +127,26 @@ artist_import_service = ArtistImportService(
 
 
 
-# There is no enrichment collaborator here, and that is the point. The import
-# reads every page it needs (artist page, calendar, gigography, search), joins
-# them by event id, and reads an event's own page during the same run when a
-# field is still missing. Whatever it still cannot state is reported by the
-# import itself, where the gap was found, rather than owed to a later process.
+# The import reads every page it needs (artist page, calendar, gigography,
+# search), joins them by event id, and reads an event's own page during the
+# same run when a field is still missing. Whatever it still cannot state is
+# reported by the import itself, where the gap was found.
+#
+# The one collaborator that follows a run is the lineup enrichment below,
+# and it is deliberately outside the response: every event is written and
+# reported before it is handed a single id, it only ever adds to what is
+# stored, and its progress is the `lineup_state` the festival page reads.
+# It is given no clock: it works when an import queues it, or when the
+# festival page's retry asks - never on boot, never on a page view.
+lineup_enrichment_service = service_for_database(db)
+
+
 event_import_service = EventImportService(
     provider_manager=provider_manager,
     event_repository=event_repository,
     venue_repository=venue_repository,
     artist_repository=artist_repository,
+    lineup_enrichment=lineup_enrichment_service,
 )
 
 

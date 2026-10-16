@@ -34,6 +34,7 @@ class EventImportService:
         event_repository: EventRepository,
         venue_repository: VenueRepository,
         artist_repository: ArtistRepository,
+        lineup_enrichment=None,
     ):
 
         self.provider_manager = provider_manager
@@ -43,6 +44,11 @@ class EventImportService:
         self.venue_repository = venue_repository
         
         self.artist_repository = artist_repository
+
+        # The background lineup enrichment handed to the Songkick path. Off
+        # by being absent; it is given no event until that event is already
+        # written and reported.
+        self.lineup_enrichment = lineup_enrichment
 
     async def sync_artist_events(
         self,
@@ -83,6 +89,11 @@ class EventImportService:
                 ),
                 lineup_artist_limit=(
                     settings.LINEUP_ARTIST_IMPORT_MAX_ARTISTS
+                ),
+                lineup_enrichment=(
+                    self.lineup_enrichment
+                    if settings.LINEUP_ENRICHMENT_ENABLED
+                    else None
                 ),
             )
             return await songkick_service.sync_artist_events(artist)

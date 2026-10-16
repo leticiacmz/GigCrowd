@@ -138,6 +138,7 @@ class SongkickEventImportService:
         artist_repository: ArtistRepository,
         lineup_importer=None,
         lineup_artist_limit: int = 100,
+        lineup_enrichment=None,
     ):
 
         self.provider_manager = provider_manager
@@ -163,6 +164,14 @@ class SongkickEventImportService:
             0,
             lineup_artist_limit,
         )
+
+        # The one deferred collaborator, and the deliberate exception to the
+        # "nothing is queued for later" rule this service otherwise keeps.
+        # It is not asked to finish anything this run needs: events are
+        # written, reported and visible before it is given a single id, and
+        # it only ever adds to what is stored - see
+        # `LineupEnrichmentService`. Off by being absent.
+        self.lineup_enrichment = lineup_enrichment
 
     async def sync_artist_events(
         self,
@@ -487,6 +496,14 @@ class SongkickEventImportService:
         # from every payload in the run are included in one pass.
         announced: dict[str, dict] = {}
 
+        # Festival editions this run wrote, by Songkick id. Each one's own
+        # page may state more of the bill than the listing did, and that
+        # page is read after this run - in the background, never in front of
+        # the response - as the one deferred pass the architecture has. A
+        # concert's lineup is its one artist and is already associated, so
+        # only editions are collected.
+        festival_event_ids: list[str] = []
+
         # --------------------------------------------------
         # Process events
         # --------------------------------------------------
@@ -722,6 +739,19 @@ class SongkickEventImportService:
 
                     events_existing += 1
 
+                if "festival" in (
+                    event.event_type or ""
+                ).casefold():
+
+                    festival_event_ids.append(
+                        str(
+                            event.external_ids.get(
+                                "songkick"
+                            )
+                            or event_id
+                        )
+                    )
+
                 # --------------------------------------------------
                 # Extraction gaps, reported where they occur
                 # --------------------------------------------------
@@ -894,6 +924,51 @@ class SongkickEventImportService:
             )
 
         # --------------------------------------------------
+        # THE ENRICHMENT THAT FOLLOWS THIS RUN
+        # --------------------------------------------------
+        #
+        # Every event above is already written and already reported. What
+        # this does is queue the festival editions' own pages to be read
+        # *after* this run, in the background, so the response is not held
+        # hostage to a page read and a re-import of the same events changes
+        # nothing (finished editions are not re-enqueued). The queue is the
+        # event's own `lineup_state`; a failure of this whole step leaves
+        # the events exactly as they are.
+        # --------------------------------------------------
+
+        lineup_enrichment_queued = 0
+
+        if festival_event_ids and self.lineup_enrichment:
+
+            try:
+
+                queued = (
+                    await self.lineup_enrichment
+                    .enqueue_events(festival_event_ids)
+                )
+
+                lineup_enrichment_queued = len(queued)
+
+                if queued:
+
+                    self.lineup_enrichment.schedule(queued)
+
+                    logger.info(
+                        "[EVENT IMPORT] queued lineup "
+                        f"enrichment for {len(queued)} "
+                        "festival edition(s) in the background"
+                    )
+
+            except Exception as exc:
+
+                # The events are stored and usable either way. A queue that
+                # cannot be written is a lost next pass, not a lost event.
+                logger.warning(
+                    "[EVENT IMPORT] lineup enrichment could "
+                    f"not be queued: {exc}"
+                )
+
+        # --------------------------------------------------
         # Summary
         # --------------------------------------------------
 
@@ -1045,6 +1120,10 @@ class SongkickEventImportService:
                 if lineup_report is not None
                 else None
             ),
+            # Festival editions whose own pages were queued for background
+            # lineup enrichment. Reported so a run says what it started,
+            # even though none of it was waited for.
+            "lineup_enrichment_queued": lineup_enrichment_queued,
             "venues_created": venues_created,
             "venues_existing": venues_existing,
             "elapsed_seconds": round(

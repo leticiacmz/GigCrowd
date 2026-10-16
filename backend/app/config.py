@@ -100,6 +100,46 @@ class Settings(BaseSettings):
     # long run of writes.
     LINEUP_ARTIST_IMPORT_MAX_ARTISTS: int = 100
 
+    # =====================================================
+    # LINEUP ENRICHMENT
+    # =====================================================
+    # The one deferred pass this project deliberately has. An imported
+    # festival event is written, reported and visible with whatever the run
+    # obtained; when its listing stated only part of the bill, the event's
+    # own page is read afterwards as background work, and the edition
+    # carries the state of that work (`lineup_state`) so a page can show
+    # "being updated" instead of pretending one headliner is the lineup.
+    #
+    # On by default, and note what governs when it may work: it only runs
+    # for events an import just wrote, or when the festival page's retry is
+    # asked for. Starting the API on its own begins no reads - there is no
+    # clock and no scheduler pass behind it - so the local rule ("a page
+    # view and a boot never go to Songkick") holds unchanged.
+
+    LINEUP_ENRICHMENT_ENABLED: bool = True
+
+    # How long one enrichment claim is fresh for. A worker that died
+    # mid-read leaves an `active` state behind; after this long the claim
+    # is taken over. Longer than the longest single page read by a wide
+    # margin, because a takeover mid-run is what the bound exists to
+    # prevent.
+    LINEUP_ENRICHMENT_LEASE_SECONDS: int = 600
+
+    # How many attempts one edition gets before it stops retrying itself.
+    # The retry button on the festival page resets the counter, so a person
+    # always has the last word over an automatic budget.
+    LINEUP_ENRICHMENT_MAX_ATTEMPTS: int = 3
+
+    # How many new artist stubs one enrichment pass may create, mirroring
+    # the import's own bound. A bill past the bound stores completely and
+    # reports `partial` - performers are held, the tail's artist pages are
+    # simply not created yet, and the next pass continues.
+    LINEUP_ENRICHMENT_MAX_NEW_ARTISTS: int = 100
+
+    # How many page reads one process keeps in flight at once. The claims
+    # bound this across processes; this bounds it within one.
+    LINEUP_ENRICHMENT_MAX_CONCURRENT: int = 2
+
     # ============================================================
     # EVENT LIFECYCLE
     #
@@ -164,6 +204,13 @@ class Settings(BaseSettings):
     # Read by SynchronizationService as well as by the job, so there is one
     # definition of "stale" rather than one per caller.
     ARTIST_SYNC_TTL_HOURS: int = 24
+
+    # How long one artist's sync lease stays fresh while a worker holds it.
+    # Longer than the longest scrape this project expects - a full sync
+    # takes minutes - so a slow but alive worker is never taken over for
+    # being slow, and short enough that a worker that died mid-scrape does
+    # not lock the artist away for the rest of the day.
+    ARTIST_SYNC_LOCK_TTL_SECONDS: int = 900
 
     CORS_ORIGINS: List[str]
 
