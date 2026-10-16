@@ -17,7 +17,12 @@ Three rules the script holds itself to:
    the stored block, the lineup, the artist associations and the dates stay
    exactly as they are. A record that already stores a series id is excluded
    from the candidate set, and the write re-checks it, so a second run finds
-   nothing and a race cannot overwrite an id somebody else stored.
+   nothing and a race cannot overwrite a series somebody else stored. One
+   shape of record needs its own write: a row whose festival field is a
+   `null` placeholder. Mongo cannot write `festival.series_id` into a null,
+   so those rows get the minimal block `{series_id}` in place of the
+   placeholder - nothing more is added, and the write only happens while the
+   field is still null.
 3. Nothing is deleted, and an address that parses to no series is left alone
    and reported instead.
 
@@ -214,19 +219,44 @@ async def main() -> int:
 
     written = 0
     skipped = 0
+    placeholder = 0
 
     for document, series_id in resolvable:
 
-        # The missing-field condition travels with the write, so a series id
-        # stored between the read and here is never replaced by this script's
-        # parse of the same address.
-        result = await database.events.update_one(
-            {
-                "_id": document["_id"],
-                **MISSING_SERIES,
-            },
-            {"$set": {"festival.series_id": series_id}},
-        )
+        block = document.get("festival")
+
+        if isinstance(block, dict):
+
+            # The missing-field condition travels with the write, so a series
+            # id stored between the read and here is never replaced by this
+            # script's parse of the same address, and the block must still be
+            # a block: a placeholder that became one between read and write is
+            # somebody else's document, and this write steps aside.
+            result = await database.events.update_one(
+                {
+                    "_id": document["_id"],
+                    **MISSING_SERIES,
+                    "festival": {"$type": "object"},
+                },
+                {"$set": {"festival.series_id": series_id}},
+            )
+
+        else:
+
+            # A `null` (or absent) festival field cannot hold a subfield, so
+            # the series id lands as the minimal block in the placeholder's
+            # place - and only while the field is still null, so a block
+            # written in the meantime is never replaced.
+            result = await database.events.update_one(
+                {
+                    "_id": document["_id"],
+                    **MISSING_SERIES,
+                    "festival": None,
+                },
+                {"$set": {"festival": {"series_id": series_id}}},
+            )
+
+            placeholder += result.modified_count
 
         written += result.modified_count
         skipped += 1 - result.modified_count
@@ -235,6 +265,8 @@ async def main() -> int:
     print("APPLIED")
     print(f"   series ids stored : {written}")
     print(f"   already there     : {skipped}")
+    print(f"   of which minimal blocks replaced null placeholders: "
+          f"{placeholder}")
 
     client.close()
     return 0
