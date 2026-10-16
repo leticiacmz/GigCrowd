@@ -14,6 +14,8 @@ from app.services.event_import_service import (
     EventImportService,
 )
 
+from app.services.work_lock import WorkLock
+
 
 logger = get_logger(
     "synchronization"
@@ -31,6 +33,21 @@ def default_ttl_hours() -> int:
     from app.config import settings
 
     return int(settings.ARTIST_SYNC_TTL_HOURS)
+
+
+def default_lock_ttl_seconds() -> int:
+    """How long one artist's sync lease stays fresh, from configuration.
+
+    Longer than the longest scrape this project expects - a full sync
+    takes minutes - so a slow but alive worker is never taken over for
+    being slow; short enough that a worker that died mid-scrape does not
+    lock the artist away for the rest of the day. Read at call time for
+    the same reason the TTL above is.
+    """
+
+    from app.config import settings
+
+    return int(settings.ARTIST_SYNC_LOCK_TTL_SECONDS)
 
 
 class SynchronizationService:
@@ -57,6 +74,16 @@ class SynchronizationService:
             default_ttl_hours()
             if ttl_hours is None
             else ttl_hours
+        )
+
+        # Cross-process coordination for the sync itself. The initialization
+        # claim below covers the first-visit path, and the scheduler's
+        # `_running` flag covers one process - but an import request and a
+        # scheduler pass in another process could still scrape the same
+        # artist twice. The lease is per artist, in the same MongoDB, so
+        # exactly one worker syncs and the rest reuse what is stored.
+        self.lock_ttl_seconds = int(
+            default_lock_ttl_seconds()
         )
 
     # ============================================================
@@ -141,10 +168,70 @@ class SynchronizationService:
             }
 
 
+        # --------------------------------------------------
+        # ONE WORKER PER ARTIST, ACROSS PROCESSES
+        # --------------------------------------------------
+        #
+        # The cache check above and the initialization claim on the artist
+        # are each half of the story: one decides *whether* to sync, the
+        # other stops two first-visit requests from both starting. Neither
+        # stops a request and a scheduler pass - or a second process - from
+        # scraping the same artist at the same time. This lease does, in
+        # the same MongoDB, per artist: the winner syncs, the rest reuse
+        # what is stored. A worker that dies holds it only until it expires.
+        # --------------------------------------------------
+
+        lock = WorkLock(
+            self.artist_repository.db.work_locks,
+            f"artist_sync:{artist.id}",
+            ttl_seconds=self.lock_ttl_seconds,
+        )
+
+        if not await lock.acquire():
+
+            logger.info(
+                f"{artist.name} sync skipped. Another worker "
+                "holds the sync lease; its result will be reused."
+            )
+
+            return {
+                "artist": artist,
+                "synced": False,
+                "reason": "sync_in_progress",
+            }
+
         logger.info(
             f"Starting sync for {artist.name}"
         )
 
+
+        try:
+
+            return await self._synchronize_claimed(
+                artist,
+                provider=provider,
+            )
+
+        finally:
+
+            # Only while this worker still owns the lease: releasing after
+            # a takeover would drop the new owner's claim.
+            await lock.release()
+
+    async def _synchronize_claimed(
+        self,
+        artist: Artist,
+        *,
+        provider: str = "songkick",
+    ):
+        """The scrape itself, with the sync lease already held.
+
+        Split out so the public method owns coordination - the freshness
+        check and the lease - and this one owns the work: the fetch, the
+        artist facts, the status bookkeeping, and marking the failure. A
+        caller of the public method gets exactly one worker's result for
+        each artist, whichever process happened to win the lease.
+        """
 
         try:
 
