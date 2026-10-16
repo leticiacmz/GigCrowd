@@ -7,13 +7,15 @@
  *
  * It does not infer a genre from an event's title. "Rock in Rio" and "Boiler
  * Room" are places, not genres, and a filter that reads them as genres returns
- * confident nonsense. The genre list is built from what artists say about
- * themselves, so it only ever offers real genres.
+ * confident nonsense. The catalogue's genre search still exists on the server
+ * for whoever asks the API, but this page carries no genre control: it was a
+ * second question the box never asked, and removing it leaves the one control
+ * that answers what a reader actually came to find.
  *
- * It does not filter in the browser. Text and genre are sent together and the
- * server does both in one query, because a page that was sliced before the
- * filter ran would show a count that disagrees with the list under it and would
- * make "next page" skip rows.
+ * It does not filter in the browser. The text is sent to the server and the
+ * answer comes back whole, because a page that was sliced before the filter ran
+ * would show a count that disagrees with the list under it and would make
+ * "next page" skip rows.
  *
  * It also does not ask the reader which source to search. "Marina Sena", "Mada"
  * and "Espaço Unimed" are one question, so the box asks it once and the answer
@@ -21,11 +23,11 @@
  * and among the shows, festival editions. One request reaches the server for
  * that answer, and the reader never has to know it is two questions underneath.
  *
- * An empty box lists what is on for a signed-out reader, exactly as it
- * always has: upcoming shows, genre filter and cursor included. For a signed-in
- * reader the empty box is the personalized list of the shows of the artists
- * they follow - a different section, held apart below, that never borrows a
- * row from this one and is never answered with general discovery.
+ * An empty box lists what is on, exactly as it always has: upcoming shows and
+ * cursor included. Signed-in and signed-out readers see the same page - there
+ * is no second list competing with discovery below this one. The search field
+ * in the header lands here carrying its term in the address (`?q=`), which
+ * this page reads once on arrival and runs as the lookup it is.
  *
  * A typed query is a *lookup rather than a browse* - it reaches shows that
  * have already happened, because searching "Mada" and being told "nothing"
@@ -48,23 +50,15 @@ import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
 import { artistAPI, eventAPI, searchAPI } from '../../lib/api';
-import {
-  getCurrentPath,
-  getLoginPath,
-  isAuthenticated,
-} from '../../lib/auth';
 import type {
   EventSearchCursor,
-  EventSearchResponse,
   EventSearchRow,
 } from '@/app/types/eventSearch';
 import type { ArtistSearchResult } from '@/app/types/unifiedSearch';
 
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
-import Select from '../../../components/ui/Select';
 import ArtistCard from '../../../components/ArtistCard';
-import EmptyState from '../../../components/EmptyState';
 import LoadingState from '../../../components/LoadingState';
 
 import { formatEventDateRange } from '../../lib/dates';
@@ -79,24 +73,23 @@ export default function EventsPage() {
   const locale = (params?.locale as string) || 'en';
 
   const [query, setQuery] = useState('');
-  const [genre, setGenre] = useState('');
-
-  const [genres, setGenres] = useState<
-    { name: string; artists: number }[]
-  >([]);
 
   const [rows, setRows] = useState<EventSearchRow[]>([]);
   const [total, setTotal] = useState(0);
   const [cursor, setCursor] = useState<EventSearchCursor | null>(null);
-  const [searchLoading, setSearchLoading] = useState(false);
+  /*
+    The first read is a loading state from the very first paint, because the
+    arrival effect below always asks for something - the address's `q` when it
+    carries one, the browse list when it does not - and a blank frame before
+    that ask would read as an empty catalogue.
+  */
+  const [searchLoading, setSearchLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
   /*
     The answer section, and whether there is one. It holds the rows a
-    submitted query produced - and, for a signed-out reader, the public
-    browse list. A signed-in reader who has asked nothing has no answer
-    section at all: what they see is the personalized list below, which has
-    its own state entirely.
+    submitted query produced, and the public browse list when nothing was
+    asked - the page has one list, not two.
   */
   const [answerActive, setAnswerActive] = useState(false);
 
@@ -120,177 +113,29 @@ export default function EventsPage() {
   const [activeQuery, setActiveQuery] = useState('');
 
   /*
-    Whether there is a session at all, read once on arrival. It decides which
-    sections exist: signed in gets the personalized list as the default view;
-    signed out gets the public browse list and an invitation to sign in.
-  */
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
-
-  /*
-    The personalized list, held entirely apart from the search above it: its
-    own rows, its own cursor, its own status, and `followedCount` - how many
-    artists the reader follows - which is what lets the empty state say "you
-    follow nobody" rather than "nobody you follow has a show ahead".
-  */
-  const [followedRows, setFollowedRows] = useState<EventSearchRow[]>([]);
-  const [followedTotal, setFollowedTotal] = useState(0);
-  const [followedCursor, setFollowedCursor] =
-    useState<EventSearchCursor | null>(null);
-  const [followedCount, setFollowedCount] = useState<number | null>(null);
-  const [followedStatus, setFollowedStatus] = useState<
-    'idle' | 'loading' | 'ready' | 'error'
-  >('idle');
-  const [followedLoadingMore, setFollowedLoadingMore] = useState(false);
-
-  /*
-    Read once. The genre list comes from artist metadata and does not change as
-    pages load, so fetching it per keystroke would be a request that always
-    returns the same answer.
-  */
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadGenres() {
-      try {
-        const data = await eventAPI.getEventGenres();
-
-        if (!cancelled) {
-          setGenres(data.genres ?? []);
-        }
-      } catch {
-        if (!cancelled) {
-          setGenres([]);
-        }
-      }
-    }
-
-    loadGenres();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /*
-    The personalized list, and nothing else.
-
-    Strictly the artists this reader follows: the same rows, the same
-    provenance rules, the same soonest-first ordering and the same cursor as
-    the browse list, narrowed to their follows. An empty answer stays empty -
-    it is never replaced by general discovery, because a section that
-    silently swaps in artists the reader does not follow is no longer the
-    reader's section. `following_count` rides along even on the empty page,
-    which is what lets the UI say *which* empty this is.
-  */
-  const loadFollowing = useCallback(
-    async (options?: { before?: string; beforeId?: string }) => {
-      const paging = Boolean(options?.before);
-
-      if (!paging) {
-        setFollowedStatus('loading');
-      }
-
-      try {
-        const data: EventSearchResponse =
-          await eventAPI.followingEvents({
-            limit: PAGE_SIZE,
-            before: options?.before,
-            beforeId: options?.beforeId,
-          });
-
-        const page = data.events ?? [];
-
-        setFollowedRows((current) => {
-          if (!paging) {
-            return page;
-          }
-
-          // Merged by identity: two pages can overlap when an event is
-          // imported between two reads, and a duplicated row in a list of
-          // dates reads as two shows.
-          const known = new Set(current.map((row) => row.id));
-          return [...current, ...page.filter((row) => !known.has(row.id))];
-        });
-        setFollowedTotal(data.total ?? 0);
-        setFollowedCursor(data.next_cursor ?? null);
-        setFollowedCount(
-          typeof data.following_count === 'number'
-            ? data.following_count
-            : null
-        );
-        setFollowedStatus('ready');
-      } catch (err) {
-        if (
-          (err as { response?: { status?: number } })?.response?.status ===
-          401
-        ) {
-          // The session died mid-visit. The signed-out presentation is the
-          // honest one now - the public list and an invitation - rather
-          // than a personalized section that can no longer be fetched.
-          setSignedIn(false);
-          setFollowedStatus('idle');
-
-          try {
-            const data = await eventAPI.searchEvents({ limit: PAGE_SIZE });
-
-            setRows(data.events ?? []);
-            setTotal(data.total ?? 0);
-            setCursor(data.next_cursor ?? null);
-            setAnswerActive(true);
-          } catch {
-            setRows([]);
-            setTotal(0);
-            setCursor(null);
-            setAnswerActive(true);
-          }
-
-          return;
-        }
-
-        // A paging failure keeps the cursor where it was, so trying again
-        // asks for the same rows rather than skipping them; a first-page
-        // failure says so instead of showing an empty list as if it were
-        // the answer.
-        if (!paging) {
-          setFollowedStatus('error');
-        }
-      }
-    },
-    []
-  );
-
-  /*
-    One box, two questions behind it - and neither answer is ever mixed into
-    the other.
+    One box, one question behind it.
 
     With text, the box is a lookup: one request to the unified search returns
     the catalogue's matches and Songkick's acts together, and the type of each
-    result is read from which field it arrived in. A genre is the same kind of
-    question about the catalogue as a lookup, so it answers here too. Neither
-    touches the personalized section below: that section is about who the
-    reader follows, not about what is in the box.
+    result is read from which field it arrived in.
 
-    With neither text nor genre, the request is the browse list - and only a
-    signed-out reader has one. For a signed-in reader the default view is the
-    personalized section, so an empty submit re-asks *that* rather than
-    answering with the general list they did not ask for.
+    With no text, the request is the browse list - the same answer for every
+    reader, signed in or not. There is no second list to re-ask instead: the
+    page has one question and one answer.
   */
   const runSearch = useCallback(
     async (options: {
       q?: string;
-      genre?: string;
       before?: string;
       beforeId?: string;
     }) => {
       const text = (options.q ?? '').trim();
       const isLookup = text.length > 0;
-      const wantedGenre = (options.genre ?? '').trim();
 
       try {
         if (isLookup) {
           const data = await searchAPI.unifiedSearch({
             q: text,
-            genre: options.genre,
             limit: PAGE_SIZE,
             before: options.before,
             beforeId: options.beforeId,
@@ -311,36 +156,6 @@ export default function EventsPage() {
             setArtistError(
               data.artists_unavailable ? t('searchError') : null
             );
-          }
-        } else if (wantedGenre) {
-          const data = await eventAPI.searchEvents({
-            genre: options.genre,
-            limit: PAGE_SIZE,
-            before: options.before,
-            beforeId: options.beforeId,
-          });
-
-          setAnswerActive(true);
-          setRows(data.events ?? []);
-          setTotal(data.total ?? 0);
-          setCursor(data.next_cursor ?? null);
-          setArtists([]);
-          setArtistError(null);
-        } else if (signedIn) {
-          /*
-            The personalized section *is* the answer to "what is on" for a
-            signed-in reader - re-asked here, and never answered with the
-            general list everyone else gets.
-          */
-          setAnswerActive(false);
-          setRows([]);
-          setTotal(0);
-          setCursor(null);
-          setArtists([]);
-          setArtistError(null);
-
-          if (!options.before) {
-            await loadFollowing();
           }
         } else {
           const data = await eventAPI.searchEvents({
@@ -369,21 +184,21 @@ export default function EventsPage() {
         setActiveQuery(text);
       }
     },
-    [t, signedIn, loadFollowing]
+    [t]
   );
 
   /*
-    The first section is chosen once, on arrival, by whether there is a
-    session - and only then.
+    The arrival, once.
 
-    A signed-in reader opens on the personalized list and nothing else: it is
-    the page's primary experience, so it is fetched straight away rather than
-    after a submit. A signed-out reader opens on the public browse list,
-    which is the answer that has something to say before anything is typed.
-    Searching later never changes which section is the personalized one.
+    The address decides what is asked: `?q=` is the term the header's search
+    field arrived with, run as the lookup it is and written into the box so
+    the page shows what it is answering; without it, the browse list. Read
+    from `window.location.search` rather than a router hook because a query
+    parameter only this fetch asks about should not demand a Suspense
+    boundary around the whole page.
 
     The ref keeps this a single arrival even though `runSearch` is rebuilt
-    when the session is read (its identity changes with `signedIn`).
+    when its dependencies change identity.
   */
   const arrived = useRef(false);
 
@@ -394,43 +209,41 @@ export default function EventsPage() {
 
     arrived.current = true;
 
-    const active = isAuthenticated();
-    setSignedIn(active);
+    const initial = (
+      new URLSearchParams(window.location.search).get('q') ?? ''
+    ).trim();
 
-    if (active) {
-      loadFollowing();
+    if (initial) {
+      setQuery(initial);
+      runSearch({ q: initial }).finally(() => setSearchLoading(false));
       return;
     }
 
-    setSearchLoading(true);
-
     runSearch({}).finally(() => setSearchLoading(false));
-  }, [runSearch, loadFollowing]);
+  }, [runSearch]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
 
+    const text = query.trim();
+
     setSearchLoading(true);
 
     /*
-      Both filters go into one request. Sending them separately, or letting the
-      client narrow a page it already has, is what makes a count and a list
-      disagree.
+      The address keeps step with what was asked - so a submitted search can
+      be shared and reloaded just like the header's arrival - while the fetch
+      runs right here rather than waiting for a remount that a same-page
+      navigation would never cause.
     */
-    runSearch({
-      q: query.trim() || undefined,
-      genre: genre || undefined,
-    }).finally(() => setSearchLoading(false));
-  }
+    router.replace(
+      text
+        ? `/${locale}/events?q=${encodeURIComponent(text)}`
+        : `/${locale}/events`,
+    );
 
-  function applyGenre(value: string) {
-    setGenre(value);
-    setSearchLoading(true);
-
-    runSearch({
-      q: query.trim() || undefined,
-      genre: value || undefined,
-    }).finally(() => setSearchLoading(false));
+    runSearch({ q: text || undefined }).finally(() =>
+      setSearchLoading(false)
+    );
   }
 
   async function loadMore() {
@@ -444,21 +257,16 @@ export default function EventsPage() {
       /*
         The *submitted* query decides the endpoint, not what is in the box
         now: paging continues the list on screen, so a word typed but never
-        sent may not change where the next page comes from. This button only
-        ever pages the answer section; the personalized list pages from its
-        own endpoint, since it is a different result set rather than a filter
-        over this one.
+        sent may not change where the next page comes from.
       */
       const data = activeQuery
         ? await searchAPI.unifiedSearch({
             q: activeQuery,
-            genre: genre || undefined,
             limit: PAGE_SIZE,
             before: cursor.date,
             beforeId: cursor.id,
           })
         : await eventAPI.searchEvents({
-            genre: genre || undefined,
             limit: PAGE_SIZE,
             before: cursor.date,
             beforeId: cursor.id,
@@ -481,28 +289,6 @@ export default function EventsPage() {
       // rather than skipping them.
     } finally {
       setLoadingMore(false);
-    }
-  }
-
-  /*
-    The personalized list's own "more". It pages from the followed endpoint
-    alone - a different result set, a different cursor, and never the search
-    box's - so the two lists on one page can advance independently.
-  */
-  async function loadMoreFollowing() {
-    if (!followedCursor || followedLoadingMore) {
-      return;
-    }
-
-    setFollowedLoadingMore(true);
-
-    try {
-      await loadFollowing({
-        before: followedCursor.date,
-        beforeId: followedCursor.id,
-      });
-    } finally {
-      setFollowedLoadingMore(false);
     }
   }
 
@@ -567,9 +353,10 @@ export default function EventsPage() {
           data-testid="event-search-form"
         >
           {/*
-            Stacked on a phone, side by side above it. The genre select is a
-            native control on purpose: on a phone it opens the platform's own
-            wheel, which is the one picker a thumb can actually use.
+            One box and one button, stacked on a phone and side by side above
+            it. The box is the whole question now - the header's field lands
+            here with the term in the address, and this one is where a reader
+            can ask it again without going back to the bar.
           */}
           <div className="flex flex-col gap-3 sm:flex-row">
             <Input
@@ -580,29 +367,6 @@ export default function EventsPage() {
               className="flex-1"
               disabled={isImporting}
               data-testid="event-search-input"
-            />
-
-            <label
-              className="sr-only"
-              htmlFor="event-genre-select"
-            >
-              {tEvents('genreLabel')}
-            </label>
-
-            <Select
-              id="event-genre-select"
-              value={genre}
-              onChange={(e) => applyGenre(e.target.value)}
-              className="sm:w-56"
-              data-testid="event-genre-select"
-              aria-label={tEvents('genreLabel')}
-              options={[
-                { key: '', label: tEvents('genreAll') },
-                ...genres.map((row) => ({
-                  key: row.name,
-                  label: `${row.name} (${row.artists})`,
-                })),
-              ]}
             />
 
             <Button
@@ -672,23 +436,17 @@ export default function EventsPage() {
         {isImporting && <LoadingState message={t('importing')} />}
 
         {/*
-          Boot: while the session is being read, while the signed-in default
-          view (the personalized list) is still arriving, and while a
-          signed-out reader's first public list is still coming. Search
-          activity never hides the personalized section - each section
-          reports its own loading below.
+          Boot: while the arrival read - the address's query or the browse
+          list - is still coming. After it, search activity never blanks the
+          page: the answer section reports its own loading below.
         */}
-        {signedIn === null ||
-        (signedIn === true && followedStatus === 'loading') ||
-        (signedIn === false && searchLoading && !answerActive) ? (
+        {searchLoading && !answerActive ? (
           <LoadingState message={t('searching')} />
         ) : (
           <>
             {/*
-              The answer: what the box was asked, and nothing else. It sits
-              above the personalized section and never borrows rows from it.
-              A signed-in reader who has asked nothing has no answer section
-              at all - their default view is the list below.
+              The answer: what the box was asked, and nothing else - the
+              browse list when nothing was, the lookup when something was.
             */}
             {answerActive && (
               <section aria-labelledby="event-results-heading">
@@ -768,117 +526,6 @@ export default function EventsPage() {
                     </Button>
                   </div>
                 )}
-              </section>
-            )}
-
-            {/*
-              The personalized section - the reader's follows and only their
-              follows. No fallback to discovery when it is empty; the count
-              behind it says *which* empty it is. Below the answer section so
-              a search never pushes the reader's own list around, and the
-              only thing on the page when there is no answer above it.
-            */}
-            {signedIn ? (
-              <section
-                className={answerActive ? 'mt-10' : ''}
-                aria-labelledby="following-heading"
-                data-testid="following-section"
-              >
-                <h2
-                  id="following-heading"
-                  className="mb-3 text-lg font-semibold"
-                  data-testid="following-heading"
-                >
-                  {tEvents('followingResults')}
-                </h2>
-
-                {followedStatus === 'error' ? (
-                  <p
-                    className="py-8 text-center text-sm text-muted"
-                    data-testid="following-error"
-                  >
-                    {t('searchError')}
-                  </p>
-                ) : followedRows.length === 0 ? (
-                  <EmptyState
-                    icon={followedCount === 0 ? '💫' : '🎵'}
-                    title={
-                      followedCount === 0
-                        ? tEvents('followNoneTitle')
-                        : tEvents('followNoShows')
-                    }
-                    description={
-                      followedCount === 0
-                        ? tEvents('followNoneHint')
-                        : tEvents('followNoShowsHint')
-                    }
-                  />
-                ) : (
-                  <ul
-                    className="space-y-3"
-                    data-testid="following-results"
-                    data-total={followedTotal}
-                  >
-                    {followedRows.map((row) => (
-                      <li key={row.id}>
-                        <EventResultRow
-                          row={row}
-                          locale={locale}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                {followedCursor && (
-                  <div className="mt-6 flex justify-center">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={loadMoreFollowing}
-                      disabled={followedLoadingMore}
-                      data-testid="following-more"
-                    >
-                      {followedLoadingMore
-                        ? tEvents('loadingMore')
-                        : tEvents('more', {
-                            shown: followedRows.length,
-                            total: followedTotal,
-                          })}
-                    </Button>
-                  </div>
-                )}
-              </section>
-            ) : (
-              /*
-                The signed-out counterpart of the personalized section: an
-                invitation instead of a list that could only be wrong. Public
-                browsing stays above it, and this leaks nothing - it is shown
-                to everyone without a session, identically.
-              */
-              <section
-                className={answerActive ? 'mt-10' : ''}
-                data-testid="following-invitation"
-              >
-                <div className="rounded-xl border border-border bg-card-hover px-5 py-6 text-center">
-                  <h2 className="mb-2 text-lg font-semibold">
-                    {tEvents('inviteTitle')}
-                  </h2>
-
-                  <p className="mx-auto mb-4 max-w-md text-sm text-muted">
-                    {tEvents('inviteBody')}
-                  </p>
-
-                  <Link href={getLoginPath(locale, getCurrentPath())}>
-                    <Button
-                      variant="outlineGradient"
-                      size="sm"
-                      data-testid="following-invitation-login"
-                    >
-                      {tEvents('inviteAction')}
-                    </Button>
-                  </Link>
-                </div>
               </section>
             )}
           </>

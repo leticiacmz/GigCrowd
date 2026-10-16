@@ -33,11 +33,12 @@ interface NavbarMessages {
 }
 
 /**
- * The magnifier the Events entry draws on the desktop bar.
+ * The magnifier, drawn twice: as the submit button inside the header's search
+ * field, and beside the Events entry in the mobile menu.
  *
- * Decorative on purpose: the link's accessible name comes from its
- * localised label, never from the drawing, so the icon is hidden from
- * assistive technology.
+ * Decorative on purpose: both callers carry their own accessible names - the
+ * field's placeholder labels the input and its button - so the drawing is
+ * hidden from assistive technology and never the only thing naming anything.
  */
 function SearchIcon({ className = 'h-5 w-5' }: { className?: string }) {
   return (
@@ -53,6 +54,108 @@ function SearchIcon({ className = 'h-5 w-5' }: { className?: string }) {
       <circle cx="11" cy="11" r="7" />
       <path d="M20 20l-3.5-3.5" />
     </svg>
+  );
+}
+
+/**
+ * The header's search field: the desktop bar's Events destination, as a box
+ * a question can be typed into rather than an icon that only ever says
+ * "events page".
+ *
+ * Enter (or the magnifier) goes to `/{locale}/events` with the term in the
+ * address - `?q=...`, encoded - and the events page reads that parameter on
+ * arrival and runs the lookup. The address, not any component state, is what
+ * carries the term, so the search can be reloaded, shared and read the same
+ * by whoever opens it next.
+ */
+function HeaderSearch({
+  locale,
+  placeholder,
+}: {
+  locale: string;
+  placeholder: string;
+}) {
+  const router = useRouter();
+  const [term, setTerm] = useState('');
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+
+    const query = term.trim();
+    const target = query
+      ? `/${locale}/events?q=${encodeURIComponent(query)}`
+      : `/${locale}/events`;
+
+    /*
+     * Already on the events page: a client-side push would leave the page
+     * mounted, and the page reads `?q=` on arrival - so the press navigates
+     * for real and the term is read by exactly the effect that owns it. From
+     * anywhere else the push is enough, since the page mounts either way.
+     */
+    if (window.location.pathname === `/${locale}/events`) {
+      window.location.assign(target);
+      return;
+    }
+
+    router.push(target);
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      role="search"
+      data-testid="nav-search"
+      className="
+        flex
+        items-center
+        gap-1
+        rounded-lg
+        border
+        border-border
+        bg-card-bg
+        px-2
+        transition-colors
+        focus-within:border-accent
+      "
+    >
+      <input
+        type="search"
+        value={term}
+        onChange={(event) => setTerm(event.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        data-testid="nav-search-input"
+        className="
+          h-9
+          w-40
+          bg-transparent
+          text-sm
+          text-foreground
+          outline-none
+          placeholder:text-muted-subtle
+          md:w-56
+        "
+      />
+
+      <button
+        type="submit"
+        aria-label={placeholder}
+        data-testid="nav-search-submit"
+        className="
+          flex
+          h-9
+          w-9
+          shrink-0
+          items-center
+          justify-center
+          text-muted
+          transition-colors
+          hover:text-foreground
+        "
+      >
+        <SearchIcon className="h-4 w-4" />
+      </button>
+    </form>
   );
 }
 
@@ -159,27 +262,34 @@ export default function Navbar({ messages }: { messages?: NavbarMessages }) {
         </Link>
 
         <div className="hidden flex-1 items-center justify-center gap-7 md:flex">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              aria-label={link.label}
-              title={link.label}
-              data-testid={link.icon ? 'nav-events' : undefined}
-              aria-current={pathname === link.href ? 'page' : undefined}
-              className={`inline-flex min-h-[44px] items-center gap-2 rounded-lg px-2 transition-colors duration-200 ${
-                pathname === link.href ? activeLinkClass : inactiveLinkClass
-              }`}
-            >
-              {link.icon === 'search' && <SearchIcon />}
-              {/*
-                On the bar the magnifier stands in for the word - the
-                label moves to `aria-label` and `title` - so the icon is
-                never the only thing naming the destination.
-              */}
-              {!link.icon && link.label}
-            </Link>
-          ))}
+          {/*
+            The search destination is drawn as the search field itself on the
+            bar - a box a question can be typed into says "find events" better
+            than an icon that only ever means the events page - while every
+            other destination stays a link with its localised label. The
+            destination's own `nav.events` label keeps its job in the mobile
+            menu, where the list reads as words.
+          */}
+          {navLinks.map((link) =>
+            link.icon === 'search' ? (
+              <HeaderSearch
+                key={link.href}
+                locale={locale}
+                placeholder={nav.searchPlaceholder ?? 'Search events'}
+              />
+            ) : (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-current={pathname === link.href ? 'page' : undefined}
+                className={`inline-flex min-h-[44px] items-center gap-2 rounded-lg px-2 transition-colors duration-200 ${
+                  pathname === link.href ? activeLinkClass : inactiveLinkClass
+                }`}
+              >
+                {link.label}
+              </Link>
+            ),
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-2 sm:gap-3">

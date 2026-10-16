@@ -1727,21 +1727,21 @@ with sync_playwright() as p:
         (logo.get_attribute("href") or "") == "/en/feed",
         logo.get_attribute("href") or "",
     )
-    events = pg.locator("nav a[data-testid='nav-events']")
+    search = pg.locator("nav [data-testid='nav-search-input']")
     check(
-        "nav: the Events entry is present for every reader",
-        events.count() == 1,
-        f"{events.count()} links",
+        "nav: the search field is present for every reader",
+        search.count() == 1,
+        f"{search.count()} fields",
     )
     check(
-        "nav: the Events entry is a locale-prefixed link",
-        (events.first.get_attribute("href") or "") == "/en/events",
-        events.first.get_attribute("href") or "",
+        "nav: the search field is labelled beyond its magnifier",
+        (search.first.get_attribute("aria-label") or "").strip() != "",
+        search.first.get_attribute("aria-label") or "",
     )
     check(
-        "nav: the Events entry has an accessible name beyond its icon",
-        (events.first.get_attribute("aria-label") or "").strip() != "",
-        events.first.get_attribute("aria-label") or "",
+        "nav: the search field offers a localised placeholder",
+        (search.first.get_attribute("placeholder") or "").strip() != "",
+        search.first.get_attribute("placeholder") or "",
     )
     bell = pg.locator("nav a[data-testid='notifications-link']")
     check(
@@ -1764,6 +1764,47 @@ with sync_playwright() as p:
         "nav: the Notifications entry is a comfortable touch target",
         bell_box and bell_box["height"] >= 40 and bell_box["width"] >= 40,
         f"{bell_box}",
+    )
+
+    # The bar's search field, pressed the way a reader presses it: the term
+    # travels in the address, and the events page arrives already answering
+    # it - the same lookup from either door. The nav checks above stay where
+    # they are because this navigates away from them.
+    header_search = pg.locator("nav [data-testid='nav-search-input']").first
+    header_search.fill("lollapalooza")
+    header_search.press("Enter")
+
+    try:
+        pg.wait_for_url(
+            lambda url: "/en/events" in url and "q=lollapalooza" in url,
+            timeout=15000,
+        )
+        landed = pg.url
+    except Exception:
+        landed = pg.url
+
+    check(
+        "nav: the header search lands on the events page with the term in the address",
+        "/en/events" in landed and "q=lollapalooza" in landed,
+        landed,
+    )
+
+    try:
+        pg.wait_for_selector(
+            "[data-testid='event-search-results'], "
+            "[data-testid='event-search-empty']",
+            timeout=30000,
+        )
+    except Exception:
+        pass
+
+    arrival_box = pg.eval_on_selector(
+        "[data-testid='event-search-input']", "el => el.value"
+    )
+    check(
+        "nav: the events page reads the arrival term into its own box",
+        arrival_box == "lollapalooza",
+        f"value={arrival_box!r}",
     )
 
     # The author was followed, liked and commented on, so they have a full inbox.
@@ -4140,10 +4181,12 @@ with sync_playwright() as p:
     else:
         check("event: an event page could be exercised", False, "no events for artist")
 
-    # ================================= 17. THE EVENTS PAGE AND ITS GENRE FILTER
-    # Two things this page must not do, and both are checked against the API
-    # rather than against the page: offer a genre that no artist carries, and
-    # show a count that disagrees with the list underneath it.
+    # ================================ 17. THE EVENTS PAGE AND ITS ONE SEARCH BOX
+    # The page carries a single control - the box - and two things it must not
+    # do are checked against the API rather than against the page: offer a
+    # genre no artist carries (the catalogue's endpoint still answers that
+    # question for whoever asks it), and show a count that disagrees with the
+    # list underneath it.
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(str(e)))
@@ -4171,26 +4214,20 @@ with sync_playwright() as p:
     pg.wait_for_timeout(800)
 
     check(
-        "events: the page searches events with a search box and a genre",
+        "events: the page searches events with its one search box",
         pg.locator("[data-testid='event-search-input']").count() == 1
-        and pg.locator("[data-testid='event-genre-select']").count() == 1,
-    )
-
-    # The genre list comes from artist metadata, so the filter may only offer
-    # what the endpoint offers - no more, and none of them made up.
-    api_genres = api_get("/events/genres")
-    api_genre_names = [row["name"] for row in api_genres.get("genres") or []]
-
-    page_genre_options = pg.eval_on_selector_all(
-        "[data-testid='event-genre-select'] option",
-        "els => els.map(e => e.value).filter(v => v !== '')",
+        and pg.locator("[data-testid='event-search-form']").count() == 1,
     )
 
     check(
-        "events: the genre filter offers exactly the stored genres",
-        set(page_genre_options) == set(api_genre_names),
-        f"page={page_genre_options} api={api_genre_names}",
+        "events: the page carries no second filter beside the box",
+        pg.locator("[data-testid='event-genre-select']").count() == 0,
     )
+
+    # The genre list still comes from artist metadata - the endpoint remains
+    # the catalogue's own question even though the page no longer puts it on
+    # a control - so only the stored data is checked below.
+    api_genres = api_get("/events/genres")
 
     # A genre must never be invented from a title. "Rock in Rio" is a place.
     place_like = [
@@ -4277,158 +4314,59 @@ with sync_playwright() as p:
             f"{widest['starts_at']} -> {widest['ends_at']}",
         )
 
-    # The genre filter composes with the search inside one query.
-    #
-    # The genre to try is taken from the artists of the events the catalogue
-    # actually has upcoming, rather than from the first option in the list. The
-    # list is ordered by how many artists carry a genre, so its first entry is
-    # usually a broad one that matches thousands of artists and therefore, quite
-    # legitimately, none of the handful of shows that are actually coming up -
-    # which would make the check vacuous rather than informative.
-    genres_on_upcoming: list = []
+    # A search whose term came from the address - the header's own path, or a
+    # link somebody shared - arrives answered: the box shows the term, and the
+    # list under it is that lookup's answer, with nothing typed into the page.
+    pg.goto(f"{BASE}/en/events?q=zzzznomatch", wait_until=NAV_WAIT)
 
-    for row in api_rows.get("events") or []:
-        for artist in row.get("artists") or []:
-            for genre in artist.get("genres") or []:
-                if genre not in genres_on_upcoming:
-                    genres_on_upcoming.append(genre)
+    try:
+        pg.wait_for_selector(
+            "[data-testid='event-search-results'], "
+            "[data-testid='event-search-empty']",
+            timeout=25000,
+        )
+    except Exception:
+        pass
 
-    first_genre = next(
-        (
-            genre
-            for genre in genres_on_upcoming
-            if genre in api_genre_names
-        ),
-        None,
+    pg.wait_for_timeout(800)
+
+    deep_box = pg.eval_on_selector(
+        "[data-testid='event-search-input']", "el => el.value"
     )
 
-    if first_genre:
-        api_by_genre = api_get(
-            "/events?genre="
-            + httpx.QueryParams({"genre": first_genre})["genre"]
-        )
-
-        pg.select_option(
-            "[data-testid='event-genre-select']", first_genre
-        )
-
-        try:
-            pg.wait_for_selector(
-                "[data-testid='event-search-results'], "
-                "[data-testid='event-search-empty']",
-                timeout=25000,
-            )
-        except Exception:
-            pass
-
-        pg.wait_for_timeout(800)
-
-        # Read the count off the list, or take it as zero when the page says
-        # there is nothing - the empty state is the honest rendering of a
-        # filter that matched no show, not a page that failed to answer.
-        has_list = (
-            pg.locator("[data-testid='event-search-results']").count()
+    check(
+        "events: a term in the address arrives in the box, answered",
+        deep_box == "zzzznomatch"
+        and (
+            pg.locator("[data-testid='event-search-empty']").count() == 1
+            or pg.locator("[data-testid='event-search-results']").count()
             == 1
-        )
+        ),
+        f"box={deep_box!r}",
+    )
 
-        filtered_total = (
-            pg.locator(
-                "[data-testid='event-search-results']"
-            ).get_attribute("data-total")
-            if has_list
-            else "0"
-        )
-
-        filtered_rows = pg.eval_on_selector_all(
-            "[data-testid='event-search-row']",
-            "els => els.map(e => e.getAttribute('href'))",
-        )
-
-        check(
-            f"events: the genre filter narrows the list ({first_genre})",
-            int(filtered_total or 0)
-            == int(api_by_genre.get("total") or 0)
-            and len(filtered_rows) <= int(filtered_total or 0),
-            f"page={filtered_total} api={api_by_genre.get('total')} "
-            f"rows={len(filtered_rows)}",
-        )
-
-        # Case-insensitively, because the filter is: `pop` and `Pop` are one
-        # option and select the same artists, and the list shows whichever
-        # spelling the most artists use. Comparing exactly would fail here purely
-        # because the stored spelling differs from the displayed one.
-        #
-        # It also asserts the whole and not a prefix. A partial match would let
-        # `punk` pull in `post-punk`, which is the failure a genre filter cannot
-        # afford.
-        wanted_genre = first_genre.casefold()
-
-        check(
-            f"events: filtering by {first_genre} keeps only that genre",
-            all(
-                wanted_genre
-                in {
-                    str(genre).strip().casefold()
-                    for genre in (artist.get("genres") or [])
-                }
-                for row in api_by_genre.get("events") or []
-                for artist in row.get("artists") or []
-            )
-            and bool(api_by_genre.get("events")),
-            f"{len(api_by_genre.get('events') or [])} rows returned",
-        )
-
-        # Narrowing must never widen.
-        check(
-            "events: filtering by genre cannot show more than everything",
-            int(filtered_total or 0) <= int(api_rows.get("total") or 0),
-            f"genre={filtered_total} all={api_rows.get('total')}",
-        )
-
-    else:
-        check(
-            "events: a genre could be exercised",
-            bool(api_genre_names),
-            f"no genre matched any upcoming event "
-            f"(options={api_genre_names[:3]})",
-        )
-
-    # The filter is localized, and so is everything around it. The expected text
-    # is the "all genres" option, which is the one a reader sees without
-    # interacting with the control.
-    for locale, expected_genre_label in (
-        ("pt-BR", "Todos os gêneros"),
-        ("es", "Todos los géneros"),
+    # The search surface is localized: the header's own field, in the locales
+    # the site ships, asserted on the placeholder a reader actually sees and
+    # never on the English one standing in for a translation.
+    for locale, expected_placeholder in (
+        ("pt-BR", "Buscar eventos"),
+        ("es", "Buscar eventos"),
     ):
-        pg.goto(f"{BASE}/{locale}/events", wait_until=NAV_WAIT)
+        pg.goto(f"{BASE}/{locale}", wait_until=NAV_WAIT)
 
-        try:
-            pg.wait_for_selector(
-                "[data-testid='event-genre-select']", timeout=20000
-            )
-        except Exception:
-            pass
-
-        pg.wait_for_timeout(1200)
-
-        labels = pg.eval_on_selector_all(
-            "[data-testid='event-genre-select'] option",
-            "els => els.map(e => (e.textContent || '').trim())",
+        field = pg.locator("nav [data-testid='nav-search-input']")
+        placeholder = (
+            field.first.get_attribute("placeholder") or ""
+            if field.count()
+            else ""
         )
 
-        # Asserted on the option a reader actually sees, not on the accessible
-        # label beside it. The option is the control; matching a substring of the
-        # label would also have passed on a page still showing English options
-        # under a translated heading.
         check(
-            f"events: the {locale} genre filter is translated",
-            any(
-                expected_genre_label in label for label in labels
-            )
-            and not any(
-                "All genres" in label for label in labels
-            ),
-            f"labels={labels[:2]}",
+            f"nav: the {locale} search placeholder is translated",
+            field.count() == 1
+            and placeholder == expected_placeholder
+            and placeholder != "Search events",
+            placeholder or "no field",
         )
 
     pg.close()
@@ -4586,105 +4524,62 @@ with sync_playwright() as p:
     mobile_toggle.click()
     pg.wait_for_timeout(300)
 
-    # ---- The genre filter on a phone.
+    # ---- The search box on a phone.
     #
-    # It sits beside the search box on a pointer device and stacks above it here,
-    # which is the only thing about it that can differ - the same query, the same
-    # options, the same composition with the text. Checked by using it rather than
-    # by measuring it, because a filter that composes in the browser instead of in
-    # the query still *looks* correct and pages wrongly.
+    # The header field belongs to the desktop bar, so on a phone the search
+    # lives in the page's own box - full-width above its button, the only
+    # thing about the form that can differ here. Checked by using it rather
+    # than by measuring it: a search that only looks right and asks the wrong
+    # question still pages wrong.
     pg.goto(f"{BASE}/pt-BR/events", wait_until=NAV_WAIT)
     pg.wait_for_timeout(1500)
 
-    genre_select = pg.locator("[data-testid='event-genre-select']")
     search_input = pg.locator("[data-testid='event-search-input']")
 
     check(
-        "mobile: the genre filter is beside the search box",
-        genre_select.count() == 1 and search_input.count() == 1,
-        f"genre={genre_select.count()} search={search_input.count()}",
+        "mobile: the search box is present above its button",
+        search_input.count() == 1
+        and pg.locator("[data-testid='event-search-submit']").count() == 1,
+        f"search={search_input.count()}",
     )
 
-    if genre_select.count():
-        genre_box = genre_select.bounding_box() or {}
+    if search_input.count():
+        # Let the arrival list settle first, so an emptied list below is the
+        # answer to the search rather than a page still loading its default.
+        try:
+            pg.wait_for_selector(
+                "[data-testid='event-search-results'], "
+                "[data-testid='event-search-empty']",
+                timeout=25000,
+            )
+        except Exception:
+            pass
+
+        search_input.fill("zzzznomatch")
+        search_input.press("Enter")
+        # The search asks the API on Enter; wait for the answer to have
+        # emptied the list rather than for a clock.
+        wait_for(
+            pg,
+            js=(
+                "() => document.querySelectorAll("
+                "\"[data-testid='event-search-row']\").length"
+                " === 0"
+            ),
+        )
+
+        matched = pg.locator("[data-testid='event-search-row']").count()
 
         check(
-            "mobile: the genre filter is a comfortable touch target",
-            genre_box.get("height", 0) >= 44,
-            f"{genre_box}",
+            "mobile: a search that matches nothing empties the list",
+            matched == 0,
+            f"rows={matched}",
         )
 
-        genre_options = pg.eval_on_selector_all(
-            "[data-testid='event-genre-select'] option",
-            "els => els.map(e => e.getAttribute('value'))",
-        )
-
-        check(
-            "mobile: the genre filter offers All plus real genres",
-            len(genre_options) >= 2
-            and genre_options[0] == ""
-            and any(value for value in genre_options[1:]),
-            f"{len(genre_options)} options",
-        )
-
-        real_genres = [
-            value for value in genre_options[1:] if value
-        ]
-
-        if real_genres:
-            chosen = real_genres[0]
-
-            pg.select_option(
-                "[data-testid='event-genre-select']", chosen
-            )
-            pg.wait_for_timeout(1500)
-
-            filtered = pg.locator(
-                "[data-testid='event-search-row']"
-            ).count()
-
-            check(
-                "mobile: choosing a genre narrows the list",
-                filtered >= 0,
-                f"genre={chosen} rows={filtered}",
-            )
-
-            # Search and genre together, on a phone, with the viewport that
-            # breaks things. A filter that composes client-side would page over
-            # rows the reader cannot see.
-            if search_input.count():
-                search_input.fill("zzzznomatch")
-                search_input.press("Enter")
-                # The search asks the API on Enter; wait for the answer to
-                # have emptied the list rather than for a clock.
-                wait_for(
-                    pg,
-                    js=(
-                        "() => document.querySelectorAll("
-                        "\"[data-testid='event-search-row']\").length"
-                        " === 0"
-                    ),
-                )
-
-                combined = pg.locator(
-                    "[data-testid='event-search-row']"
-                ).count()
-
-                check(
-                    "mobile: search and genre compose into one result",
-                    combined == 0,
-                    f"rows={combined}",
-                )
-
-                search_input.fill("")
-                search_input.press("Enter")
-                pg.wait_for_timeout(1200)
-
-            # Back to everything, so the overflow pass below sees the default.
-            pg.select_option(
-                "[data-testid='event-genre-select']", ""
-            )
-            pg.wait_for_timeout(1200)
+        # Back to everything, so the overflow pass below sees the default.
+        search_input.fill("")
+        search_input.press("Enter")
+        pg.wait_for_timeout(1200)
 
     mobile_paths = [
         "/pt-BR",
