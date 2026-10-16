@@ -67,6 +67,7 @@ export default function FestivalPage() {
       notFound={notFound}
       eventId={eventId}
       locale={locale}
+      onReload={load}
     />
   );
 }

@@ -105,8 +105,17 @@ test('the festival view carries the response lineup state', () => {
   const view = read('components/festival/FestivalDetails.tsx');
 
   assert.ok(
-    view.includes("data-lineup-state={festival.lineup_state ?? 'unknown'}"),
+    view.includes('data-lineup-state={lineupState}'),
     'the lineup section must carry whether the lineup is held, so an ' +
-      'unheld lineup is never presented as an empty bill',
+      'unheld lineup is never presented as an empty bill - with the ' +
+      'staleness reading applied, a working state nobody has advanced ' +
+      'reads as the stuck pass it is rather than an endless animation',
+  );
+
+  assert.ok(
+    view.includes('lineup_state_updated_at'),
+    'the section must know when the state was last written, which is the ' +
+      'only difference the response offers between a worker reading now ' +
+      'and one that died mid-read',
   );
 });

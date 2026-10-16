@@ -23,6 +23,7 @@
   both be worse than showing the name plainly.
 */
 import {
+  useEffect,
   useMemo,
   useState,
 } from 'react';
@@ -32,7 +33,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
-import { artistAPI } from '../../app/lib/api';
+import { artistAPI, eventAPI } from '../../app/lib/api';
 
 import type { Locale } from '../../app/i18n';
 
@@ -50,6 +51,72 @@ import LineupPerformerCard, {
 
 
 type LineupArtist = LineupPerformer & { order: number };
+
+/*
+  What the record says about this lineup's own enrichment - the same
+  literals the response carries, kept as one spelling here. `ok` and
+  `unknown` are the readings every row has always had; the rest are the
+  states of the pass that reads an edition's own page for the rest of the
+  bill (see `LineupEnrichmentService`).
+*/
+export type LineupState =
+  | 'ok'
+  | 'unknown'
+  | 'pending'
+  | 'active'
+  | 'partial'
+  | 'failed'
+  | 'empty';
+
+/*
+  How long a `pending`/`active` state may sit untouched before it reads as
+  stuck. A worker that died mid-read leaves the same state a worker that is
+  still reading writes, so age is the only difference the response can
+  offer - and after it, the honest thing to offer is the retry rather than
+  an animation that never resolves.
+*/
+const WORKING_STATE_STALE_MS = 2 * 60 * 1000;
+
+/*
+  The follow-up after a retry, bounded. The button asks for one update; an
+  unbounded re-read would turn that click into a polling loop, so after
+  this many re-reads the page stops following and the state on screen is
+  simply the one the last read returned.
+*/
+const MAX_POLLS = 30;
+const POLL_INTERVAL_MS = 4000;
+
+/**
+ * A working state nobody has advanced for longer than the bound reads as
+ * stuck.
+ *
+ * `pending` and `active` are written by whoever queues and whoever claims
+ * the work, and a worker that dies leaves exactly the state a worker that
+ * is alive writes - the response carries no liveness of its own, so the age
+ * of the writing is the only difference on offer. A state with no moment at
+ * all is older than any bound: nothing claims recent work for it. Once
+ * stuck, the honest rendering is the retry, not an animation that never
+ * resolves.
+ */
+function isStuckWorkingState(
+  state: LineupState,
+  updatedAt?: string | null,
+): boolean {
+  if (state !== 'pending' && state !== 'active') {
+    return false;
+  }
+
+  if (!updatedAt) {
+    return true;
+  }
+
+  const moment = Date.parse(updatedAt);
+
+  return (
+    Number.isNaN(moment) ||
+    Date.now() - moment > WORKING_STATE_STALE_MS
+  );
+}
 
 interface Venue {
   slug?: string | null;
@@ -76,6 +143,14 @@ interface Edition {
 interface EditionEntry {
   event: Edition;
   lineup: LineupArtist[];
+
+  /*
+    This edition's own enrichment state, when the row carries one. Displayed
+    nowhere on this view - the lineup section reports the edition being
+    viewed - but part of the response, so the type says what arrives.
+  */
+  lineup_state?: LineupState;
+  lineup_state_updated_at?: string | null;
 }
 
 interface FestivalIdentity {
@@ -98,14 +173,24 @@ export interface Festival {
   lineup: LineupArtist[];
 
   /*
-    Whether the shown lineup is actually held. `unknown` is not an empty bill:
-    the response refuses to claim the festival announced no performers when
-    the stored record cannot say whether the source named none, the read
-    failed, or it never ran - and this view says the same, rendering the
-    lineup section with that state rather than presenting the empty list as a
-    fact about the festival.
+    Whether the shown lineup is actually held, and where the record stands
+    about reading the rest of it. `unknown` is not an empty bill: the
+    response refuses to claim the festival announced no performers when the
+    stored record cannot say whether the source named none, the read failed,
+    or it never ran - and this view says the same, rendering the lineup
+    section with that state rather than presenting the empty list as a fact
+    about the festival.
+
+    The other states are the enrichment pass itself: `pending` queued,
+    `active` reading, `partial` holding performers with the pass unfinished,
+    `failed` asking for a retry, `empty` a finished read that announced
+    nobody. None of them may hide names already stored - the section below
+    shows whatever exists in every state.
   */
-  lineup_state?: 'ok' | 'unknown';
+  lineup_state?: LineupState;
+
+  /* When that state was last written, for the staleness reading above. */
+  lineup_state_updated_at?: string | null;
 }
 
 export interface FestivalDetailsProps {
@@ -125,6 +210,13 @@ export interface FestivalDetailsProps {
   eventId: string | null;
 
   locale: Locale;
+
+  /**
+   * Re-read the response from the server. The retry button uses it to follow
+   * the state it just asked for; a page view on its own never calls it, so a
+   * reader who pressed nothing gets exactly one read.
+   */
+  onReload?: () => void | Promise<void>;
 }
 
 /**
@@ -136,11 +228,81 @@ export default function FestivalDetails({
   notFound,
   eventId,
   locale,
+  onReload,
 }: FestivalDetailsProps) {
   const router = useRouter();
   const t = useTranslations('festivals');
 
   const [query, setQuery] = useState('');
+
+  /*
+    The retry, and the only follow-up this page ever runs.
+
+    Pressing the button asks the server to read the edition's own page again;
+    what comes back is a state, not the finished lineup, so the page then
+    re-reads the festival response - but only after a retry it issued itself,
+    only while the state says work is running, and never past the bounded
+    number of re-reads above. A page nobody pressed anything on reads the
+    server once and stops, whatever the states are.
+  */
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState(false);
+  const [watching, setWatching] = useState(false);
+  const [polls, setPolls] = useState(0);
+
+  /*
+    The state as it stands, with one reading applied: a `pending`/`active`
+    nobody has advanced for longer than the staleness bound reads as stuck,
+    because a dead worker and a working one leave the same state behind.
+  */
+  const rawLineupState: LineupState =
+    festival?.lineup_state ?? 'unknown';
+  const lineupState: LineupState = isStuckWorkingState(
+    rawLineupState,
+    festival?.lineup_state_updated_at
+  )
+    ? 'failed'
+    : rawLineupState;
+
+  useEffect(() => {
+    if (!watching) {
+      return;
+    }
+
+    const state = festival?.lineup_state ?? 'unknown';
+
+    if (
+      (state !== 'pending' && state !== 'active') ||
+      // A working state whose moment has gone stale reads as a dead pass:
+      // following it further would chase an answer nobody is writing.
+      isStuckWorkingState(
+        state,
+        festival?.lineup_state_updated_at
+      )
+    ) {
+      // The pass reached its answer, failed, or died. Either way this stops.
+      setWatching(false);
+      return;
+    }
+
+    if (polls >= MAX_POLLS) {
+      setWatching(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setPolls((count) => count + 1);
+      onReload?.();
+    }, POLL_INTERVAL_MS);
+
+    return () => clearTimeout(timer);
+  }, [
+    watching,
+    festival?.lineup_state,
+    festival?.lineup_state_updated_at,
+    polls,
+    onReload,
+  ]);
 
   const identity = festival?.identity;
   const editions = useMemo(
@@ -221,7 +383,6 @@ export default function FestivalDetails({
     if (openingArtist) {
       return;
     }
-
     setOpenFailure(null);
     setOpeningArtist({ phase: 'searching', performer });
 
@@ -255,6 +416,35 @@ export default function FestivalDetails({
           performer,
         });
       });
+  }
+
+  /*
+    One retry, single-flight: a second press while the first is in flight
+    does nothing rather than asking twice, and a failed request says so on
+    screen instead of silently leaving the old state up.
+  */
+  async function handleLineupRetry() {
+    const selected = festival?.selected_event_id ?? eventId;
+
+    if (retrying || !selected) {
+      return;
+    }
+
+    setRetrying(true);
+    setRetryError(false);
+
+    try {
+      await eventAPI.retryLineup(selected);
+
+      setPolls(0);
+      setWatching(true);
+      await onReload?.();
+    } catch {
+      setRetryError(true);
+      setWatching(false);
+    } finally {
+      setRetrying(false);
+    }
   }
 
   if (loading) {
@@ -304,6 +494,80 @@ export default function FestivalDetails({
     response that somehow carries none.
   */
   const backTo = festival.selected_event_id ?? eventId;
+
+  /*
+    How the lineup section reads now: whether any name is stored at all,
+    which state needs a note above the names, and whether the retry button
+    belongs on screen. The button follows the state rather than the fetch -
+    it appears for a failed or partial pass and for a finished read that
+    announced nobody, the three moments a second read can change what is
+    shown - and never while a fresh claim is working, because there the
+    honest answer is patience, not a second request.
+  */
+  const storedNames = lineup.length > 0;
+  const needsNote =
+    storedNames &&
+    (lineupState === 'pending' ||
+      lineupState === 'active' ||
+      lineupState === 'partial' ||
+      lineupState === 'failed');
+  const canRetry =
+    (lineupState === 'failed' ||
+      lineupState === 'partial' ||
+      lineupState === 'empty') &&
+    Boolean(backTo);
+
+  const lineupNote =
+    lineupState === 'pending'
+      ? t('lineupQueued')
+      : lineupState === 'active'
+        ? t('lineupUpdating')
+        : lineupState === 'partial'
+          ? t('lineupPartial')
+          : t('lineupFailed');
+
+  const emptyMessage = storedNames
+    ? t('noSearchMatches')
+    : lineupState === 'pending' || lineupState === 'active'
+      ? t('lineupUpdating')
+      : lineupState === 'partial'
+        ? t('lineupPartial')
+        : lineupState === 'failed'
+          ? t('lineupFailed')
+          : lineupState === 'empty'
+            ? t('lineupEmptyConfirmed')
+            : t('lineupEmpty');
+
+  const retryButton = canRetry ? (
+    <button
+      type="button"
+      onClick={handleLineupRetry}
+      disabled={retrying}
+      data-testid="lineup-retry"
+      className="
+        shrink-0
+        rounded-lg
+        border
+        border-border
+        px-4
+        py-2
+        text-sm
+        text-foreground
+        transition
+        hover:border-accent
+        disabled:cursor-not-allowed
+        disabled:opacity-60
+      "
+    >
+      {retrying ? t('lineupRetrying') : t('retryLineup')}
+    </button>
+  ) : null;
+
+  const retryFailure = retryError ? (
+    <p className="text-sm text-red-400" data-testid="lineup-retry-error">
+      {t('lineupRetryFailed')}
+    </p>
+  ) : null;
 
   return (
     <div className="min-h-screen">
@@ -572,13 +836,16 @@ export default function FestivalDetails({
             says which edition the names belong to, because a festival's lineup
             genuinely differs per edition.
 
-            `data-lineup-state` carries the response's own answer about this
-            lineup, so a test can tell "held, empty search" and "nothing is
-            held" apart without reading the words on screen.
+            `data-lineup-state` carries this lineup's own state, after the
+            staleness reading: `ok`/`unknown` as always, or the pass's own
+            `pending`/`active`/`partial`/`failed`/`empty` - so a test can tell
+            "held, empty search" and "nothing is held" apart without reading
+            the words on screen, and can see a stale working state rendered
+            as the stuck pass it is.
             ============================================================ */}
         <section
           className="mt-10"
-          data-lineup-state={festival.lineup_state ?? 'unknown'}
+          data-lineup-state={lineupState}
         >
           <SectionHeader
             title={
@@ -619,16 +886,47 @@ export default function FestivalDetails({
             {t('lineupHint')}
           </p>
 
+          {needsNote && (
+            <div
+              className="
+                mb-5
+                flex
+                flex-col
+                gap-3
+                rounded-2xl
+                border
+                border-border
+                bg-card-bg
+                px-4
+                py-4
+                sm:flex-row
+                sm:items-center
+                sm:justify-between
+              "
+              data-testid="lineup-status"
+            >
+              <div>
+                <p className="text-sm text-muted">{lineupNote}</p>
+                {retryFailure}
+              </div>
+              {retryButton}
+            </div>
+          )}
+
           {filteredLineup.length === 0 ? (
             <div
               className="rounded-2xl border border-border bg-card-bg py-16 text-center"
               data-testid="festival-lineup"
             >
-              <p className="text-muted-subtle">
-                {lineup.length === 0
-                  ? t('lineupEmpty')
-                  : t('noSearchMatches')}
-              </p>
+              <div className="flex flex-col items-center gap-4 px-4">
+                <p className="text-muted-subtle">{emptyMessage}</p>
+                {canRetry && !needsNote && (
+                  <div className="flex flex-col items-center gap-2">
+                    {retryButton}
+                    {retryFailure}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div

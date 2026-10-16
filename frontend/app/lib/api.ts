@@ -305,6 +305,18 @@ export const eventAPI = {
     );
     return response.data;
   },
+  /*
+    Ask for one festival edition's own page to be read again. The button on
+    the festival page, and nothing else: a page view never starts this, the
+    request answers with the state the edition was left in rather than
+    waiting for the read, and the page follows the result on its own terms.
+  */
+  retryLineup: async (eventId: string) => {
+    const response = await api.post(
+      `/festivals/lineup/${encodeURIComponent(eventId)}/retry`,
+    );
+    return response.data;
+  },
   getAttendance: async (eventId: string) => {
     const response = await api.get(`/events/${eventId}/attendance`);
     return response.data;

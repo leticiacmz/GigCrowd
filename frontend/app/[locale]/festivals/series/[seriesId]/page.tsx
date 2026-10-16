@@ -110,6 +110,7 @@ export default function FestivalSeriesPage() {
       notFound={route.kind === 'invalid' || notFound}
       eventId={null}
       locale={locale}
+      onReload={load}
     />
   );
 }
