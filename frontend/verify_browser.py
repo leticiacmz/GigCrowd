@@ -2132,9 +2132,16 @@ with sync_playwright() as p:
         return "rgb(255, 255, 255)"
 
     audit_targets = [
-        # The bar's one public destination is Events; the old artists-targeted
-        # selector here measured an element the design deliberately removed.
-        ("navbar link", f"{BASE}/en", "nav a[href$='/events']"),
+        # The bar's one control is the search field itself: the Events link
+        # this used to measure BECAME that field, and the bar now holds no
+        # other plain-text destination (the brand is gradient-painted and has
+        # no text colour to measure). Measuring the field measures what the
+        # bar actually shows.
+        (
+            "navbar search field",
+            f"{BASE}/en",
+            "nav input[data-testid='nav-search-input']",
+        ),
         ("feed timestamp", f"{BASE}/en/feed", "[data-testid='feed-timestamp']"),
         ("feed verb", f"{BASE}/en/feed", "[data-testid='feed-verb']"),
         (
