@@ -415,3 +415,218 @@ def test_duplicates_are_removed_and_bill_order_kept():
 def test_a_payload_with_no_lineup_has_no_ids():
     assert _lineup_songkick_ids({}) == []
     assert _lineup_songkick_ids({"lineup": "not-a-list"}) == []
+
+
+# ============================================================
+# WHAT THE RUN QUEUES FOR THE BACKGROUND PASS
+# ============================================================
+#
+# The queue behind an import reads festival editions' own pages. Which
+# editions go into it is a product decision with a measurable cost: every
+# queued edition is one page read per edition, in the background, after the
+# response has returned. These tests pin the two exclusions and the case
+# that still queues, so neither can drift silently.
+
+
+class RecordingEnrichment:
+    """A lineup queue that records what an import asked it to do."""
+
+    def __init__(self):
+        self.enqueued: list[str] = []
+        self.scheduled: list[str] = []
+
+    async def enqueue_events(self, songkick_ids, *, force=False):
+        queued = [str(value) for value in songkick_ids]
+
+        self.enqueued.extend(queued)
+
+        return queued
+
+    def schedule(self, event_ids):
+        self.scheduled.extend(str(value) for value in event_ids)
+
+
+def _festival_payload(
+    *,
+    start_date,
+    own_page_read: bool = False,
+) -> dict:
+    payload = {
+        "songkick_id": "8100001",
+        "name": "Villa Sound 2030",
+        "event_type": "festival",
+        "url": (
+            "https://www.songkick.com/festivals/"
+            "8100001-villa-sound"
+        ),
+        "start_date": start_date,
+        "end_date": None,
+        "venue": {
+            "name": "Parque de la Ciudad",
+            "url": (
+                "https://www.songkick.com/venues/"
+                "9001-parque-de-la-ciudad"
+            ),
+            "address": {
+                "addressLocality": "Buenos Aires",
+                "addressCountry": "AR",
+            },
+        },
+        "festival": {
+            "series_id": "44001",
+            "name": "Villa Sound",
+            "url": (
+                "https://www.songkick.com/festivals/"
+                "8100001-villa-sound"
+            ),
+        },
+        "lineup": [],
+        "artist_ids": [1715773],
+    }
+
+    if own_page_read:
+        payload["own_page_read"] = True
+
+    return payload
+
+
+def _import_world(payloads, enrichment):
+    provider_manager = MagicMock()
+    songkick_provider = MagicMock()
+    songkick_provider.get_artist_events = AsyncMock(
+        return_value={
+            "events": list(payloads),
+            "upcoming_festivals": [],
+        }
+    )
+    provider_manager.get_provider = MagicMock(
+        return_value=songkick_provider
+    )
+
+    event_repository = MagicMock()
+    event_repository.upsert_event_by_provider = AsyncMock(
+        return_value=True
+    )
+
+    venue_repository = MagicMock()
+    venue_repository.upsert_venue = AsyncMock(return_value=False)
+    venue_repository.get_by_external_id = AsyncMock(
+        return_value={"slug": "parque-de-la-ciudad"}
+    )
+    venue_repository.get_by_name = AsyncMock(return_value=None)
+
+    catalogue = [
+        {
+            "_id": "6ac5d823147149ffe667e901",
+            "name": "Demi Lovato",
+            "normalized_name": "demi lovato",
+            "slug": "demi-lovato",
+            "external_ids": {
+                "songkick": external_id_for("1715773"),
+            },
+        }
+    ]
+
+    return SongkickEventImportService(
+        provider_manager=provider_manager,
+        event_repository=event_repository,
+        venue_repository=venue_repository,
+        artist_repository=repository_over(catalogue),
+        lineup_enrichment=enrichment,
+    )
+
+
+def _initiating_artist() -> Artist:
+    return Artist(
+        name="Demi Lovato",
+        normalized_name="demi lovato",
+        slug="demi-lovato",
+        external_ids={"songkick": external_id_for("1715773")},
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_festival_this_run_already_read_is_not_queued():
+    """The extraction read and the background pass read the same page.
+
+    When the run already read the edition's own page, its date, venue and
+    lineup are stored from that read, and the queue would fetch the
+    identical page for fields it already stated. The edition is left out of
+    the queue; its stored lineup stays as it is.
+    """
+
+    enrichment = RecordingEnrichment()
+    service = _import_world(
+        [
+            _festival_payload(
+                start_date="2030-03-25T20:00:00+00:00",
+                own_page_read=True,
+            )
+        ],
+        enrichment,
+    )
+
+    await service.sync_artist_events(_initiating_artist())
+
+    assert enrichment.enqueued == []
+    assert enrichment.scheduled == []
+
+
+@pytest.mark.asyncio
+async def test_a_past_festival_is_not_queued():
+    """A bill that already happened is not a background reading target.
+
+    Its lineup stays as stored - names and ids resolve from the stored
+    entries - and the retry on the festival page still reads it on request.
+    """
+
+    enrichment = RecordingEnrichment()
+    service = _import_world(
+        [
+            _festival_payload(
+                start_date="2020-03-25T20:00:00+00:00",
+            )
+        ],
+        enrichment,
+    )
+
+    await service.sync_artist_events(_initiating_artist())
+
+    assert enrichment.enqueued == []
+    assert enrichment.scheduled == []
+
+
+@pytest.mark.asyncio
+async def test_an_undated_festival_is_not_queued():
+    enrichment = RecordingEnrichment()
+    service = _import_world(
+        [_festival_payload(start_date=None)],
+        enrichment,
+    )
+
+    await service.sync_artist_events(_initiating_artist())
+
+    assert enrichment.enqueued == []
+    assert enrichment.scheduled == []
+
+
+@pytest.mark.asyncio
+async def test_a_future_festival_not_read_in_this_run_is_queued():
+    """The deferred pass is exactly the read this run did not make."""
+
+    enrichment = RecordingEnrichment()
+    service = _import_world(
+        [
+            _festival_payload(
+                start_date="2030-03-25T20:00:00+00:00",
+            )
+        ],
+        enrichment,
+    )
+
+    await service.sync_artist_events(_initiating_artist())
+
+    # The queue carries the bare event id: festival editions are stored
+    # under it, which is what `enqueue_events` resolves against.
+    assert enrichment.enqueued == ["8100001"]
+    assert enrichment.scheduled == ["8100001"]

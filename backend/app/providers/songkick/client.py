@@ -2768,6 +2768,15 @@ class SongkickClient:
 
             event.update(completed)
 
+            # The page behind this event has now been read in this run, so
+            # anything that would read it again later - the lineup pass the
+            # import queues - would fetch the identical page for fields it
+            # already stated. Marked on the payload, in place with the rest
+            # of the reading, so the import can decide that when it queues
+            # editions. A page that did not answer is not marked: there the
+            # reading never happened.
+            event["own_page_read"] = True
+
         if skipped:
 
             logger.info(

@@ -4,6 +4,10 @@ from app.domain.songkick_identity import (
     normalize_songkick_artist_id,
 )
 
+from app.domain.event_schedule import (
+    is_upcoming,
+)
+
 from app.mappers.songkick_event_mapper import SongkickEventMapper
 
 from app.repositories.event_repository import (
@@ -501,8 +505,15 @@ class SongkickEventImportService:
         # page is read after this run - in the background, never in front of
         # the response - as the one deferred pass the architecture has. A
         # concert's lineup is its one artist and is already associated, so
-        # only editions are collected.
+        # only editions are collected. Two kinds of edition are deliberately
+        # not collected, counted beside the queue so the decision is visible
+        # in the run that made it: one this run already read (the pass would
+        # fetch the identical page) and one that is over or undated (see the
+        # mapping loop).
         festival_event_ids: list[str] = []
+
+        festival_editions_own_page_read = 0
+        festival_editions_not_upcoming = 0
 
         # --------------------------------------------------
         # Process events
@@ -743,14 +754,51 @@ class SongkickEventImportService:
                     event.event_type or ""
                 ).casefold():
 
-                    festival_event_ids.append(
-                        str(
-                            event.external_ids.get(
-                                "songkick"
+                    # --------------------------------------------------
+                    # Whether this edition is worth a background pass
+                    # --------------------------------------------------
+                    #
+                    # The deferred pass exists to read the edition's own
+                    # page, and two kinds of edition have nothing to gain
+                    # from it:
+                    #
+                    # * one this run already read (`own_page_read`): the
+                    #   page's date, venue and lineup are stored from the
+                    #   extraction read, which is the same page through the
+                    #   same parser - queueing it would fetch the identical
+                    #   page for fields it already stated;
+                    # * one that is over or undated: re-reading the page of
+                    #   a bill that already happened is the global
+                    #   background scraping this queue must not become. Its
+                    #   lineup stays as stored - names and ids resolve from
+                    #   the stored entries - and the retry on the festival
+                    #   page still reads it on request.
+                    #
+                    # A future edition whose page this run did not read is
+                    # queued exactly as before: that read is the deferred
+                    # pass earning its place.
+                    # --------------------------------------------------
+
+                    if payload.get(
+                        "own_page_read"
+                    ):
+
+                        festival_editions_own_page_read += 1
+
+                    elif not is_upcoming(event):
+
+                        festival_editions_not_upcoming += 1
+
+                    else:
+
+                        festival_event_ids.append(
+                            str(
+                                event.external_ids.get(
+                                    "songkick"
+                                )
+                                or event_id
                             )
-                            or event_id
                         )
-                    )
 
                 # --------------------------------------------------
                 # Extraction gaps, reported where they occur
@@ -935,16 +983,28 @@ class SongkickEventImportService:
         # THE ENRICHMENT THAT FOLLOWS THIS RUN
         # --------------------------------------------------
         #
-        # Every event above is already written and already reported. What
-        # this does is queue the festival editions' own pages to be read
-        # *after* this run, in the background, so the response is not held
-        # hostage to a page read and a re-import of the same events changes
-        # nothing (finished editions are not re-enqueued). The queue is the
-        # event's own `lineup_state`; a failure of this whole step leaves
+        # What is queued above is already written and already reported. The
+        # queue holds the future editions whose own page this run did not
+        # read, so the background pass reads each of those pages exactly
+        # once - a re-import of the same events changes nothing (finished
+        # editions are not re-enqueued), and editions with nothing to gain
+        # from a read were never queued (see the mapping loop). The queue is
+        # the event's own `lineup_state`; a failure of this whole step leaves
         # the events exactly as they are.
         # --------------------------------------------------
 
         lineup_enrichment_queued = 0
+
+        if festival_editions_own_page_read or festival_editions_not_upcoming:
+
+            logger.info(
+                "[EVENT IMPORT] lineup enrichment skipped "
+                f"{festival_editions_own_page_read} edition(s) "
+                "already read in this run and "
+                f"{festival_editions_not_upcoming} past or "
+                "undated one(s); both keep their stored lineup "
+                "and stay enrichable by the festival's retry"
+            )
 
         if festival_event_ids and self.lineup_enrichment:
 
