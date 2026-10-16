@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.config import settings
 from app.services.artist_search_service import ArtistSearchService
@@ -522,10 +522,38 @@ async def get_artist_events(
 )
 async def get_all_artist_events(
     artist_slug: str,
+    offset: int = Query(
+        0,
+        ge=0,
+        description=(
+            "How many rows of the listing to skip, for a later "
+            "window of the same year-grouped history. Defaults "
+            "to the first window."
+        ),
+    ),
+    limit: int = Query(
+        1000,
+        ge=1,
+        le=1000,
+        description=(
+            "How many rows to return. Capped at the listing's "
+            "own 1000-row bound: this pages the window, it does "
+            "not widen what one call may read."
+        ),
+    ),
 ):
+    """This artist's full listing, in windows over the same query.
+
+    The default request is byte-for-byte the call this endpoint has always
+    been - first 1000 rows, newest first, trust filter applied - so existing
+    clients see no change; a caller that needs past the bound asks for the
+    next window instead of the endpoint growing an unbounded read.
+    """
 
     return await event_service.get_all_artist_events(
-        artist_slug
+        artist_slug,
+        offset=offset,
+        limit=limit,
     )
 
 

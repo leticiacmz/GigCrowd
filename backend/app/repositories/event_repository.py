@@ -591,7 +591,21 @@ class EventRepository(BaseRepository):
         self,
         artist_slug: str,
         songkick_id: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 1000,
     ):
+        """Every event this artist is associated with, in one window.
+
+        `offset`/`limit` page through the same query and the same ordering
+        (`starts_at` descending) rather than widening what a single call may
+        read: with the defaults - no offset, the 1000-row bound - this is
+        exactly the call it has always been, and a later window costs a
+        second query instead of one bigger one. The bound is a property of
+        the listing (a year-grouped history does not need the whole
+        catalogue in one response), not of trust: `trusted_listing_filter`
+        runs on every window, so a window can neither reach an unverifiable
+        future row nor drop the past it already shows.
+        """
 
         cursor = (
             self.collection
@@ -617,6 +631,8 @@ class EventRepository(BaseRepository):
                 "starts_at",
                 -1,
             )
+            .skip(max(int(offset), 0))
+            .limit(max(int(limit), 1))
         )
 
         documents = await cursor.to_list(

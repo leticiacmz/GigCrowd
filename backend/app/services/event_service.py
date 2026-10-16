@@ -167,10 +167,21 @@ class EventService:
     async def get_all_artist_events(
         self,
         artist_slug: str,
+        offset: int = 0,
+        limit: int = 1000,
     ):
+        """The artist's whole listing, windowed by `offset`/`limit`.
+
+        Defaults keep the original behaviour - the first 1000 rows of the
+        year-grouped history - and the endpoint caps `limit` at that same
+        bound, so this is pagination over what a call already could read,
+        never a wider read.
+        """
 
         events = await self.event_repository.get_all_by_artist_slug(
-            artist_slug
+            artist_slug,
+            offset=offset,
+            limit=limit,
         )
 
         responses = []
