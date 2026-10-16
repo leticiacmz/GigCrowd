@@ -7,6 +7,7 @@ wrong record, which is far worse than a name that is merely unlinked:
 * identity is the Songkick id, never a name
 * no fuzzy matching, no first-result fallback
 * no Spotify
+* the source's own artist link settles the identity, without a page fetch
 * idempotent, and it never duplicates
 * creating an artist never starts a gigography fetch
 
@@ -204,6 +205,115 @@ class TestAnAnnouncedPerformerBecomesAnArtist:
         assert report.skipped_no_id == 1
         assert report.created == 0
         assert await database.artists.count_documents({}) == 0
+
+
+class TestTheSourcesOwnArtistLinkSettlesTheIdentity:
+    """The identity fetch reads back a claim the lineup already carried.
+
+    Songkick states a performer as `/artists/{id}-{slug}`. An entry carrying
+    that link already carries the source's own assertion that the id is an
+    artist id, so fetching the artist page would only re-read the same
+    statement at one request per performer. These tests pin both sides of
+    that line: the link skips the fetch, and anything that is not that link
+    is still checked.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_entry_whose_artist_link_carries_the_id_skips_the_fetch(
+        self,
+    ):
+        verifier = StubVerifier()
+        importer, _, database = world(verifier=verifier)
+
+        report = await importer.ensure_for_entries(
+            [
+                entry(
+                    "Post Malone",
+                    "8508053",
+                    url=(
+                        "https://www.songkick.com/artists/"
+                        "8508053-post-malone"
+                    ),
+                )
+            ]
+        )
+
+        assert report.created == 1
+        assert report.created_from_source_url == 1
+        assert verifier.calls == []
+        assert await database.artists.count_documents({}) == 1
+
+        stored = await database.artists.find_one({})
+
+        assert stored["name"] == "Post Malone"
+        assert stored["external_ids"]["songkick"] == (
+            external_id_for("8508053")
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_id_that_disagrees_with_its_link_is_still_checked(self):
+        verifier = StubVerifier()
+        importer, _, database = world(verifier=verifier)
+
+        report = await importer.ensure_for_entries(
+            [
+                entry(
+                    "Post Malone",
+                    "8508053",
+                    url=(
+                        "https://www.songkick.com/artists/"
+                        "9999999-someone-else"
+                    ),
+                )
+            ]
+        )
+
+        assert verifier.calls == ["8508053"]
+        assert report.created == 1
+        assert report.created_from_source_url == 0
+
+    @pytest.mark.asyncio
+    async def test_a_link_that_is_not_an_artist_link_is_still_checked(self):
+        """A venue URL carries the same numeric shape as an artist URL.
+
+        That confusion is the whole reason the identity check exists, and a
+        venue link must not launder it into a skipped check.
+        """
+
+        verifier = StubVerifier()
+        importer, _, database = world(verifier=verifier)
+
+        await importer.ensure_for_entries(
+            [
+                entry(
+                    "Some Act",
+                    "12345",
+                    url=(
+                        "https://www.songkick.com/venues/"
+                        "12345-some-venue"
+                    ),
+                )
+            ]
+        )
+
+        assert verifier.calls == ["12345"]
+
+    @pytest.mark.asyncio
+    async def test_a_link_whose_head_is_not_numeric_is_still_checked(self):
+        verifier = StubVerifier()
+        importer, _, database = world(verifier=verifier)
+
+        await importer.ensure_for_entries(
+            [
+                entry(
+                    "Some Act",
+                    "12345",
+                    url="https://www.songkick.com/artists/some-act",
+                )
+            ]
+        )
+
+        assert verifier.calls == ["12345"]
 
 
 class TestIdentity:

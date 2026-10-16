@@ -12,6 +12,12 @@ been written into the catalogue and will outlive the fix:
 * **Songkick id decides identity.** The id is the one identifier the source and
   this catalogue share. A name never decides, because two different artists can
   share one, and matching on it links a bill to the wrong band.
+* **The source's own artist link is enough.** Songkick states an act as
+  `/artists/{id}-{slug}`, so an entry carrying that link already carries the
+  source's assertion that the id is an artist id. Fetching the artist page
+  for such an entry only re-reads a claim the page it came from already made,
+  at one request per performer. The page check stays for every entry that does
+  not carry the link.
 * **No fuzzy matching, no first-result fallback.** Either the source stated an
   id and that id names exactly one artist, or nothing happens. A "close enough"
   match is a guess with a permanent record attached.
@@ -65,6 +71,12 @@ class LineupImportReport:
     rejected: int = 0
     rejections: list[dict] = field(default_factory=list)
 
+    #: Creations that skipped the identity fetch because the source's own
+    #: artist link carried the id (see `_url_states_artist_id`). Counted so
+    #: the saved requests show up in the same place as every other outcome,
+    #: instead of being an invisible shortcut.
+    created_from_source_url: int = 0
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "lineup_entries": self.entries,
@@ -76,6 +88,9 @@ class LineupImportReport:
             ),
             "already_imported": self.resolved_existing,
             "created": self.created,
+            "created_from_source_url": (
+                self.created_from_source_url
+            ),
             "skipped_without_a_songkick_id": (
                 self.skipped_no_id
             ),
@@ -88,18 +103,24 @@ class LineupImportReport:
             f"entries={self.entries} "
             f"already_imported={self.resolved_existing} "
             f"created={self.created} "
+            f"created_from_source_url="
+            f"{self.created_from_source_url} "
             f"skipped_no_id={self.skipped_no_id} "
             f"rejected={self.rejected} "
             f"failed={self.failed}"
         )
 
 
-def _entry_fields(entry: Any) -> tuple[str, Optional[str], Optional[str], list[str]]:
-    """The four things this module will accept from a lineup entry.
+def _entry_fields(
+    entry: Any,
+) -> tuple[str, Optional[str], Optional[str], list[str], Optional[str]]:
+    """The things this module will accept from a lineup entry.
 
     Lineup entries arrive as domain objects from one path and as raw documents
     from another, so reading them through one function is what keeps the import
-    and the resolver from disagreeing about which entry is which.
+    and the resolver from disagreeing about which entry is which. The URL is
+    read alongside the id because it is what says whether the source itself
+    called the id an artist id (see `_url_states_artist_id`).
     """
 
     def read(name: str):
@@ -118,6 +139,8 @@ def _entry_fields(entry: Any) -> tuple[str, Optional[str], Optional[str], list[s
 
     image = read("image")
 
+    url = read("url")
+
     genres = read("genres")
 
     if isinstance(genres, str):
@@ -131,7 +154,40 @@ def _entry_fields(entry: Any) -> tuple[str, Optional[str], Optional[str], list[s
         str(songkick_id).strip() if songkick_id else None,
         str(image) if image else None,
         [str(genre) for genre in genres if genre],
+        str(url).strip() if url else None,
     )
+
+
+def _url_states_artist_id(url: Optional[str], songkick_id: str) -> bool:
+    """Whether the source's own link says this id addresses an artist.
+
+    Songkick writes a performer as `/artists/{id}-{slug}`. That path is the
+    source asserting, in its own markup, that the number is an artist id -
+    the exact assertion the identity check exists to make. When the link
+    carries the same id, reading the artist page would only re-read a claim
+    the page the entry came from already made, and it would cost one request
+    per performer: a festival bill runs into hundreds of names, and that is
+    the difference between an import that reads pages it needs and one that
+    reads a hundred pages to learn nothing new.
+
+    The page check stays for every entry without such a link: a bare number,
+    a differently shaped URL, or an id that disagrees with the link still
+    gets checked, because there the id's shape is all there is.
+    """
+
+    if not url or not songkick_id:
+        return False
+
+    path = str(url).split("?", 1)[0].rstrip("/")
+
+    if "/artists/" not in path:
+        return False
+
+    tail = path.rsplit("/artists/", 1)[1]
+
+    head = tail.split("-", 1)[0].strip()
+
+    return head.isdigit() and head == str(songkick_id).strip()
 
 
 class LineupArtistImporter:
@@ -190,7 +246,7 @@ class LineupArtistImporter:
         wanted_ids = []
 
         for entry in materialised:
-            _, songkick_id, _, _ = _entry_fields(entry)
+            _, songkick_id, _, _, _ = _entry_fields(entry)
 
             if songkick_id:
                 report.entries_with_songkick_id += 1
@@ -214,6 +270,7 @@ class LineupArtistImporter:
                 songkick_id,
                 image,
                 genres,
+                url,
             ) = _entry_fields(entry)
 
             if not songkick_id:
@@ -256,11 +313,24 @@ class LineupArtistImporter:
             # that every festival announcing that name will link to, and nothing
             # in the stored document would say the identity was never checked. So
             # the page is read first, and a refusal means no record at all.
+            #
+            # The one exception is the entry that carries Songkick's own artist
+            # link for the same id: there the source has already stated the id
+            # is an artist id, in the markup the entry was read from, and
+            # fetching the page would only re-read that statement at one request
+            # per performer. Everything the check protected against - a venue
+            # number, a bare digit, an id that disagrees with its link - is
+            # still checked, because none of those shapes carries the link.
             # --------------------------------------------------
+
+            trusted_source_url = _url_states_artist_id(
+                url,
+                songkick_id,
+            )
 
             identity = None
 
-            if self.validate:
+            if self.validate and not trusted_source_url:
 
                 if self.verifier is None:
                     from app.services.songkick_artist_verifier import (
@@ -301,8 +371,10 @@ class LineupArtistImporter:
                     )
 
             # The artist's own page is the authority on who they are and what
-            # they look like. A poster's spelling and a poster's thumbnail are
-            # both that page's rendering of the same fact.
+            # they look like, and when the page was read the canonical name and
+            # image come from it. When the source's own artist link settled the
+            # identity instead (no fetch), the poster's spelling and thumbnail
+            # stand: identity is the id, and a name is display.
             canonical_name = (
                 identity.canonical_name if identity else name
             ) or name
@@ -341,6 +413,9 @@ class LineupArtistImporter:
 
             if created:
                 report.created += 1
+
+                if trusted_source_url:
+                    report.created_from_source_url += 1
 
             else:
                 report.resolved_existing += 1
@@ -390,6 +465,7 @@ class LineupArtistImporter:
                     songkick_id,
                     image,
                     genres,
+                    url,
                 ) = _entry_fields(entry)
 
                 if not songkick_id or not name:
@@ -407,6 +483,7 @@ class LineupArtistImporter:
                         "songkick_id": key,
                         "image": image,
                         "genres": genres,
+                        "url": url,
                     },
                 )
 

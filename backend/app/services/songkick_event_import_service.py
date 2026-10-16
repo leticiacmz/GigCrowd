@@ -842,6 +842,14 @@ class SongkickEventImportService:
                                 "name",
                                 "",
                             ),
+                            # Songkick's own artist link. It rides along so the
+                            # importer can tell, without a fetch, that the
+                            # source itself stated this id is an artist id.
+                            "url": getattr(
+                                entry,
+                                "url",
+                                None,
+                            ),
                             "image": getattr(
                                 entry,
                                 "image",
