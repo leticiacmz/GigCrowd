@@ -17,8 +17,14 @@ Identity and edition are answered separately and never mixed:
 The lineup shown is the selected edition's own. A festival's lineup differs per
 date, so borrowing one date's performers for the whole series would state
 something untrue.
+
+There are two ways to arrive, and both assemble the same page from the same
+records: from one of the series' dates (`get_festival`), or from the series id
+alone (`get_series`) - the canonical address of the festival itself.
 """
 from __future__ import annotations
+
+import re
 
 from datetime import UTC, datetime
 from typing import Optional
@@ -178,6 +184,137 @@ class FestivalService:
             if str(document["_id"]) == str(event_id)
         )
 
+        return await self._assemble(
+            series_id,
+            identity,
+            editions,
+            selected,
+        )
+
+    async def get_series(
+        self,
+        series_id: str,
+        edition_event_id: Optional[str] = None,
+    ) -> Optional[FestivalResponse]:
+        """The festival a series id names, asked for with no record in hand.
+
+        The canonical way to address a festival: `/festivals/series/{id}` is
+        the stable address of the festival itself, not of one of its dates, so
+        a reader can arrive here from a search result, a shared link or
+        another page without first standing on an event of the series.
+
+        Identity and editions are read at request time from the stored
+        records. Editions are found by the stored `festival.series_id` first,
+        and by the series segment of a source address as a fallback: an
+        imported date whose festival block was never written still states its
+        series in its own Songkick URL, which is the same structured-source
+        rule `festival_identity` applies. The fallback only fetches
+        candidates; every candidate is then re-checked with
+        `festival_identity` itself, so a shared address never decides that two
+        events are the same festival on its own.
+
+        `edition_event_id` selects which date's lineup the page opens on, and
+        is only honoured when that record really is an edition of this series;
+        an id belonging elsewhere falls back to the default selection rather
+        than borrowing another festival's night.
+
+        Returns `None` when no stored record states this series, which the
+        route turns into a 404.
+        """
+
+        series_id = str(series_id or "").strip()
+
+        # A Songkick series id is numeric. Refusing anything else keeps the
+        # address pattern built in `_editions_for` a literal, and makes a
+        # malformed address a clean 404 rather than a query that quietly
+        # matches nothing.
+        if not series_id or not series_id.isdigit():
+            return None
+
+        editions = await self._editions_for(
+            series_id,
+            source_url_fallback=True,
+        )
+
+        # Identity is read from the editions themselves, and each candidate is
+        # confirmed with the same rule that named the series - so a document
+        # the address fallback fetched, whose own identity disagrees, is not
+        # an edition of this festival. The first edition carrying a stored
+        # name supplies the identity, because the name is a display fallback
+        # and the block that has one describes the series best.
+        identity = None
+        confirmed: list[dict] = []
+
+        for document in editions:
+            candidate = festival_identity(document)
+
+            if (
+                not candidate
+                or str(candidate["series_id"]) != series_id
+            ):
+                continue
+
+            confirmed.append(document)
+
+            if identity is None or (
+                not identity.get("name")
+                and candidate.get("name")
+            ):
+                identity = candidate
+
+        if not confirmed:
+            return None
+
+        editions = confirmed
+
+        selected = None
+
+        if edition_event_id:
+            selected = next(
+                (
+                    document
+                    for document in editions
+                    if str(document["_id"])
+                    == str(edition_event_id)
+                ),
+                None,
+            )
+
+        # The default selection is the chronologically last date: for a
+        # festival still running, the upcoming one; for one that has run, the
+        # most recent. Undated editions sit last rather than inheriting a date
+        # from a sibling night.
+        if selected is None:
+            selected = max(
+                editions,
+                key=lambda document: (
+                    event_date(document) or _EPOCH
+                ),
+            )
+
+        return await self._assemble(
+            series_id,
+            identity,
+            editions,
+            selected,
+        )
+
+    async def _assemble(
+        self,
+        series_id: str,
+        identity: dict,
+        editions: list[dict],
+        selected: dict,
+    ) -> FestivalResponse:
+        """Build one festival response from an identity, its editions, and
+        the date the page opens on.
+
+        Shared by both ways of arriving at a festival - from one of its dates
+        (`get_festival`) or from the series itself (`get_series`) - so the
+        same stored records are assembled the same way whichever address
+        reached them.
+        """
+
         # The span runs from when the first date begins to when the last one finishes.
         #
         # Both ends matter and they come from different fields. The opening is
@@ -323,17 +460,24 @@ class FestivalService:
                         ),
                     ),
                     lineup=resolved_lineups[index],
+                    lineup_state=_lineup_state(
+                        resolved_lineups[index]
+                    ),
                 )
                 for index, document in enumerate(editions)
             ],
             selected_event_id=str(selected["_id"]),
             lineup=resolved_lineups[selected_index],
+            lineup_state=_lineup_state(
+                resolved_lineups[selected_index]
+            ),
         )
 
     async def _editions_for(
         self,
         series_id: str,
-        arrived_at,
+        arrived_at=None,
+        source_url_fallback: bool = False,
     ) -> list[dict]:
         """Every stored date of one festival series.
 
@@ -346,6 +490,14 @@ class FestivalService:
         guessing the same thing would only risk grouping events that are not
         the same festival. The record the reader arrived on is the one
         exception, and it is matched by id below.
+
+        `source_url_fallback` widens the match to the series segment of a
+        source address - the URL fields of the festival block and the event's
+        own address - for the one caller that arrives with no record in hand.
+        It fetches candidates only; the caller re-checks every document with
+        `festival_identity`, the same structured-source rule that wrote the
+        stored field, and drops anything that disagrees. It is off by default
+        so the event-keyed page keeps its stricter listing.
 
         The provenance clause is the same one every other listing of future
         events applies. An edition list reaches into the future, and a fixture
@@ -361,34 +513,89 @@ class FestivalService:
         what the clause stops is the rest of the future being sold as announced.
         """
 
+        series_match: dict = {
+            "festival.series_id": str(series_id),
+        }
+
+        if source_url_fallback:
+
+            # The address form of the same rule: `/festivals/{series_id}`
+            # whose digits are not followed by another digit, so series 123
+            # never matches the address of series 1234.
+            pattern = (
+                r"/festivals/"
+                + re.escape(str(series_id))
+                + r"(?![0-9])"
+            )
+
+            series_match = {
+                "$or": [
+                    series_match,
+                    {
+                        "festival.url": {
+                            "$regex": pattern
+                        }
+                    },
+                    {
+                        "festival.official_url": {
+                            "$regex": pattern
+                        }
+                    },
+                    {
+                        "source.url": {
+                            "$regex": pattern
+                        }
+                    },
+                ]
+            }
+
+        clause = {
+            "$and": [
+                series_match,
+                trusted_listing_filter(
+                    EventRepository._still_ahead_dates_filter()
+                ),
+            ]
+        }
+
+        query = (
+            {
+                "$or": [
+                    # The record the reader arrived from, matched by id.
+                    # Its identity may have been read from its own address
+                    # while no festival block was ever written beside it,
+                    # so the series field alone would drop the very record
+                    # the page is standing on.
+                    {
+                        "_id": arrived_at,
+                    },
+                    clause,
+                ]
+            }
+            if arrived_at is not None
+            else clause
+        )
+
         documents = await (
             self.event_repository.collection.find(
-                {
-                    "$or": [
-                        # The record the reader arrived from, matched by id.
-                        # Its identity may have been read from its own address
-                        # while no festival block was ever written beside it,
-                        # so the series field alone would drop the very record
-                        # the page is standing on.
-                        {
-                            "_id": arrived_at,
-                        },
-                        {
-                            "$and": [
-                                {
-                                    "festival.series_id": str(series_id),
-                                },
-                                trusted_listing_filter(
-                                    EventRepository._still_ahead_dates_filter()
-                                ),
-                            ]
-                        },
-                    ]
-                }
+                query
             ).to_list(length=None)
         )
 
         return documents
+
+
+def _lineup_state(lineup: list) -> str:
+    """`ok` when performers are held, `unknown` when none are stored.
+
+    `unknown` is the only honest label for an empty list at read time: the
+    stored record cannot say whether the source named no one, the read failed,
+    or it never ran, and claiming any of the three would invent knowledge the
+    data does not hold. A complete-empty read is never a licence to erase a
+    lineup held earlier - see the repository's never-blank rule for `lineup`.
+    """
+
+    return "ok" if lineup else "unknown"
 
 
 def _slug_of(

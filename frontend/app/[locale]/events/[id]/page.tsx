@@ -37,6 +37,7 @@ import {
   festivalDisplayName,
 } from '../../../lib/festivalTitle';
 import { festivalSeriesId } from '../../../lib/festivalIdentity';
+import { festivalSeriesHref } from '../../../lib/festivalSeries';
 import { createRequestGuard } from '../../../lib/requestGuard';
 import { createArtistOpener } from '../../../lib/artistSync';
 
@@ -440,6 +441,18 @@ export default function EventDetailPage() {
   */
   const festivalSeries = event ? festivalSeriesId(event) : null;
 
+  /*
+    The canonical address of the festival is its series, not this date: the
+    link names the festival and marks this event as the edition to open on,
+    so a festival page opened from here keeps the festival's own address when
+    a reader shares it - and the backend still shows this event's own lineup,
+    the same lineup the date-keyed address showed.
+  */
+  const festivalHref =
+    festivalSeries && event
+      ? festivalSeriesHref(locale, festivalSeries, event.id)
+      : null;
+
   // Marking attendance changes user-specific data. Signed-out visitors are
   // sent to the localized login (preserving locale and current page) instead
   // of firing a protected request.
@@ -809,10 +822,10 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            {isFestival && festivalSeries && (
+            {isFestival && festivalHref && (
               <div className="mt-6">
                 <Link
-                  href={`/${locale}/festivals/${event.id}`}
+                  href={festivalHref}
                   className="inline-flex items-center text-sm text-accent hover:text-accent/80 transition"
                 >
                   {t('viewFestivalPage')}
@@ -931,9 +944,9 @@ export default function EventDetailPage() {
                       <p className="text-sm text-muted-subtle mt-1">{t('lineupHint')}</p>
                     </div>
 
-                    {festivalSeries && (
+                    {festivalHref && (
                       <Link
-                        href={`/${locale}/festivals/${event.id}`}
+                        href={festivalHref}
                         className="text-sm text-accent hover:text-accent/80 transition shrink-0"
                       >
                         {t('exploreFestival')}
@@ -1181,9 +1194,9 @@ export default function EventDetailPage() {
                   </h2>
                 </div>
 
-                {festivalSeries && (
+                {festivalHref && (
                   <Link
-                    href={`/${locale}/festivals/${event.id}`}
+                    href={festivalHref}
                     className="text-sm text-accent hover:text-accent/80 transition"
                   >
                     {t('openFestivalPage')}

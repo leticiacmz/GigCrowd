@@ -37,6 +37,7 @@ from app.routes import (
     artist_community,
     notifications,
     media,
+    festivals,
 )
 
 from app.config import settings
@@ -268,6 +269,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(artists.router)
 app.include_router(events.router)
+app.include_router(festivals.router)
 app.include_router(search.router)
 app.include_router(posts.router)
 app.include_router(media.router)

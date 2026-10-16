@@ -287,6 +287,24 @@ export const eventAPI = {
     const response = await api.get(`/events/${eventId}/festival`);
     return response.data;
   },
+  /*
+    The festival a series id names, asked for with no date in hand - the
+    canonical address of the festival itself. `edition` names the date whose
+    lineup the page opens on, and is ignored by the backend when it is not an
+    edition of this series.
+  */
+  getFestivalSeries: async (
+    seriesId: string,
+    edition?: string | null,
+  ) => {
+    const query = edition
+      ? `?edition=${encodeURIComponent(edition)}`
+      : '';
+    const response = await api.get(
+      `/festivals/series/${encodeURIComponent(seriesId)}${query}`,
+    );
+    return response.data;
+  },
   getAttendance: async (eventId: string) => {
     const response = await api.get(`/events/${eventId}/attendance`);
     return response.data;

@@ -14,7 +14,7 @@ Both are derived from stored events. Nothing is computed from a title, and no
 edition is invented: an edition exists because an imported event carries it.
 """
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -68,6 +68,14 @@ class FestivalEventResponse(BaseModel):
         default_factory=list,
     )
 
+    # Whether performers are actually held for this date. `unknown` is the
+    # only honest label for an empty list at read time: the stored record
+    # cannot say whether the source named no one, the read failed, or it
+    # never ran - so the response must not present an empty list as "the
+    # festival announced no one". Telling those apart needs a persisted
+    # marker, and a marker is a write.
+    lineup_state: Literal["ok", "unknown"] = "unknown"
+
 
 class FestivalResponse(BaseModel):
     """Everything a festival page needs, in one response.
@@ -87,8 +95,11 @@ class FestivalResponse(BaseModel):
     # mark which one they are looking at.
     selected_event_id: Optional[str] = None
 
-    # The lineup of the selected edition. Empty when that edition's source
-    # named no one, which is different from a lineup that could not be read.
+    # The lineup of the selected edition. Empty when nothing is stored, which
+    # the `lineup_state` beside it refuses to read as an empty bill.
     lineup: List[LineupEntryResponse] = Field(
         default_factory=list,
     )
+
+    # `ok` when the selected edition's lineup is held, `unknown` when none is.
+    lineup_state: Literal["ok", "unknown"] = "unknown"

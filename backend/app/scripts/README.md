@@ -153,6 +153,7 @@ development fixture has the opposite job.
 | `report_lineup_resolution.py` | How much of the stored lineup can be linked |
 | `report_event_gaps.py` | Which events are incomplete, without fetching |
 | `import_lineup_artists.py` | Make the artists already stored in lineups real artists |
+| `backfill_festival_series.py` | Series ids for festival dates whose own address already states one |
 
 `report_lineup_resolution.py`, `audit_state.py` and
 `audit_lineup_artist_identities.py --report` are read-only and safe to run at any
