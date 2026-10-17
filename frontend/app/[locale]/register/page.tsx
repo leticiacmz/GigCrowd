@@ -1,18 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
 import { authAPI } from '../../lib/api';
-import { saveAuth, getNextParam } from '../../lib/auth';
+import { apiErrorMessage } from '../../lib/apiError';
+import {
+  saveAuth,
+  getNextParam,
+  isAuthenticated,
+} from '../../lib/auth';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
+import LoadingState from '../../../components/LoadingState';
 
 export default function RegisterPage() {
   const t = useTranslations('auth');
+  const tCommon = useTranslations('common');
   const params = useParams();
   const router = useRouter();
   const locale = (params?.locale as string) || 'en';
@@ -25,6 +32,36 @@ export default function RegisterPage() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+
+  /*
+    Registration is for people who are not signed in.
+
+    The session lives in localStorage, so the check runs on the client.
+    Until it has run - and while a signed-in visitor is being sent on - the
+    form is not rendered: a form that flashes before it is taken away reads
+    as a glitch, and a registration form under an existing session is a
+    contradiction. The redirect honors the same `next` target login does, so
+    a person sent here on the way to a page still arrives there.
+    `auth-changed` re-runs the check, so signing out in another tab returns
+    the form instead of stranding this one.
+  */
+  useEffect(() => {
+    function evaluate() {
+      if (isAuthenticated()) {
+        router.replace(getNextParam() ?? `/${locale}/feed`);
+        return;
+      }
+
+      setSessionChecked(true);
+    }
+
+    evaluate();
+
+    window.addEventListener('auth-changed', evaluate);
+
+    return () => window.removeEventListener('auth-changed', evaluate);
+  }, [locale, router]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -39,6 +76,16 @@ export default function RegisterPage() {
     try {
       const response = await authAPI.register(formData);
 
+      /*
+        The registration answers with the same session login returns. If a
+        deployment ever answers without one, the failure is said here rather
+        than stored as a session that is not there - a silently broken
+        session would surface as a bounce, not as a message.
+      */
+      if (!response?.access_token) {
+        throw new Error('registration did not return a session');
+      }
+
       saveAuth(response);
 
       // Return the user to the page they were trying to reach,
@@ -46,11 +93,22 @@ export default function RegisterPage() {
       const next = getNextParam();
 
       router.replace(next ?? `/${locale}/feed`);
-    } catch (err: any) {
-      setError(err.response?.data?.detail ?? t('registerFailed'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t('registerFailed')));
     } finally {
       setLoading(false);
     }
+  }
+
+  /*
+    No frame of this page shows the form to a session that already exists.
+  */
+  if (!sessionChecked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <LoadingState message={tCommon('loading')} />
+      </div>
+    );
   }
 
   return (
@@ -111,7 +169,10 @@ export default function RegisterPage() {
           />
 
           {error && (
-            <div role="alert" className="text-sm text-red-500">
+            <div
+              role="alert"
+              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+            >
               {error}
             </div>
           )}

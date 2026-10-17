@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
 import { authAPI } from '../../lib/api';
+import { apiErrorMessage } from '../../lib/apiError';
 import { saveAuth, getNextParam } from '../../lib/auth';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
@@ -38,8 +39,8 @@ export default function LoginPage() {
       const next = getNextParam();
 
       router.replace(next ?? `/${locale}/feed`);
-    } catch (err: any) {
-      setError(err.response?.data?.detail ?? t('signInFailed'));
+    } catch (err) {
+      setError(apiErrorMessage(err, t('signInFailed')));
     } finally {
       setLoading(false);
     }

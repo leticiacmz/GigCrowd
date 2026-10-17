@@ -9,17 +9,42 @@ from app.config import settings
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate):
-    """Register a new user"""
+    """Create the account and sign the new user in.
+
+    The answer is the same session shape `/auth/login` returns - one access
+    token and the user it belongs to - because registering already means the
+    person is signed in. It used to answer with the bare user, and a client
+    storing that as a session had no token to store: the account was created,
+    the response looked successful, and the visitor arrived signed out at the
+    page the form sent them to. The token is minted by the same helper login
+    uses; there is no second token mechanism here.
+    """
     try:
         user = await UserService.create_user(user_data)
-        return UserResponse(**user.model_dump())
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+
+    access_token_expires = timedelta(
+        minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+
+    access_token = create_access_token(
+        data={"sub": user.id},
+        expires_delta=access_token_expires
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": UserResponse(
+            **user.model_dump()
+        )
+    }
 
 
 @router.post("/login")
