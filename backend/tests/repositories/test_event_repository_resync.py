@@ -720,3 +720,285 @@ async def test_a_legacy_resync_that_states_no_festival_name_keeps_it():
     )
 
     assert after["festival"] == STORED_FESTIVAL
+
+
+# ============================================================
+# A FESTIVAL EDITION'S BILL IS NEVER SHRUNK BY A RESYNC
+# ============================================================
+#
+# The listing a reimport carries names the appearances it holds - a
+# gigography row for one artist on the bill states that artist alone - while
+# the whole bill is what the edition's own page states, and that is the read
+# the lineup enrichment stores. A one-name listing landing over an enriched
+# bill is exactly how the 2027 Lollapalooza editions and the AMF Festival
+# 2026 row were reduced to a single artist minutes after a pass had read
+# their pages. A resync may therefore correct or grow a stored bill, never
+# shrink it - the same stance `artist_slugs` already takes, for the same
+# reason.
+#
+# The rule is scoped twice, and these tests pin both boundaries: it applies
+# only to a festival edition, because a concert's lineup *is* its performers
+# and a resync that corrects one down is taken at its word; and it only
+# guards a non-empty stored value, because an empty stored bill is filled by
+# whatever arrives.
+
+ENRICHED_BILL = [
+    {
+        "name": "Charli XCX",
+        "songkick_id": "2274326",
+        "url": "https://www.songkick.com/artists/2274326-charli-xcx",
+        "slug": "charli-xcx",
+        "image": None,
+        "genres": ["pop"],
+        "order": 0,
+    },
+    {
+        "name": "The Killers",
+        "songkick_id": "11651",
+        "url": "https://www.songkick.com/artists/11651-the-killers",
+        "slug": "the-killers",
+        "image": None,
+        "genres": ["rock"],
+        "order": 1,
+    },
+    {
+        "name": "David Guetta",
+        "songkick_id": "149066",
+        "url": "https://www.songkick.com/artists/149066-david-guetta",
+        "slug": "david-guetta",
+        "image": None,
+        "genres": ["electronic"],
+        "order": 2,
+    },
+]
+
+LOLLAPALOOZA_URL = (
+    "https://www.songkick.com/festivals/1235-lollapalooza"
+)
+
+
+def enriched_festival_block() -> dict:
+    return {
+        "series_id": "1235",
+        "name": "Lollapalooza",
+        "url": LOLLAPALOOZA_URL,
+        "edition": "2027",
+        "artist_ids": ["2274326", "11651", "149066"],
+        "artists": [dict(entry) for entry in ENRICHED_BILL],
+    }
+
+
+def stored_event_with_an_enriched_bill() -> dict:
+    """An edition whose own page was read: the bill is stored in full."""
+
+    document = stored_event()
+    document["artist_slugs"] = [
+        "charli-xcx",
+        "the-killers",
+        "david-guetta",
+    ]
+    document["festival"] = enriched_festival_block()
+    document["lineup"] = [dict(entry) for entry in ENRICHED_BILL]
+
+    return document
+
+
+async def enriched_bill_document():
+    database = FakeDatabase(
+        {"events": [stored_event_with_an_enriched_bill()]}
+    )
+    repository = EventRepository(database)
+
+    return database, repository
+
+
+def bill_entries() -> list[LineupEntry]:
+    return [
+        LineupEntry(
+            name=entry["name"],
+            songkick_id=entry["songkick_id"],
+            url=entry["url"],
+            slug=entry["slug"],
+            image=entry["image"],
+            genres=list(entry["genres"]),
+            order=entry["order"],
+        )
+        for entry in ENRICHED_BILL
+    ]
+
+
+def charli_listing() -> Event:
+    """A reimport of one artist on the bill, as the listing carries it."""
+
+    incoming = listing_payload_dateless()
+    incoming.artist_slugs = ["charli-xcx"]
+    incoming.lineup = [bill_entries()[0]]
+    incoming.festival = {
+        "series_id": "1235",
+        "name": "Lollapalooza",
+        "url": LOLLAPALOOZA_URL,
+        "edition": "2027",
+        "artist_ids": [],
+        "artists": [dict(ENRICHED_BILL[0])],
+    }
+
+    return incoming
+
+
+@pytest.mark.asyncio
+async def test_a_one_name_resync_does_not_shrink_an_enriched_bill():
+    """The incident itself: one artist reimported over a full stored bill."""
+
+    database, repository = await enriched_bill_document()
+
+    await repository.upsert_event_by_provider(
+        charli_listing(),
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    # The stored bill - lineup and festival artists alike - stands whole.
+    assert after["lineup"] == ENRICHED_BILL
+    assert after["festival"]["artists"] == ENRICHED_BILL
+
+    # While the association the listing did name merges in as always.
+    assert after["artist_slugs"] == [
+        "charli-xcx",
+        "the-killers",
+        "david-guetta",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_resync_naming_the_whole_bill_still_writes_it():
+    """Protection is against shrinking, not for freezing the record."""
+
+    database, repository = await identity_document()
+
+    incoming = listing_payload_dateless()
+    incoming.lineup = bill_entries()
+    incoming.festival = {"artists": [dict(entry) for entry in ENRICHED_BILL]}
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    assert after["lineup"] == ENRICHED_BILL
+    assert after["festival"]["artists"] == ENRICHED_BILL
+
+
+@pytest.mark.asyncio
+async def test_a_resync_of_an_equal_sized_bill_still_corrects_entries():
+    """Only a shorter list is a silence; the same size is a correction."""
+
+    database, repository = await enriched_bill_document()
+
+    corrected = [
+        LineupEntry(
+            name="Charli XCX (US)",
+            songkick_id="2274326",
+            url="https://www.songkick.com/artists/2274326-charli-xcx",
+            slug="charli-xcx",
+            image=None,
+            genres=["pop"],
+            order=0,
+        ),
+        LineupEntry(
+            name="The Killers",
+            songkick_id="11651",
+            url="https://www.songkick.com/artists/11651-the-killers",
+            slug="the-killers",
+            image=None,
+            genres=["rock"],
+            order=1,
+        ),
+        LineupEntry(
+            name="David Guetta",
+            songkick_id="149066",
+            url="https://www.songkick.com/artists/149066-david-guetta",
+            slug="david-guetta",
+            image=None,
+            genres=["electronic"],
+            order=2,
+        ),
+    ]
+
+    incoming = listing_payload_dateless()
+    incoming.lineup = corrected
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    assert after["lineup"] == [
+        entry.model_dump() for entry in corrected
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_resync_fills_an_empty_festival_bill():
+    """An empty stored bill is not a bill the rule protects."""
+
+    database, repository = await identity_document()
+
+    # The stored edition has no lineup of its own yet.
+    await database["events"].update_one(
+        {"external_ids.songkick": SONGKICK_ID},
+        {"$set": {"lineup": []}},
+    )
+
+    incoming = listing_payload_dateless()
+    incoming.lineup = [bill_entries()[0]]
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    assert after["lineup"] == [ENRICHED_BILL[0]]
+
+
+@pytest.mark.asyncio
+async def test_a_concert_resync_still_corrects_its_lineup_down():
+    """The firewall: a concert's lineup is its performers, not a bill."""
+
+    database, repository = await enriched_bill_document()
+
+    await database["events"].update_one(
+        {"external_ids.songkick": SONGKICK_ID},
+        {"$set": {"event_type": "Concert", "festival": None}},
+    )
+
+    incoming = listing_payload_dateless()
+    incoming.event_type = "Concert"
+    incoming.festival = None
+    incoming.lineup = [bill_entries()[0]]
+
+    await repository.upsert_event_by_provider(
+        incoming,
+        "songkick",
+    )
+
+    after = await database["events"].find_one(
+        {"external_ids.songkick": SONGKICK_ID}
+    )
+
+    # The shrinking correction is taken at its word on a concert.
+    assert after["lineup"] == [ENRICHED_BILL[0]]

@@ -453,6 +453,12 @@ async def test_a_resync_does_not_blank_a_recovered_festival_range():
     collection = MagicMock()
     stored: dict = {}
 
+    async def find_one(query, projection=None):
+        # The repository reads the stored row back before the write, so a
+        # resync can refuse to shrink a festival bill; this double answers
+        # with the row it holds.
+        return stored.get("1")
+
     async def update_one(query, update):
         document = stored.get("1")
 
@@ -464,6 +470,7 @@ async def test_a_resync_does_not_blank_a_recovered_festival_range():
 
         return MagicMock()
 
+    collection.find_one = AsyncMock(side_effect=find_one)
     collection.update_one = AsyncMock(side_effect=update_one)
 
     repository = EventRepository.__new__(EventRepository)

@@ -9,6 +9,7 @@ from app.domain.event_provenance import (
     trusted_listing_filter,
     trusted_upcoming_filter,
 )
+from app.domain.festival import is_festival_event
 from app.utils.ids import object_id_variants
 from bson import ObjectId
 
@@ -141,6 +142,65 @@ def _is_absent_value(value) -> bool:
     return False
 
 
+def _without_shrunken_bill(
+    updates: dict,
+    incoming: dict,
+    stored: Optional[dict],
+) -> None:
+    """Drop a festival resync's partial bill instead of writing it.
+
+    A listing for a festival edition names the appearances it carries - a
+    gigography row for one artist on the bill states that artist - while the
+    whole bill is what the edition's own page states, and that is the read
+    the lineup enrichment performs. A resync may therefore correct or even
+    grow a stored bill, but it must never shrink it: a one-name listing that
+    overwrote an enriched one is exactly how the 2027 Lollapalooza editions
+    were reduced to a single artist minutes after a pass had read their
+    pages. The same rule covers the block's `artists`, which is the same
+    bill in the festival's own spelling.
+
+    The rule is scoped twice. It only applies to a festival edition, because
+    a concert's lineup *is* its performers and a resync that corrects one
+    down is taken at its word; and it only guards a non-empty stored value,
+    because an empty stored bill is filled by whatever arrives and an empty
+    incoming list is already treated as absence by
+    `_without_absent_protected`.
+    """
+
+    if stored is None or not is_festival_event(incoming):
+        return
+
+    stored_lineup = stored.get("lineup") or []
+    incoming_lineup = updates.get("lineup")
+
+    if (
+        incoming_lineup
+        and stored_lineup
+        and len(incoming_lineup) < len(stored_lineup)
+    ):
+
+        updates.pop(
+            "lineup",
+            None,
+        )
+
+    stored_artists = (
+        (stored.get("festival") or {}).get("artists") or []
+    )
+    incoming_artists = updates.get("festival.artists")
+
+    if (
+        incoming_artists
+        and stored_artists
+        and len(incoming_artists) < len(stored_artists)
+    ):
+
+        updates.pop(
+            "festival.artists",
+            None,
+        )
+
+
 def _festival_sub_updates(
     festival_block,
     prefix: str = "festival",
@@ -172,10 +232,13 @@ def _festival_sub_updates(
     }
 
 
-def _merge_for_resync(incoming: dict) -> dict:
+def _merge_for_resync(
+    incoming: dict,
+    stored: Optional[dict] = None,
+) -> dict:
     """The update document for a resync: what to `$set`, and what to add.
 
-    Three rules are applied here, all of them about the record rather than
+    Four rules are applied here, all of them about the record rather than
     about the provider that happens to be writing:
 
     * attendance is dropped, because a listing never measured it;
@@ -192,6 +255,12 @@ def _merge_for_resync(incoming: dict) -> dict:
       empty incoming list would shed all of them. So the union is what
       persists: an association is only ever added, never dropped by a
       listing that failed to mention it.
+    * a festival edition's bill is never shrunk: when `stored` is passed and
+      the incoming bill names fewer performers than the stored one, the
+      incoming list is dropped rather than written (see
+      `_without_shrunken_bill`). The caller reads the snapshot the rule
+      needs; without it the rule has nothing to compare against and no
+      field is dropped.
     """
 
     for name in _NEVER_OWNED_BY_A_PROVIDER:
@@ -211,6 +280,12 @@ def _merge_for_resync(incoming: dict) -> dict:
         _festival_sub_updates(
             festival_block,
         )
+    )
+
+    _without_shrunken_bill(
+        updates,
+        incoming,
+        stored,
     )
 
     # The source block is written the same way the festival block is: key
@@ -267,6 +342,13 @@ class EventRepository(BaseRepository):
         self,
         event_id: str,
     ):
+
+        # A malformed id cannot name a stored event, so it is answered the
+        # same way a missing one is. Without this guard the ObjectId below
+        # raises and a typed or truncated address becomes a 500 - the same
+        # reason `get_document_by_id` checks before converting.
+        if not ObjectId.is_valid(event_id):
+            return None
 
         document = await self.find_one(
             {
@@ -903,11 +985,39 @@ class EventRepository(BaseRepository):
         written as zero. The same goes for `artist_slugs`, which is merged
         additively: a listing that names fewer artists than the stored record
         does not revoke the ones it failed to mention (see `_merge_for_resync`).
+
+        Nor may a listing shrink a festival edition's bill. The listing names
+        the appearances it carries; the edition's own page is the read that
+        states the whole bill, and the lineup enrichment stores it. An incoming
+        lineup - or the block's `artists`, which is the same bill - that names
+        fewer performers than the stored one is therefore dropped rather than
+        written, for the same reason `artist_slugs` is only ever grown (see
+        `_merge_for_resync`).
         """
 
         incoming = event.model_dump(
             exclude={"id"}
         )
+
+        # The bill a festival edition already holds is read back before the
+        # write, so the merge can refuse to shrink it (see
+        # `_merge_for_resync`). Only festival editions pay this read, and it
+        # asks for two fields.
+        stored = None
+
+        if is_festival_event(event):
+
+            stored = await self.collection.find_one(
+                {
+                    f"external_ids.{provider}": (
+                        event.external_ids[provider]
+                    )
+                },
+                {
+                    "lineup": 1,
+                    "festival": 1,
+                },
+            )
 
         await self.collection.update_one(
             {
@@ -917,5 +1027,6 @@ class EventRepository(BaseRepository):
             },
             _merge_for_resync(
                 incoming,
+                stored=stored,
             ),
         )
