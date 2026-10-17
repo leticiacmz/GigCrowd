@@ -34,6 +34,17 @@ interface Artist {
 
   image?: string;
 
+  /*
+    Present only when the backend ran a first-open synchronization while
+    answering this read; the events request beside it may predate what that
+    fetch stored, which is why the listing is re-read when it says so.
+  */
+  sync?: {
+
+    attempted?: boolean;
+
+  } | null;
+
 }
 
 
@@ -224,6 +235,19 @@ export default function ArtistEventsPage(){
 
 
       setArtist(data);
+
+
+      /*
+        A first open of a pending artist initializes them inside this same
+        read, and the listing requested beside it answered before that fetch
+        stored anything. When the response says a synchronization just ran,
+        the listing is read again so it shows what the sync stored.
+      */
+      if (data?.sync?.attempted) {
+
+        await loadEvents();
+
+      }
 
 
     }catch(error){

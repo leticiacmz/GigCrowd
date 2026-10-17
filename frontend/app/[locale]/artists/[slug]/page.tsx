@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl';
 import { artistAPI, eventAPI } from '@/app/lib/api';
 import { isAuthenticated } from '@/app/lib/auth';
 import { isPastEvent } from '@/app/lib/dates';
+import { createRequestGuard } from '@/app/lib/requestGuard';
 import { useAuthAction } from '@/app/lib/use-auth-action';
 import ArtistTabs from '@/components/artist/ArtistTabs';
 import Badge from '@/components/ui/Badge';
@@ -38,6 +39,16 @@ interface ArtistProfile {
     musicbrainz?: string;
     [key: string]: string | undefined;
   };
+  /*
+    Present only when the backend ran a first-open synchronization while
+    answering this read. `attempted` is the fact this page needs: the list
+    beside it was requested at the same time and may predate what that fetch
+    stored.
+  */
+  sync?: {
+    attempted?: boolean;
+    succeeded?: boolean;
+  } | null;
 }
 
 interface ArtistEvent {
@@ -147,19 +158,40 @@ export default function ArtistProfilePage() {
   const [followLoading, setFollowLoading] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
 
-  const loadArtist = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError('');
+  /*
+    Each loader owns a guard: only the most recently started request may
+    write its answer. The page stays mounted while its slug changes - the
+    related-artists links at the bottom are exactly that navigation - so a
+    slow answer for the previous artist must never become this page's state.
+    The window is real rather than theoretical, because a first open of a
+    pending artist legitimately takes a minute while the backend fetches
+    their whole gigography under a claim.
+  */
+  const artistRequest = useRef(createRequestGuard()).current;
+  const eventsRequest = useRef(createRequestGuard()).current;
+  const followRequest = useRef(createRequestGuard()).current;
+  const relatedRequest = useRef(createRequestGuard()).current;
 
-      const data = await artistAPI.getArtist(artistSlug);
-      setArtist(data);
-    } catch {
-      setError(t('loadError'));
-    } finally {
-      setLoading(false);
-    }
-  }, [artistSlug, t]);
+  /*
+    The page changes identity with its slug while staying mounted. When that
+    happens the previous artist - their events, their related acts, their
+    follow state - is dropped during render itself, so no frame of the new
+    address can show the old artist and no answer that arrives later lands in
+    state that already belongs to someone else.
+  */
+  const [renderedSlug, setRenderedSlug] = useState(artistSlug);
+  if (renderedSlug !== artistSlug) {
+    setRenderedSlug(artistSlug);
+    setArtist(null);
+    setEvents([]);
+    setRelatedArtists([]);
+    setLoading(true);
+    setEventsLoading(true);
+    setEventsError(false);
+    setRelatedLoading(false);
+    setError('');
+    setFollowing(false);
+  }
 
   /*
     The upcoming list has its own state, because its empty state is a claim:
@@ -168,44 +200,91 @@ export default function ArtistProfilePage() {
     reader the artist has no shows when the page simply could not find out.
   */
   const loadArtistEvents = useCallback(async () => {
+    const request = eventsRequest.next();
+    const stillMine = () => eventsRequest.isCurrent(request);
+
     try {
       setEventsLoading(true);
       setEventsError(false);
 
       const data = await eventAPI.getArtistEvents(artistSlug);
+      if (!stillMine()) return;
+
       setEvents(
         [...data].sort(
           (a, b) => eventStart(a) - eventStart(b)
         )
       );
     } catch {
+      if (!stillMine()) return;
       setEvents([]);
       setEventsError(true);
     } finally {
-      setEventsLoading(false);
+      if (stillMine()) setEventsLoading(false);
     }
-  }, [artistSlug]);
+  }, [artistSlug, eventsRequest]);
 
   const loadFollowStatus = useCallback(async () => {
+    const request = followRequest.next();
+    const stillMine = () => followRequest.isCurrent(request);
+
     try {
       const data = await artistAPI.getFollowStatus(artistSlug);
+      if (!stillMine()) return;
+
       setFollowing(Boolean(data.following));
     } catch {
-      setFollowing(false);
+      if (stillMine()) setFollowing(false);
     }
-  }, [artistSlug]);
+  }, [artistSlug, followRequest]);
 
   const loadRelatedArtists = useCallback(async () => {
+    const request = relatedRequest.next();
+    const stillMine = () => relatedRequest.isCurrent(request);
+
     try {
       setRelatedLoading(true);
       const data = await artistAPI.getRelatedArtists(artistSlug);
+      if (!stillMine()) return;
+
       setRelatedArtists(data.related_artists || []);
     } catch {
-      setRelatedArtists([]);
+      if (stillMine()) setRelatedArtists([]);
     } finally {
-      setRelatedLoading(false);
+      if (stillMine()) setRelatedLoading(false);
     }
-  }, [artistSlug]);
+  }, [artistSlug, relatedRequest]);
+
+  const loadArtist = useCallback(async () => {
+    const request = artistRequest.next();
+    const stillMine = () => artistRequest.isCurrent(request);
+
+    try {
+      setLoading(true);
+      setError('');
+
+      const data = await artistAPI.getArtist(artistSlug);
+      if (!stillMine()) return;
+
+      setArtist(data);
+
+      /*
+        The first open of a pending artist runs their whole gigography fetch
+        inside this read. The events list was requested beside it and answered
+        before that fetch had stored anything, so when the response says a
+        synchronization just ran, the list is read again - once - and the page
+        ends up showing what the sync stored rather than the empty page the
+        reader arrived before.
+      */
+      if (data?.sync?.attempted) {
+        await loadArtistEvents();
+      }
+    } catch {
+      if (stillMine()) setError(t('loadError'));
+    } finally {
+      if (stillMine()) setLoading(false);
+    }
+  }, [artistSlug, t, artistRequest, loadArtistEvents]);
 
   useEffect(() => {
     if (!artistSlug) {
