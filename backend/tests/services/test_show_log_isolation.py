@@ -275,3 +275,76 @@ async def test_feed_activity_of_a_show_resolves_only_to_its_own_event(
     assert resolved, "the confirmation must appear in the feed"
     assert set(resolved) == {first}
     assert sibling not in resolved
+
+
+@pytest.mark.asyncio
+async def test_two_people_confirming_the_same_show_keep_their_own_presence(
+    db,
+    service,
+):
+    """Presence is a pair, not a property of the show.
+
+    A second person confirming the same event must not overwrite the first
+    person's log or leak into their lists, and each person's GET answers
+    their own status. The counters are the event's own answer to "how many",
+    so both people are counted there - one per status.
+    """
+
+    show = await add_show(
+        db,
+        an_edition_show(
+            "dua-lipa",
+            "Dua Lipa @ Lollapalooza 2026",
+            "6a1000000000000000000003",
+        ),
+    )
+
+    await service.create_show_log(
+        ALICE,
+        ShowLogCreate(
+            event_id=show,
+            status=AttendanceStatus.WENT,
+        ),
+    )
+
+    bob = "user-2"
+
+    await service.create_show_log(
+        bob,
+        ShowLogCreate(
+            event_id=show,
+            status=AttendanceStatus.MAYBE,
+        ),
+    )
+
+    # Two rows, one per person, each keeping its own status.
+    alice_log = await service.get_show_log(ALICE, show)
+    bob_log = await service.get_show_log(bob, show)
+
+    assert alice_log.status == AttendanceStatus.WENT
+    assert bob_log.status == AttendanceStatus.MAYBE
+
+    # Neither person's list carries the other's confirmation.
+    alice_list = await service.get_user_show_logs(ALICE)
+    bob_list = await service.get_user_show_logs(bob)
+
+    assert [log.event_id for log in alice_list] == [show]
+    assert [log.event_id for log in bob_list] == [show]
+    assert [log.status for log in alice_list] == [
+        AttendanceStatus.WENT
+    ]
+    assert [log.status for log in bob_list] == [
+        AttendanceStatus.MAYBE
+    ]
+
+    # The event counts people, one per status.
+    document = await snapshot(db, show)
+    assert document["went_count"] == 1
+    assert document["maybe_count"] == 1
+    assert document["going_count"] == 0
+
+    # And both pairs exist, each naming its own user.
+    pairs = await db.show_logs.find({}).to_list(length=10)
+    assert sorted(
+        (row["user_id"], row["event_id"]) for row in pairs
+    ) == sorted([(ALICE, show), (bob, show)])

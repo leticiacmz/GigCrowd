@@ -28,6 +28,8 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
+from app.domain.festival import is_festival_event
+
 # The Songkick id as it appears on a lineup entry: bare digits.
 #
 # Artists store the same identifier in the prefixed form a Songkick artist URL
@@ -155,15 +157,21 @@ def personal_artist_slugs(event: dict) -> set[str]:
     A lineup is not a record of what someone watched. Someone can buy a
     festival ticket, walk past most of the bill and still have a good night,
     which is why attending a festival date must not add every act on it to their
-    history. Only a direct artist reference on the event counts: the show this
-    person says they went to was this artist's show.
+    history. A festival date therefore contributes nobody: the record states
+    who was on the bill, never which of those performances the person stood in
+    front of. Its `artist_slugs` are the bill's membership - the importer
+    resolves the announced lineup into that list so every performer's own page
+    can reach the date - and reading them here would credit the whole bill to
+    one ticket, which is exactly the claim a lineup cannot support.
 
-    Reading the direct reference rather than the lineup also keeps a multi-act
-    concert honest. A Marina Sena show whose bill lists four acts is a Marina
-    Sena show; the support acts are on the bill but they are not why the event
-    belongs to Marina Sena, and a past concert whose `lineup` merely mirrors its
-    single `artist_slug` gains nothing by being read twice.
+    A concert keeps its direct references. A Marina Sena show whose bill lists
+    four acts is a Marina Sena show; the multi-act bill a concert states
+    directly is what the person attended, and a past concert whose `lineup`
+    merely mirrors its single `artist_slug` gains nothing by being read twice.
     """
+
+    if is_festival_event(event):
+        return set()
 
     return direct_artist_slugs(event)
 

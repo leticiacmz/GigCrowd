@@ -218,6 +218,56 @@ class TestPersonalAttendance:
 
         assert count_attended_shows_per_artist(events) == {}
 
+    def test_a_festival_date_carrying_its_whole_bill_counts_for_nobody(self):
+        """The shape the importer actually writes.
+
+        A resolved lineup is merged into `artist_slugs` so every performer's
+        own page can reach the date. Reading that field as attendance credited
+        the whole bill to one festival ticket; the membership question and the
+        attendance question have to stay apart even when they share a field.
+        """
+
+        document = {
+            "_id": "event-1",
+            "event_type": "FestivalInstance",
+            "title": "Festival Vale 2023 @ Parque",
+            "artist_slug": "marina-sena",
+            "artist_slugs": [
+                "marina-sena",
+                "tim-bernardes",
+                "o-terno",
+            ],
+            "lineup": [
+                entry("Marina Sena", "3090429"),
+                entry("Tim Bernardes", "2668421"),
+                entry("O Terno", "2921978"),
+            ],
+        }
+
+        # Membership keeps every performer reachable.
+        assert artist_slugs_of(document) == {
+            "marina-sena",
+            "tim-bernardes",
+            "o-terno",
+        }
+
+        # Attendance claims no performance nobody confirmed.
+        assert personal_artist_slugs(document) == set()
+        assert count_attended_shows_per_artist([document]) == {}
+
+    def test_a_legacy_festival_spelling_is_still_a_festival(self):
+        """Rows written before the canonical spelling carry `Festival`."""
+
+        document = {
+            "_id": "event-1",
+            "event_type": "Festival",
+            "artist_slug": "nova",
+            "artist_slugs": ["nova", "support"],
+        }
+
+        assert personal_artist_slugs(document) == set()
+        assert count_attended_shows_per_artist([document]) == {}
+
     def test_a_support_act_on_a_concert_is_not_the_headline_attendance(self):
         # A Marina Sena show can carry a four-act bill. The event belongs to
         # Marina Sena, so that is what attending it means.

@@ -597,11 +597,12 @@ async def get_profile_artists_seen(
 
     """The artists this user has actually seen, and how often.
 
-    Attendance is the only source: a `went` show log, the event's own artist
-    reference for a concert, and the event's lineup for a festival date. An
-    artist the user merely follows does not appear unless they have been to a
-    show, and only the lineup of the concrete event they attended counts - not
-    every edition of the festival it belongs to.
+    Attendance is the only source: a `went` show log, over the events it
+    names, counted per distinct event. An artist the user merely follows does
+    not appear. A concert counts for the artists it names directly; a
+    festival date counts for nobody, because the record states who was on
+    the bill and never which of those performances the person stood in front
+    of.
 
     Public, because what someone has seen is what a concert profile is for.
     """
