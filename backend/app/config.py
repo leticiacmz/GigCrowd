@@ -35,12 +35,30 @@ class Settings(BaseSettings):
     SPOTIFY_REDIRECT_URI: str
     SPOTIFY_API_URL: str 
     SPOTIFY_AUTH_URL: str 
+
+    # Spotify contributes extras to artist discovery and nothing else. When
+    # it refuses (the 403 on its token endpoint this deployment met), the
+    # refusal is about this app's access, not about the query - so the
+    # provider goes quiet for this many minutes instead of letting every
+    # search pay for one more call that cannot succeed. The first search
+    # after the window asks again, and a success clears the window; nothing
+    # here is permanent.
+    SPOTIFY_SEARCH_COOLDOWN_MINUTES: int = 30
     
     # Songkick configuration
     SONGKICK_BASE_URL: str = "https://www.songkick.com"
     PLAYWRIGHT_HEADLESS: bool = True
     PLAYWRIGHT_TIMEOUT: int = 60000
     SONGKICK_REQUIRE_NAVIGATION: bool = True
+
+    # When Songkick has had enough requests for a while it answers 429 and
+    # states how long to wait in `Retry-After` (a number of seconds or an
+    # HTTP date). Waiting that long and asking once more is the polite
+    # reading of that answer, so the client does exactly that - one retry,
+    # never a loop. The cap is where politeness stops: a wait past it is
+    # not taken, and the request fails with the reason in the log instead
+    # of a worker sleeping on an unbounded instruction.
+    SONGKICK_RETRY_AFTER_MAX_SECONDS: int = 30
 
     # =====================================================
     # Background scheduler
@@ -95,10 +113,14 @@ class Settings(BaseSettings):
 
     LINEUP_ARTIST_IMPORT_ENABLED: bool = True
 
-    # How many distinct performers one import may turn into artists. Bounded so
-    # a single festival with a very large bill cannot turn one sync into a very
-    # long run of writes.
-    LINEUP_ARTIST_IMPORT_MAX_ARTISTS: int = 100
+    # No bound sits beside this switch, and the absence is deliberate: every
+    # performer a run announces becomes an artist in that run. There used to
+    # be a per-run cap, and a bill past it waited for "the next pass" - which
+    # never came, because the next pass found those names already stored and
+    # saw nothing to create. A bound that defers real records to a pass that
+    # cannot see them is not a bound, it is a leak. Creating a stub is one
+    # local write with no fetch behind it, so the run that reads the bill is
+    # also the run that finishes it.
 
     # =====================================================
     # LINEUP ENRICHMENT
@@ -129,12 +151,6 @@ class Settings(BaseSettings):
     # The retry button on the festival page resets the counter, so a person
     # always has the last word over an automatic budget.
     LINEUP_ENRICHMENT_MAX_ATTEMPTS: int = 3
-
-    # How many new artist stubs one enrichment pass may create, mirroring
-    # the import's own bound. A bill past the bound stores completely and
-    # reports `partial` - performers are held, the tail's artist pages are
-    # simply not created yet, and the next pass continues.
-    LINEUP_ENRICHMENT_MAX_NEW_ARTISTS: int = 100
 
     # How many page reads one process keeps in flight at once. The claims
     # bound this across processes; this bounds it within one.

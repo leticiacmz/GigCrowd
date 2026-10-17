@@ -63,6 +63,11 @@ async def distinct_lineup_artists(
                 },
                 "image": "$lineup.image",
                 "genres": "$lineup.genres",
+                # The source's own artist link rides along: it is what lets
+                # the importer settle an identity from the assertion the
+                # entry's page already made instead of fetching one artist
+                # page per performer.
+                "url": "$lineup.url",
             }
         },
         {"$match": {"songkick_id": {"$nin": [None, ""]}}},
@@ -72,6 +77,7 @@ async def distinct_lineup_artists(
                 "name": {"$first": "$name"},
                 "image": {"$first": "$image"},
                 "genres": {"$first": "$genres"},
+                "url": {"$first": "$url"},
             }
         },
         {"$sort": {"_id": 1}},
@@ -90,6 +96,7 @@ async def distinct_lineup_artists(
             "name": row.get("name") or "",
             "image": row.get("image"),
             "genres": row.get("genres") or [],
+            "url": row.get("url"),
         }
         for row in rows
         if row.get("_id")

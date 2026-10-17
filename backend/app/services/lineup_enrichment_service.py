@@ -11,8 +11,10 @@ is the one deliberate addition to the "nothing is queued for later"
 architecture this project otherwise holds (see `jobs/README.md`). The
 difference is worth stating plainly: nothing here replaces the in-run
 completion or the extraction-gap report - an event is written, reported and
-visible with whatever the run obtained. What this adds is the next pass,
-with a state a reader can see, over a source that already exists.
+visible with whatever the run obtained, and the pass then reads the page the
+row names and finishes the edition: every performer the page states is
+stored, and every stored performer exists as an artist, in the pass that
+read it. No part of that waits for a later run.
 
 The rules it holds itself to:
 
@@ -36,9 +38,10 @@ States, and what each one means:
 
     pending    enqueued, not claimed yet
     active     a worker holds the claim and is reading the page
-    partial    performers were stored but the pass stopped short of finishing
-               (an artist bound was reached, or a stub could not be created)
-    complete   the event's own page was read and its lineup is stored
+    partial    the page was read but some artist records could not be
+               created; the stored lineup is kept and a retry re-runs it
+    complete   the event's own page was read and its lineup is stored,
+               with every stored performer held as an artist
     failed     the last attempt errored; retry re-runs it
     empty      the page was read and it names no performer
 
@@ -168,7 +171,6 @@ class LineupEnrichmentService:
         lineup_importer=None,
         lease_seconds: int = 600,
         max_attempts: int = 3,
-        max_new_artists: int = 100,
         max_concurrent: int = 2,
     ):
         self.db = db
@@ -178,7 +180,6 @@ class LineupEnrichmentService:
         self.lineup_importer = lineup_importer
         self.lease_seconds = int(lease_seconds)
         self.max_attempts = int(max_attempts)
-        self.max_new_artists = int(max_new_artists)
         self._semaphore = asyncio.Semaphore(
             max(1, int(max_concurrent))
         )
@@ -628,27 +629,32 @@ class LineupEnrichmentService:
             entry["order"] = position
 
         # --------------------------------------------------
-        # The artists behind the new names
+        # The artists behind the names
         # --------------------------------------------------
         #
-        # Bounded by the same per-pass artist budget the import honours, and
-        # the bound is what `partial` reports: performers are stored, the
-        # artist pages for the tail of a huge bill are simply not created
-        # yet, and another pass continues where this one stopped.
-
-        truncated = len(fresh) > self.max_new_artists
+        # Every performer the stored bill names must exist as an artist by the
+        # end of this pass. The candidates are the whole merged bill, not just
+        # the names this read added: the importer skips the ids that already
+        # resolve, creates the ones that do not, and never creates one twice -
+        # so a bill whose artist records were lost to an earlier cap, a crash
+        # or an older code path is completed on this read instead of staying
+        # short forever.
+        #
+        # There is no per-pass cap here, and its absence is deliberate. A cap
+        # deferred the tail to "the next pass" - and the next pass found those
+        # names already stored, saw nothing fresh, and created nothing, so the
+        # tail was never created at all. Creating a stub is one local write
+        # with no fetch behind it; the run that reads the bill finishes it.
 
         importer_failed = 0
 
-        if fresh and self.lineup_importer is not None:
+        if merged and self.lineup_importer is not None:
 
             try:
 
                 report = await (
                     self.lineup_importer
-                    .ensure_for_entries(
-                        fresh[: self.max_new_artists]
-                    )
+                    .ensure_for_entries(merged)
                 )
 
                 importer_failed = report.failed
@@ -734,7 +740,7 @@ class LineupEnrichmentService:
 
             state = STATE_EMPTY
 
-        elif truncated or importer_failed:
+        elif importer_failed:
 
             state = STATE_PARTIAL
 
@@ -929,9 +935,6 @@ def service_for_database(db):
             settings.LINEUP_ENRICHMENT_LEASE_SECONDS
         ),
         max_attempts=settings.LINEUP_ENRICHMENT_MAX_ATTEMPTS,
-        max_new_artists=(
-            settings.LINEUP_ENRICHMENT_MAX_NEW_ARTISTS
-        ),
         max_concurrent=(
             settings.LINEUP_ENRICHMENT_MAX_CONCURRENT
         ),

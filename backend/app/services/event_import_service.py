@@ -87,9 +87,6 @@ class EventImportService:
                     if settings.LINEUP_ARTIST_IMPORT_ENABLED
                     else None
                 ),
-                lineup_artist_limit=(
-                    settings.LINEUP_ARTIST_IMPORT_MAX_ARTISTS
-                ),
                 lineup_enrichment=(
                     self.lineup_enrichment
                     if settings.LINEUP_ENRICHMENT_ENABLED

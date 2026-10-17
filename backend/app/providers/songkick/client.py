@@ -1,8 +1,10 @@
 import asyncio
 import json
 import re
+import time
 from contextvars import ContextVar
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 from urllib.parse import quote, urljoin
 
@@ -63,6 +65,52 @@ def reset_songkick_requests() -> int:
     _requests_this_run.set(0)
 
     return previous
+
+
+def _retry_after_seconds(response) -> Optional[float]:
+    """How long a 429 response asked this client to wait, in seconds.
+
+    `Retry-After` is legal in two shapes - a number of seconds or an HTTP
+    date - and both are read, because which one a server sends is its
+    choice. An absent, malformed or already-past value yields `None`,
+    which the caller reads as "nothing usable was stated": the response
+    is handed back rather than a delay being invented for it.
+    """
+
+    headers = getattr(response, "headers", None)
+
+    if headers is None:
+        return None
+
+    value = headers.get("Retry-After")
+
+    if value is None:
+        value = headers.get("retry-after")
+
+    text = str(value or "").strip()
+
+    if not text:
+        return None
+
+    if text.isdigit():
+        return float(text)
+
+    try:
+        moment = parsedate_to_datetime(text)
+
+    except (TypeError, ValueError):
+        return None
+
+    if moment is None:
+        return None
+
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+
+    return max(
+        0.0,
+        (moment - datetime.now(timezone.utc)).total_seconds(),
+    )
 
 
 class SongkickNotFound(Exception):
@@ -154,9 +202,84 @@ class SongkickClient:
             "text/html,application/xhtml+xml"
         ),
     ):
+        response = await self._one_request(url, accept=accept)
+
+        if getattr(response, "status_code", None) != 429:
+            return response
+
+        # --------------------------------------------------
+        # A rate limit is an instruction with a deadline
+        # --------------------------------------------------
+        #
+        # Songkick answers 429 when it has had enough requests for a while,
+        # and the answer states how long to wait in `Retry-After`. The
+        # polite reading is to wait exactly that long and ask once - one
+        # retry, never a loop. Every branch below is a decision a person
+        # reading the log may need to reconstruct, so every branch states
+        # itself: what was asked, what this client did, and why.
+
+        delay = _retry_after_seconds(response)
+
+        if delay is None:
+
+            logger.warning(
+                "[SONGKICK] 429 for "
+                f"{url} without a usable Retry-After header; "
+                "not waiting, not retrying"
+            )
+
+            return response
+
+        cap = max(
+            0,
+            int(settings.SONGKICK_RETRY_AFTER_MAX_SECONDS),
+        )
+
+        if delay > cap:
+
+            logger.warning(
+                "[SONGKICK] 429 for "
+                f"{url}: Retry-After asks for {delay:.0f}s, "
+                f"past this client's {cap}s cap; "
+                "not waiting, not retrying"
+            )
+
+            return response
+
+        logger.info(
+            "[SONGKICK] 429 for "
+            f"{url}: waiting {delay:.1f}s as asked, "
+            "then one retry"
+        )
+
+        waited_from = time.perf_counter()
+
+        await asyncio.sleep(delay)
+
+        retried = await self._one_request(url, accept=accept)
+
+        logger.info(
+            "[SONGKICK] retry for "
+            f"{url} answered "
+            f"{getattr(retried, 'status_code', '?')} after "
+            f"{time.perf_counter() - waited_from:.1f}s"
+        )
+
+        return retried
+
+    async def _one_request(
+        self,
+        url: str,
+        *,
+        accept: str = (
+            "text/html,application/xhtml+xml"
+        ),
+    ):
         # Counted here, on the caller's context, for the reason the
         # accounting block above gives: the thread this hands off to cannot
-        # write the count back.
+        # write the count back. The retry a 429 earns is a real request and
+        # is counted the same way, so the run's summary never undercounts
+        # what the run actually spent.
         _requests_this_run.set(_requests_this_run.get() + 1)
 
         return await asyncio.to_thread(

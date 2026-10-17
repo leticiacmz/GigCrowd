@@ -64,14 +64,22 @@ class SpotifyAuth:
                     "grant_type": "client_credentials"
                 },
             )
-            print("TOKEN STATUS:", response.status_code)
-            print("TOKEN RESPONSE:", response.text)
-            
-        try:
+
+        if response.status_code != 200:
+
+            # Stated here, before the raise: an operator reading the log
+            # gets the status and the API's own error, not only a stack.
+            # A refused token response is an error document (`invalid_client`
+            # and the like) - it never carries a token, so there is nothing
+            # to leak by stating it. The successful body is never logged:
+            # it *is* the token.
+            logger.warning(
+                "Spotify refused the access token request: "
+                f"{response.status_code} {response.reason_phrase}; "
+                f"body={response.text[:300]!r}"
+            )
+
             response.raise_for_status()
-        except httpx.HTTPStatusError:
-            logger.exception("Failed to obtain Spotify access token.")
-            raise
 
         return response.json()
 

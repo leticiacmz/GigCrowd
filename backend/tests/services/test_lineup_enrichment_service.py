@@ -13,6 +13,9 @@ bill. These tests pin the four properties everything else leans on:
 * **The pass only ever adds.** A page that states less never shrinks a
   stored lineup, artist slugs join with `$addToSet`, and a stored date is
   never replaced.
+* **A pass finishes the bill.** Every performer the page states is stored,
+  and every stored performer is held as an artist, in the pass that read
+  it - nothing waits for a run that may never come.
 * **What the festival page is told never flatters the data.** A stored
   state is reported as it stands; a row nobody read keeps `unknown`.
 """
@@ -384,9 +387,14 @@ class TestThePass:
         assert "headliner" in stored["artist_slugs"]
         assert stored["lineup_enrichment"]["error"] is None
 
-        # Only the new name goes to the importer; the known one is not
-        # re-checked on every pass.
-        assert [entry.name for entry in importer.calls[0]] == ["Newcomer"]
+        # The whole merged bill is handed to the importer, and it is the
+        # importer's own resolve step - not this pass - that skips the
+        # artists that already exist: the known name is never re-checked
+        # with a fetch, and the new one is created in this same pass.
+        handed_over = [
+            entry["name"] for entry in importer.calls[0]
+        ]
+        assert handed_over == ["Arctic Monkeys", "Newcomer"]
 
         # The request carried the event's own address.
         assert client.requests[0]["url"] == ADDRESS
@@ -409,8 +417,12 @@ class TestThePass:
         stored = await database.events.find_one({"_id": "e1"})
         names = [entry["name"] for entry in stored["lineup"]]
         assert names == ["Arctic Monkeys", "Second Act"]
-        # Nothing new arrived, so the importer was not even asked.
-        assert importer.calls == []
+        # The page stated nothing new, but the stored bill still goes to
+        # the importer: if any of its artists were missing, this read is
+        # where they are made real. The importer skips what already exists.
+        assert [
+            entry["name"] for entry in importer.calls[0]
+        ] == ["Arctic Monkeys", "Second Act"]
 
     @pytest.mark.asyncio
     async def test_a_finished_read_that_announces_no_one_is_empty(self):
@@ -543,31 +555,64 @@ class TestThePass:
         assert stored["lineup_enrichment"]["owner"] == "worker-b"
 
     @pytest.mark.asyncio
-    async def test_partial_when_the_artist_budget_runs_out(self):
+    async def test_the_first_pass_makes_every_announced_artist_real(self):
         second = {**dict(ARCTIC), "songkick_id": "222", "name": "Newcomer", "slug": None, "order": 1}
         third = {**dict(ARCTIC), "songkick_id": "333", "name": "Third Act", "slug": None, "order": 2}
         service, database, _, importer = build(
             [festival_event(lineup=[dict(ARCTIC)])],
-            artists=[artist(), artist("third-act", "333")],
+            artists=[artist()],
             client=PageClient(
                 {"lineup": [dict(ARCTIC), second, third]}
             ),
-            max_new_artists=1,
         )
 
         state = await service.process("e1")
 
-        assert state == STATE_PARTIAL
+        # The whole bill is stored and the whole bill is made real in one
+        # pass. Nothing is left "for the next pass": a later pass would find
+        # these names already stored, see nothing fresh, and create no
+        # artist for them ever.
+        assert state == STATE_COMPLETE
 
-        # Every performer the page stated is stored; only the artist
-        # creation stopped at the bound.
         stored = await database.events.find_one({"_id": "e1"})
         assert [entry["name"] for entry in stored["lineup"]] == [
             "Arctic Monkeys",
             "Newcomer",
             "Third Act",
         ]
-        assert len(importer.calls[0]) == 1
+
+        assert len(importer.calls) == 1
+        assert [entry["name"] for entry in importer.calls[0]] == [
+            "Arctic Monkeys",
+            "Newcomer",
+            "Third Act",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_stored_bill_missing_its_artists_completes_on_a_read(self):
+        # The shape an earlier per-run cap left behind: the bill is stored,
+        # its artists are not, and the page states nothing new. A pass that
+        # looked only at fresh names would create nothing; the importer is
+        # handed the stored bill instead, and the missing artist is made
+        # real on this read.
+        stored_entry = {
+            **dict(ARCTIC),
+            "songkick_id": "777",
+            "name": "Early Name",
+            "slug": "early-name",
+        }
+        service, database, _, importer = build(
+            [festival_event(lineup=[stored_entry])],
+            client=PageClient({"lineup": [stored_entry]}),
+        )
+
+        state = await service.process("e1")
+
+        assert state == STATE_COMPLETE
+        assert len(importer.calls) == 1
+        assert [entry["name"] for entry in importer.calls[0]] == [
+            "Early Name",
+        ]
 
     @pytest.mark.asyncio
     async def test_an_importer_failure_keeps_the_bill_and_marks_partial(self):

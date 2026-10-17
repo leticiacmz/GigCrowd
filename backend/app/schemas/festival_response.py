@@ -76,10 +76,10 @@ class FestivalEventResponse(BaseModel):
     #
     # A row the lineup enrichment has touched carries its own answer instead,
     # and the states keep their literal meanings: `pending` and `active` are
-    # the pass working, `partial` says performers are stored but the pass
-    # stopped short of finishing, `complete` is a finished pass with a lineup
-    # (`ok` keeps its old spelling for it, so existing clients read no
-    # change), `failed` is retryable, and `empty` is a finished pass that
+    # the pass working, `partial` is a finished read where some artist
+    # records could not be created, `complete` is a finished pass with a
+    # lineup (`ok` keeps its old spelling for it, so existing clients read
+    # no change), `failed` is retryable, and `empty` is a finished pass that
     # read a page announcing no one.
     lineup_state: Literal[
         "ok",

@@ -146,7 +146,6 @@ class SongkickEventImportService:
         venue_repository: VenueRepository,
         artist_repository: ArtistRepository,
         lineup_importer=None,
-        lineup_artist_limit: int = 100,
         lineup_enrichment=None,
     ):
 
@@ -168,11 +167,6 @@ class SongkickEventImportService:
         # absent, and it never fetches an artist's gigography - see
         # `LineupArtistImporter`.
         self.lineup_importer = lineup_importer
-
-        self.lineup_artist_limit = max(
-            0,
-            lineup_artist_limit,
-        )
 
         # The one deferred collaborator, and the deliberate exception to the
         # "nothing is queued for later" rule this service otherwise keeps.
@@ -961,9 +955,12 @@ class SongkickEventImportService:
 
         if announced and self.lineup_importer:
 
-            batch = list(announced.values())[
-                : self.lineup_artist_limit
-            ]
+            # Every announced performer, not the first N of them: a cut batch
+            # left a tail no later pass could see (those names were already
+            # stored, so nothing ever looked fresh), and the creation is one
+            # local write with no fetch behind it - the run that read the
+            # bill is the run that makes its performers real.
+            batch = list(announced.values())
 
             try:
 
