@@ -474,6 +474,7 @@
     "noEvents": "Nenhum evento encontrado."
   },
   "festivals": {
+    "allCountries": "Todos os países",
     "artists": "Artistas",
     "artistsCount": "{count} artistas",
     "backToEvent": "← Voltar ao evento",
@@ -485,6 +486,7 @@
     "editionsHeading": "Edições",
     "editionsHint": "O mesmo festival, ano após ano. Cada data abaixo é uma edição dele, não um festival separado.",
     "editionsCount": "{count} edições",
+    "filterByCountry": "Filtrar por país",
     "goBack": "← Voltar",
     "lineup": "Line-up",
     "lineupEmpty": "O lineup do festival ainda não está disponível.",

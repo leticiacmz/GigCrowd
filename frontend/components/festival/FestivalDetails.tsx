@@ -45,6 +45,12 @@ import {
   formatEventDateRange,
 } from '../../app/lib/dates';
 
+import {
+  ALL_COUNTRIES,
+  editionCountries,
+  matchesCountry,
+} from '../../app/lib/festivalEditions';
+
 import SectionHeader from '../ui/SectionHeader';
 import LoadingState from '../LoadingState';
 import LineupPerformerCard, {
@@ -238,6 +244,15 @@ export default function FestivalDetails({
   const [query, setQuery] = useState('');
 
   /*
+    Which country's editions the reader asked to see. `all` is the default,
+    and the control only appears when the listed editions state more than one
+    country - a filter with a single option is noise, not a question.
+  */
+  const [countryFilter, setCountryFilter] = useState<string>(
+    ALL_COUNTRIES
+  );
+
+  /*
     The retry, and the only follow-up this page ever runs.
 
     Pressing the button asks the server to read the edition's own page again;
@@ -310,6 +325,25 @@ export default function FestivalDetails({
   const editions = useMemo(
     () => festival?.editions ?? [],
     [festival]
+  );
+
+  /*
+    The countries the listed editions actually state, and the slice of the
+    list the reader asked for. Both read the data the response already
+    carries; a country is never inferred for an edition that has none, which
+    is why the filter appears only when there is a real choice to make.
+  */
+  const countries = useMemo(
+    () => editionCountries(editions.map((entry) => entry.event)),
+    [editions]
+  );
+
+  const visibleEditions = useMemo(
+    () =>
+      editions.filter((entry) =>
+        matchesCountry(entry.event, countryFilter)
+      ),
+    [editions, countryFilter]
   );
   const lineup = useMemo(
     () => festival?.lineup ?? [],
@@ -630,11 +664,53 @@ export default function FestivalDetails({
               {t('editionsHint')}
             </p>
 
+            {countries.length > 1 && (
+              <div className="mb-4 flex items-center gap-3">
+                <label
+                  htmlFor="festival-edition-country"
+                  className="text-sm text-muted-subtle"
+                >
+                  {t('filterByCountry')}
+                </label>
+
+                <select
+                  id="festival-edition-country"
+                  data-testid="festival-editions-country"
+                  value={countryFilter}
+                  onChange={(event) =>
+                    setCountryFilter(event.target.value)
+                  }
+                  className="
+                    rounded-lg
+                    border
+                    border-border
+                    bg-background
+                    px-3
+                    py-2
+                    text-sm
+                    text-foreground
+                    outline-none
+                    focus:border-accent
+                  "
+                >
+                  <option value={ALL_COUNTRIES}>
+                    {t('allCountries')}
+                  </option>
+
+                  {countries.map((country) => (
+                    <option key={country} value={country}>
+                      {country}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <ul
               className="divide-y divide-border rounded-2xl border border-border bg-card-bg px-4 md:px-6"
               data-testid="festival-editions"
             >
-              {editions.map(({ event }) => {
+              {visibleEditions.map(({ event }) => {
                 const isSelected =
                   event.id === festival.selected_event_id;
 
