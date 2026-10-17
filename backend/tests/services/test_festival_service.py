@@ -159,14 +159,14 @@ class TestIdentity:
         assert festival.identity.series_id == SERIES
 
     @pytest.mark.asyncio
-    async def test_an_edition_name_with_a_venue_suffix_reaches_the_header(self):
-        """The header shows the stored edition name as it is.
+    async def test_an_edition_name_does_not_head_the_series_page(self):
+        """The header shows the series' own words, not the date's name.
 
-        Songkick names an edition "Festival @ Venue", and the local data holds
-        dozens of them. The name read off the festival's own block is a real
-        name, so it reaches `identity.name` unchanged - the artist-shape guard
-        is only for a title fallback, and must not strip a valid part of a
-        festival's name on its way to the page.
+        Songkick names an edition "Festival @ Venue" - the local data holds
+        dozens - and that name belongs to the date. The series profile heads
+        itself with the series part of it ("Rock In Rio"), because showing
+        the date's name would present one edition as the whole festival; the
+        edition keeps its own name wherever the date is the subject.
         """
 
         document = festival_document(
@@ -186,10 +186,7 @@ class TestIdentity:
             "507f1f77bcf86cd799439011"
         )
 
-        assert (
-            festival.identity.name
-            == "Rock In Rio 2022 @ Barra Olympic Park"
-        )
+        assert festival.identity.name == "Rock In Rio"
 
     @pytest.mark.asyncio
     async def test_an_artist_shaped_name_never_heads_the_festival(self):
@@ -199,8 +196,9 @@ class TestIdentity:
         page stored the performer's appearance ("Charli XCX @ Autódromo ...")
         as the festival's name. The page must not present the artist as the
         festival, and refusing the name must not cost the page its identity:
-        the series id still comes from the official address, so the festival
-        opens with a generic label and every edition is still listed.
+        the series id still comes from the official address, which also
+        states the series' own words for the header, and every edition is
+        still listed.
         """
 
         document = festival_document(
@@ -236,7 +234,7 @@ class TestIdentity:
         )
 
         assert festival.identity.series_id == "1235"
-        assert festival.identity.name is None
+        assert festival.identity.name == "Lollapalooza"
         assert len(festival.editions) == 1
 
     @pytest.mark.asyncio
@@ -896,14 +894,32 @@ class TestAnEditionImportedWithoutItsFestivalBlock:
         }
 
     @pytest.mark.asyncio
-    async def test_the_display_name_falls_back_to_the_editions_own_title(self):
-        """The address states the series id, not a name.
+    async def test_the_display_name_is_read_from_the_series_segment(self):
+        """No block was written, but the address still names the series.
 
-        Nothing is invented for the header: with no stored name to show, the
-        page shows the edition the reader is standing on.
+        The stored block is the first source of the name; when one never
+        existed, the series segment of the arrival's own address
+        ("3441108-primavera") states the series' words, and the header shows
+        those rather than the edition's title.
         """
 
         service = build([DAY_ONE, self.arrival()])
+
+        festival = await service.get_festival(self.ARRIVAL_ID)
+
+        assert festival.identity.name == "Primavera"
+
+    @pytest.mark.asyncio
+    async def test_a_slugless_address_leaves_the_editions_own_title(self):
+        """An address that names nothing is no name; the title is last resort."""
+
+        arrival = self.arrival()
+
+        arrival["source"]["url"] = (
+            "https://www.songkick.com/festivals/3441108"
+        )
+
+        service = build([DAY_ONE, arrival])
 
         festival = await service.get_festival(self.ARRIVAL_ID)
 
@@ -951,8 +967,8 @@ class TestAnArtistShapedTitleIsNeverTheFestivalName:
     imported without its festival block can carry a title like "Demi Lovato
     Rock In Rio 2022". Showing that as the festival's name renders the header
     as "Demi Lovato @ Demi Lovato Rock In Rio 2022". The page still opens -
-    the address states the series - but the header shows no name rather than
-    the artist's.
+    the address states the series - and the header shows the series' own
+    words read from the address rather than the artist's.
     """
 
     ARRIVAL_ID = "507f1f77bcf86cd799439031"
@@ -989,11 +1005,11 @@ class TestAnArtistShapedTitleIsNeverTheFestivalName:
         )
 
     @pytest.mark.asyncio
-    async def test_the_page_still_opens_with_no_name_in_the_header(self):
+    async def test_the_artist_shaped_title_never_heads_the_page(self):
         service = build([DAY_ONE, self.arrival()])
 
         festival = await service.get_festival(self.ARRIVAL_ID)
 
         assert festival is not None
         assert festival.identity.series_id == SERIES
-        assert festival.identity.name is None
+        assert festival.identity.name == "Primavera"

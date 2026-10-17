@@ -37,6 +37,9 @@ from app.domain.event_schedule import (
 from app.domain.festival import (
     festival_identity,
     festival_name,
+    festival_series_name_from_edition_name,
+    festival_series_name_from_url,
+    is_edition_name,
 )
 from app.domain.event_provenance import (
     trusted_listing_filter,
@@ -171,13 +174,23 @@ class FestivalService:
             # than assumed to match, because the list applies the provenance
             # rule and this page has to render for whichever record was opened.
             document["_id"],
+            # The same address fallback the series address uses. A sibling
+            # edition whose festival block was never written still states its
+            # series in its own Songkick address, and a reader standing on one
+            # date is entitled to the same edition set the series address
+            # lists. Every candidate is re-confirmed by `festival_identity`
+            # below, so the fallback can never merge two festivals on its own.
+            source_url_fallback=True,
         )
 
-        # The event the reader arrived from is always among the editions: it
-        # is returned by id, because its identity - read from its stored block
-        # or from its own address when no block was written - is what named the
-        # series in the first place. Finding it by id rather than assuming it
-        # is first keeps the selection correct without depending on sort order.
+        editions = self._confirmed_editions(series_id, editions)
+
+        # The event the reader arrived from is always among the editions: its
+        # identity - read from its stored block or from its own address when
+        # no block was written - is what named the series in the first place,
+        # so it passes the confirmation above by construction. Finding it by
+        # id rather than assuming it is first keeps the selection correct
+        # without depending on sort order.
         selected = next(
             document
             for document in editions
@@ -239,33 +252,25 @@ class FestivalService:
         # Identity is read from the editions themselves, and each candidate is
         # confirmed with the same rule that named the series - so a document
         # the address fallback fetched, whose own identity disagrees, is not
-        # an edition of this festival. The first edition carrying a stored
-        # name supplies the identity, because the name is a display fallback
-        # and the block that has one describes the series best.
+        # an edition of this festival.
+        editions = self._confirmed_editions(series_id, editions)
+
+        if not editions:
+            return None
+
+        # The first edition carrying a stored name supplies the identity,
+        # because the name is a display fallback and the block that has one
+        # describes the series best.
         identity = None
-        confirmed: list[dict] = []
 
         for document in editions:
             candidate = festival_identity(document)
-
-            if (
-                not candidate
-                or str(candidate["series_id"]) != series_id
-            ):
-                continue
-
-            confirmed.append(document)
 
             if identity is None or (
                 not identity.get("name")
                 and candidate.get("name")
             ):
                 identity = candidate
-
-        if not confirmed:
-            return None
-
-        editions = confirmed
 
         selected = None
 
@@ -352,16 +357,13 @@ class FestivalService:
             reverse=True,
         )
 
-        # A title is a fallback for the name, and only for a title that is not
-        # shaped after one of the event's artists: "Demi Lovato Rock In Rio
-        # 2022" names the artist's appearance, so showing it as the festival's
-        # name would introduce the artist as if they were the festival.
-        # `festival_name` applies that rule, returning `None` when the only
-        # candidate is refused - and the caller of the response then shows a
-        # generic label instead.
-        name = (
-            identity.get("name")
-            or festival_name(selected)
+        # The page is the series', so its header is named after the series
+        # and never after one date. `_series_name` holds the order the
+        # sources are read in, ending in the title fallback with its
+        # artist-shape refusal.
+        name = _series_name(
+            identity,
+            selected,
         )
 
         # Every edition's lineup is read first, then all of them are resolved
@@ -483,6 +485,35 @@ class FestivalService:
             ),
         )
 
+    @staticmethod
+    def _confirmed_editions(
+        series_id: str,
+        documents: list[dict],
+    ) -> list[dict]:
+        """The candidates whose own identity really is this series.
+
+        The one confirmation rule both doors apply: a document belongs to a
+        festival only when its own structured data says so - the stored block,
+        or the series segment of its own Songkick address. The address
+        fallback only fetches candidates; this is what decides, so a shared
+        URL can never merge two festivals into one page whichever address was
+        used to ask.
+        """
+
+        confirmed: list[dict] = []
+
+        for document in documents:
+
+            candidate = festival_identity(document)
+
+            if (
+                candidate
+                and str(candidate["series_id"]) == str(series_id)
+            ):
+                confirmed.append(document)
+
+        return confirmed
+
     async def _editions_for(
         self,
         series_id: str,
@@ -494,20 +525,20 @@ class FestivalService:
         One indexed read, not one per edition.
 
         Editions are found by the stored series id, which is what identifies the
-        festival. An event whose series id was never recorded is not listed as
-        another date of the series: that field is written from the series
-        segment of the event's own Songkick URL, so a second, fuzzier way of
-        guessing the same thing would only risk grouping events that are not
-        the same festival. The record the reader arrived on is the one
-        exception, and it is matched by id below.
+        festival. A date whose block was never written still states its series
+        in its own Songkick address, which is why the address fallback below
+        exists: without it, one reader of a festival could see a different
+        edition set than another purely because of which record they opened.
+        The record the reader arrived on is always kept, matched by id below.
 
         `source_url_fallback` widens the match to the series segment of a
         source address - the URL fields of the festival block and the event's
-        own address - for the one caller that arrives with no record in hand.
-        It fetches candidates only; the caller re-checks every document with
-        `festival_identity`, the same structured-source rule that wrote the
-        stored field, and drops anything that disagrees. It is off by default
-        so the event-keyed page keeps its stricter listing.
+        own address. It fetches candidates only; every caller re-checks the
+        documents with `festival_identity`, the same structured-source rule
+        that wrote the stored field, and drops anything that disagrees - which
+        is what keeps the widening from merging two festivals. Both doors turn
+        it on, so the date-keyed page and the series page list the same
+        editions.
 
         The provenance clause is the same one every other listing of future
         events applies. An edition list reaches into the future, and a fixture
@@ -697,3 +728,48 @@ def _image_of(document: dict) -> Optional[str]:
         document.get("songkick_image")
         or document.get("image_url")
     )
+
+
+def _series_name(
+    identity: dict,
+    selected: dict,
+) -> Optional[str]:
+    """The name the festival page shows: the series', never one date's.
+
+    The stored block's name is preferred exactly as the source stated it -
+    casing, accents and all ("Primavera Sound São Paulo") - as long as it
+    does not name a single date. A name that does ("Lollapalooza 2027 @
+    Hipódromo de San Isidro", "AMF Festival 2026") is the edition's own,
+    and a series profile heading itself with one date's name presents that
+    date as the whole festival. Such a name is therefore trimmed back to
+    its series part first, and, when that leaves nothing, read from the
+    series segment of the official address ("lollapalooza" reads
+    "Lollapalooza").
+
+    Only when neither source names the series does the date's stored name
+    head the page, and then the title - through `festival_name`, which
+    refuses a title shaped after one of the event's artists ("Demi Lovato
+    Rock In Rio 2022" names the artist's appearance, not the festival).
+    """
+
+    stored = identity.get("name")
+
+    if stored and not is_edition_name(stored):
+        return stored
+
+    from_the_edition_name = festival_series_name_from_edition_name(
+        stored
+    )
+
+    if from_the_edition_name:
+        return from_the_edition_name
+
+    from_the_address = festival_series_name_from_url(
+        identity.get("url")
+        or identity.get("official_url")
+    )
+
+    if from_the_address:
+        return from_the_address
+
+    return stored or festival_name(selected)

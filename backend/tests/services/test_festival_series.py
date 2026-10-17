@@ -312,6 +312,89 @@ class TestBothAddressesAgree:
             DAY_TWO["_id"]
         )
 
+    @pytest.mark.asyncio
+    async def test_the_two_addresses_agree_when_no_block_was_ever_written(
+        self,
+    ):
+        """The shape the local catalogue holds: every date states its series
+        only in its own Songkick address, and no festival block exists.
+
+        The date-keyed page used to list the arrived record alone while the
+        series page listed all of them, so the same festival reported two
+        different edition counts depending on the door the reader used.
+        """
+
+        def blockless(
+            object_id: str,
+            title: str,
+            year: int,
+            event_id: str,
+        ) -> dict:
+            return festival_document(
+                object_id,
+                title,
+                starts_at=datetime(year, 8, 1, 12, tzinfo=UTC),
+                festival=None,
+                source={
+                    "provider": "songkick",
+                    "external_id": event_id,
+                    "url": (
+                        "https://www.songkick.com/festivals/"
+                        f"{SERIES}-primavera/id/"
+                        f"{event_id}-primavera-{year}"
+                    ),
+                },
+            )
+
+        first = blockless(
+            "507f1f77bcf86cd799439041",
+            "Primavera 2010",
+            2010,
+            "40385541",
+        )
+        second = blockless(
+            "507f1f77bcf86cd799439042",
+            "Primavera 2011",
+            2011,
+            "40385542",
+        )
+
+        from_a_date = await build([first, second]).get_festival(
+            str(first["_id"])
+        )
+        from_the_series = await build([first, second]).get_series(
+            SERIES
+        )
+
+        assert from_a_date.identity.editions_count == 2
+        assert (
+            from_a_date.identity.editions_count
+            == from_the_series.identity.editions_count
+        )
+        assert {
+            entry.event.id for entry in from_a_date.editions
+        } == {
+            entry.event.id for entry in from_the_series.editions
+        } == {
+            str(first["_id"]),
+            str(second["_id"]),
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_date_page_drops_an_address_match_of_another_series(
+        self,
+    ):
+        """The fallback fetches candidates on the date page too; identity
+        still decides, so a shared address never borrows a neighbour."""
+
+        from_a_date = await build([DAY_ONE, NEIGHBOUR]).get_festival(
+            str(DAY_ONE["_id"])
+        )
+
+        assert {
+            entry.event.id for entry in from_a_date.editions
+        } == {str(DAY_ONE["_id"])}
+
 
 class TestTheLineupStateIsHonest:
     """An unheld lineup is `unknown`, never an empty bill.

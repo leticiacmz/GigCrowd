@@ -122,7 +122,7 @@ def festival_key(event: Any) -> Optional[str]:
     # Only an event that looks like a festival is identified by its own title.
     # An ordinary concert is not a festival with one edition, and treating it
     # as one would put every show on every profile in the festival count.
-    if _is_festival_event(event):
+    if is_festival_event(event):
         return f"{TITLE_KEY_PREFIX}{normalized_title}"
 
 
@@ -301,7 +301,7 @@ def festival_name(event: Any) -> Optional[str]:
     return None
 
 
-def _is_festival_event(event: Any) -> bool:
+def is_festival_event(event: Any) -> bool:
     """Whether an event is itself a festival.
 
     `event_type` is the primary signal. `FestivalInstance` and `Festival` are
@@ -392,6 +392,27 @@ def festival_data_from_url(
     }
 
 
+def _slug_words(slug: str) -> Optional[str]:
+    """One address slug read as display words, or `None` when it states none.
+
+    Hyphens are the address's word separators and the words are titled the
+    way addresses are spelled: `lollapalooza-2027` reads "Lollapalooza 2027".
+    A slug carrying an encoded path separator (`%2F` and company) would put
+    path characters into a name, so it is refused rather than displayed.
+    """
+
+    if any(character in slug for character in "/?#"):
+        return None
+
+    words = " ".join(
+        slug
+        .replace("-", " ")
+        .split()
+    )
+
+    return words.title() or None
+
+
 def festival_name_from_url(
     url: Any,
     venue: Any = None,
@@ -429,25 +450,15 @@ def festival_name_from_url(
     if not match:
         return None
 
-    slug = unquote(match.group(1))
-
-    # An encoded separator would put path characters into a display name.
-    if any(character in slug for character in "/?#"):
-        return None
-
-    words = " ".join(
-        slug
-        .replace("-", " ")
-        .split()
+    name = _slug_words(
+        unquote(match.group(1))
     )
 
-    if not words:
+    if not name:
         return None
 
-    if not re.search(r"(?:^|\s)\d{4}$", words):
+    if not re.search(r"(?:^|\s)\d{4}$", name):
         return None
-
-    name = words.title()
 
     hint = str(venue or "").strip()
 
@@ -456,6 +467,92 @@ def festival_name_from_url(
             return f"{name} @ {hint}"
 
     return name
+
+
+def festival_series_name_from_url(
+    url: Any,
+) -> Optional[str]:
+    """The series' name exactly as the official address states it.
+
+    One address holds two levels: the series at
+    `/festivals/{series}-{series-slug}`, and one date of it at
+    `/id/{event}-{edition-slug}`. `festival_name_from_url` reads the
+    edition slug, because it names one date; this reads the series slug,
+    which names the festival as a whole - `1235-lollapalooza` reads
+    "Lollapalooza". Either address carries the series part, so an edition's
+    own URL states its series here too.
+
+    The same refusal as its companion: a slug that cannot be displayed
+    states no name, and a bare series id states none either, so `None` is
+    returned and the caller keeps whatever name it already had rather than
+    an invented one.
+    """
+
+    if not url:
+        return None
+
+    match = re.search(
+        r"/festivals/\d+-([^/?#]+)",
+        str(url),
+    )
+
+    if not match:
+        return None
+
+    return _slug_words(
+        unquote(match.group(1))
+    )
+
+
+def is_edition_name(name: Any) -> bool:
+    """Whether a name names one date rather than the festival as a whole.
+
+    The names built for a date are spelled with the date's own signature: a
+    trailing four-digit year ("Lollapalooza 2027") and, when the source
+    states a venue, `" @ {venue}"` after it ("Reading Festival 2026 @
+    Richfield Avenue"). A series is not spelled that way - `1235-
+    lollapalooza` spans years and venues - so a stored name carrying either
+    signature is read as the date's, not the series'.
+    """
+
+    text = str(name or "").strip()
+
+    if not text:
+        return False
+
+    if " @ " in text:
+        return True
+
+    return bool(
+        re.search(r"(?:^|\s)\d{4}$", text)
+    )
+
+
+def festival_series_name_from_edition_name(
+    name: Any,
+) -> Optional[str]:
+    """The series' part of the name one edition was given, or `None`.
+
+    A date's name is the series' own words plus the date's signature
+    ("{series} {year}" and then `" @ {venue}"`), so removing exactly those
+    two signatures leaves the series as the source spelled it - casing and
+    accents included, which is what makes this reading better than the
+    address's lowercase slug whenever the stored words came from the
+    source itself.
+
+    A name that is not edition-shaped has no signature to remove, and one
+    that is nothing but its signature ("2027") has no series part to show;
+    both return `None` rather than a guess.
+    """
+
+    if not is_edition_name(name):
+        return None
+
+    head = str(name).strip().partition(" @ ")[0].strip()
+
+    head = re.sub(r"(?:^|\s)\d{4}$", "", head).strip()
+
+    return head or None
 
 
 def songkick_artist_reference(
