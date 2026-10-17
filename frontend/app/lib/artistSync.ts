@@ -1,225 +1,214 @@
 /*
-  Opening one artist from a lineup: find them here, or bring them here.
+  Bringing an artist here, without parking the reader on the page they
+  clicked from.
 
-  A lineup announces many more artists than GigCrowd has imported. Clicking a
-  name is the request to have that artist *here* - and it is the only thing
-  that may import: rendering a page, prefetching a route or resolving a bill
-  never does. The identity used is always the Songkick artist id the lineup
-  announced; a name is carried as a hint and never as a match.
+  A lineup or a search result can name an artist GigCrowd has never imported.
+  Opening one of those is the request to have them here, and only that request
+  imports - rendering a page never does. The import itself is not fast: the
+  backend validates the identity against the artist's own Songkick page and
+  then fetches their whole gigography, which can take a minute.
 
-  This module is deliberately pure logic over injected calls, so the rules
+  So a press no longer waits for any of that. It navigates immediately to the
+  artist's import address - `/{locale}/artists/import/{provider}/{id}` - which
+  shows the app's own loading state and runs the import behind it. The moment
+  the import answers with a slug, that page replaces itself with the canonical
+  artist page. The identity is always the provider id the source announced; a
+  name travels as a hint for the spinner and the identity check, never as a
+  match.
+
+  This module is deliberately pure logic over an injected call, so the rules
   that matter are testable without a browser:
 
-  * an artist that already exists is opened by their slug, and nothing is
-    imported for them;
-  * an artist that does not exist yet is imported by Songkick id, once, and
-    then opened under the slug the import returned;
-  * repeated clicks while the first is still running share the one operation
-    instead of starting concurrent imports for the same artist;
-  * an artist opened once this session is opened again directly - by the
-    same Songkick id - without a second lookup or import;
-  * a lineup entry carrying neither a slug nor an id fails as
-    `unidentifiable` - there is no safe key to look anyone up by, and
-    guessing by name would risk opening the wrong artist;
-  * provider failures surface as `provider`, distinguishable from "could not
-    be identified", so the caller can offer a retry that means something.
-
-  Nothing here runs on import of the module: a page renders, and the flow
-  starts only when `open()` is called.
+  * repeated opens of the same artist - a double press, a React double mount,
+    a second visit while the first import is still running - join the one
+    running import instead of starting concurrent ones;
+  * an artist imported once in this browser session is opened directly from
+    the remembered slug, without a second import;
+  * a failed import is forgotten the moment it settles, so "try again" is a
+    real attempt rather than a replay of the failure;
+  * addresses are built one way here, and the pages use that one way.
 */
 
-export type ArtistOpenPhase = 'lookup' | 'import';
-
-export type ArtistOpenFailure = 'unidentifiable' | 'provider';
-
-export class ArtistOpenError extends Error {
-  readonly reason: ArtistOpenFailure;
-
-  constructor(reason: ArtistOpenFailure, message?: string) {
-    super(message ?? reason);
-    this.name = 'ArtistOpenError';
-    this.reason = reason;
-  }
-}
-
-/** One lineup performer, as the page received them. */
-export interface LineupArtistIdentity {
-  /** The GigCrowd slug, when the entry resolved to an imported artist. */
-  slug?: string | null;
-  /** The Songkick artist id the lineup announced. */
-  songkickId?: string | null;
-  /** Displayed, and passed along as a hint - never used to match. */
+export interface ArtistImportRequest {
+  provider: string;
+  providerArtistId: string;
+  /** Carried for the spinner and the identity check. Never used to match. */
   name?: string | null;
-  image?: string | null;
-  url?: string | null;
 }
 
-export interface ArtistGateway {
-  /** The stored artist, or a rejection/`null` when there is none here. */
-  getArtist(
-    slug: string,
-  ): Promise<{ slug?: string | null } | null>;
-
-  /** Import by Songkick id, returning the canonical record. */
-  importArtist(
-    songkickId: string,
-    provider: string,
-    data: Record<string, unknown>,
-  ): Promise<{ slug?: string | null } | null>;
+export interface ArtistImportOutcome {
+  slug: string;
 }
 
-export interface ArtistOpener {
-  /**
-   * Open this artist, resolving with the slug that was navigated to.
-   * Deduplicated per artist while a call is in flight.
-   */
-  open(
-    identity: LineupArtistIdentity,
-    onPhase?: (phase: ArtistOpenPhase) => void,
-  ): Promise<string>;
+/** The provider id that names one import across presses and mounts. */
+export function artistImportKey(
+  provider: string,
+  providerArtistId: string,
+): string {
+  return `${provider}:${providerArtistId}`;
 }
 
 /**
- * The one key an artist can be deduplicated by: their Songkick id when the
- * lineup stated one, otherwise the GigCrowd slug the entry resolved to.
- * Returns `null` when neither exists - nothing safe to look up by.
+ * The address that performs this import.
+ *
+ * It is a page, not an API call, because the reader must be able to be there
+ * while the import runs: the address renders the loading state from its first
+ * frame and hands over to the artist's real page when the import answers.
  */
-export function artistOpenKey(
-  identity: LineupArtistIdentity,
-): string | null {
-  const songkickId = identity.songkickId?.trim();
+export function artistImportPath(
+  locale: string,
+  request: {
+    provider: string;
+    providerArtistId: string;
+    name?: string | null;
+  },
+): string {
+  const base =
+    `/${locale}/artists/import/` +
+    `${encodeURIComponent(request.provider)}/` +
+    `${encodeURIComponent(request.providerArtistId)}`;
 
-  if (songkickId) {
-    return `songkick:${songkickId}`;
-  }
+  const name = request.name?.trim();
 
-  const slug = identity.slug?.trim();
-
-  if (slug) {
-    return `slug:${slug}`;
-  }
-
-  return null;
+  return name ? `${base}?name=${encodeURIComponent(name)}` : base;
 }
 
-export function createArtistOpener({
-  getArtist,
-  importArtist,
-  navigate,
-}: ArtistGateway & {
-  navigate: (slug: string) => void;
-}): ArtistOpener {
-  const inFlight = new Map<string, Promise<string>>();
+/** The canonical page an imported artist lives at. */
+export function artistPagePath(locale: string, slug: string): string {
+  return `/${locale}/artists/${slug}`;
+}
 
-  /*
-    Where an artist was opened, remembered for this session. A successful
-    press navigated away, so this mostly guards the return trip: coming back
-    to the same bill and pressing the same name again looks the artist up by
-    the slug already known instead of importing a second time.
-  */
-  const resolved = new Map<string, string>();
+/**
+ * Where one imported slug is remembered, so a repeated open in the same
+ * browser session does not pay for a second import.
+ */
+export interface ImportMemory {
+  read(key: string): string | null;
+  write(key: string, slug: string): void;
+}
 
-  async function run(
-    identity: LineupArtistIdentity,
-    onPhase?: (phase: ArtistOpenPhase) => void,
-  ): Promise<string> {
-    const songkickId = identity.songkickId?.trim() ?? '';
-    const slug = identity.slug?.trim() ?? '';
+const SESSION_PREFIX = 'gigcrowd.artist-import.';
 
-    if (slug) {
-      onPhase?.('lookup');
+/**
+ * Session storage, guarded. A browser that refuses it (private-mode quotas,
+ * disabled storage) costs a repeated import, never a broken page: the
+ * in-document map beside it still answers for the life of the tab.
+ */
+export function createSessionImportMemory(): ImportMemory {
+  return {
+    read(key: string): string | null {
+      if (typeof window === 'undefined') {
+        return null;
+      }
 
       try {
-        const existing = await getArtist(slug);
-
-        if (existing?.slug) {
-          navigate(existing.slug);
-          return existing.slug;
-        }
+        return window.sessionStorage.getItem(SESSION_PREFIX + key);
       } catch {
-        // Not here under this slug - and a network failure reads the same
-        // from here. Either way the import below is the authority on who
-        // this is: it validates the identity against the artist's own
-        // Songkick page, which a lookup never does.
+        return null;
       }
-    }
+    },
 
-    if (!songkickId) {
-      // No id and no stored page: the lineup gave nothing a lookup can be
-      // keyed by. Matching by name is exactly the guess this flow exists
-      // to avoid, so this fails instead of opening somebody else.
-      throw new ArtistOpenError(
-        'unidentifiable',
-        'This lineup entry carries no Songkick id and no stored artist.',
-      );
-    }
-
-    onPhase?.('import');
-
-    let imported: { slug?: string | null } | null;
-
-    try {
-      imported = await importArtist(songkickId, 'songkick', {
-        name: identity.name ?? null,
-        image: identity.image ?? null,
-        url: identity.url ?? null,
-      });
-    } catch (error) {
-      throw new ArtistOpenError(
-        'provider',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-
-    if (!imported?.slug) {
-      throw new ArtistOpenError(
-        'provider',
-        'The import returned no slug.',
-      );
-    }
-
-    navigate(imported.slug);
-    return imported.slug;
-  }
-
-  return {
-    open(identity, onPhase) {
-      const key = artistOpenKey(identity);
-
-      if (!key) {
-        return Promise.reject(
-          new ArtistOpenError(
-            'unidentifiable',
-            'This lineup entry carries no Songkick id and no stored artist.',
-          ),
-        );
+    write(key: string, slug: string): void {
+      if (typeof window === 'undefined') {
+        return;
       }
 
-      const known = resolved.get(key);
-
-      if (known) {
-        navigate(known);
-        return Promise.resolve(known);
+      try {
+        window.sessionStorage.setItem(SESSION_PREFIX + key, slug);
+      } catch {
+        // See above: memory failing to persist is not the page failing.
       }
-
-      const pending = inFlight.get(key);
-
-      if (pending) {
-        return pending;
-      }
-
-      const promise = run(identity, onPhase)
-        .then((slug) => {
-          resolved.set(key, slug);
-          return slug;
-        })
-        .finally(() => {
-          inFlight.delete(key);
-        });
-
-      inFlight.set(key, promise);
-
-      return promise;
     },
   };
 }
+
+export type ArtistImporter = (
+  request: ArtistImportRequest,
+) => Promise<ArtistImportOutcome>;
+
+export interface ArtistImportPool {
+  /** The slug this artist was already imported under, if it is known. */
+  known(request: ArtistImportRequest): string | null;
+  /** Import the artist, or join the import already running for them. */
+  open(
+    request: ArtistImportRequest,
+    importArtist: ArtistImporter,
+  ): Promise<ArtistImportOutcome>;
+}
+
+export function createArtistImportPool({
+  memory = createSessionImportMemory(),
+}: {
+  memory?: ImportMemory;
+} = {}): ArtistImportPool {
+  const inFlight = new Map<string, Promise<ArtistImportOutcome>>();
+  const completed = new Map<string, string>();
+
+  function known(request: ArtistImportRequest): string | null {
+    const key = artistImportKey(
+      request.provider,
+      request.providerArtistId,
+    );
+
+    const remembered = completed.get(key) ?? memory.read(key);
+
+    if (!remembered) {
+      return null;
+    }
+
+    // Warm the in-document map, so the second question never touches storage.
+    completed.set(key, remembered);
+
+    return remembered;
+  }
+
+  function open(
+    request: ArtistImportRequest,
+    importArtist: ArtistImporter,
+  ): Promise<ArtistImportOutcome> {
+    const key = artistImportKey(
+      request.provider,
+      request.providerArtistId,
+    );
+
+    const remembered = known(request);
+
+    if (remembered) {
+      return Promise.resolve({ slug: remembered });
+    }
+
+    const running = inFlight.get(key);
+
+    if (running) {
+      return running;
+    }
+
+    const attempt = importArtist(request)
+      .then((outcome) => {
+        completed.set(key, outcome.slug);
+        memory.write(key, outcome.slug);
+
+        return outcome;
+      })
+      .finally(() => {
+        // A settled attempt leaves the room, whether it worked or not, so
+        // the next open is a new try rather than the old failure.
+        inFlight.delete(key);
+      });
+
+    inFlight.set(key, attempt);
+
+    return attempt;
+  }
+
+  return { known, open };
+}
+
+/**
+ * The pool every import address shares.
+ *
+ * Module level on purpose: it is what makes a double mount of the page, or a
+ * second visit while the first import is still running, join that import
+ * instead of starting another one.
+ */
+export const sharedArtistImportPool = createArtistImportPool();

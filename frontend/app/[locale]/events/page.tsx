@@ -49,7 +49,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
-import { artistAPI, eventAPI, searchAPI } from '../../lib/api';
+import { eventAPI, searchAPI } from '../../lib/api';
 import type {
   EventSearchCursor,
   EventSearchRow,
@@ -62,6 +62,10 @@ import ArtistCard from '../../../components/ArtistCard';
 import LoadingState from '../../../components/LoadingState';
 
 import { formatEventDateRange } from '../../lib/dates';
+import {
+  artistImportPath,
+  artistPagePath,
+} from '../../lib/artistSync';
 
 const PAGE_SIZE = 20;
 
@@ -94,13 +98,12 @@ export default function EventsPage() {
   const [answerActive, setAnswerActive] = useState(false);
 
   /*
-    The artist half of the box: the acts found for the query, and import when
-    one is picked. Searching never imports; picking is the deliberate action.
+    The artist half of the box: the acts found for the query, and where
+    picking one leads. Searching never imports; picking is the deliberate
+    action, and it navigates immediately - to the artist's own page when
+    GigCrowd holds them, to their import address when it does not.
   */
   const [artists, setArtists] = useState<ArtistSearchResult[]>([]);
-  const [importingArtistId, setImportingArtistId] = useState<string | null>(
-    null
-  );
   const [artistError, setArtistError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -292,49 +295,31 @@ export default function EventsPage() {
     }
   }
 
-  async function selectArtist(artist: ArtistSearchResult) {
-    if (importingArtistId) {
-      return;
+  /*
+    Where an artist result leads.
+
+    An act GigCrowd already holds opens at their canonical page: the press
+    is a plain navigation, and the page reads what is stored - showing the
+    app's loading state, never this page's, while a first open initializes
+    the record.
+
+    An act GigCrowd does not hold opens at their import address instead. The
+    press still navigates immediately; the import runs behind that page's
+    loading state instead of parking the reader here for the minute it takes,
+    and a failure lands there, with a retry, rather than as an error on a
+    page that is no longer the point.
+  */
+  function artistHref(artist: ArtistSearchResult): string {
+    if (artist.is_imported && artist.slug) {
+      return artistPagePath(locale, artist.slug);
     }
 
-    try {
-      setArtistError(null);
-
-      if (artist.is_imported && artist.slug) {
-        router.push(`/${locale}/artists/${artist.slug}`);
-        return;
-      }
-
-      setImportingArtistId(artist.provider_artist_id);
-
-      const importedArtist = await artistAPI.importArtist(
-        artist.provider_artist_id,
-        artist.provider,
-        {
-          name: artist.name,
-          image: artist.image,
-          genres: artist.genres
-        }
-      );
-
-      if (!importedArtist?.slug) {
-        throw new Error('Import did not return a slug.');
-      }
-
-      router.push(`/${locale}/artists/${importedArtist.slug}`);
-      router.refresh();
-    } catch (err) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? t('importError');
-
-      setArtistError(detail);
-    } finally {
-      setImportingArtistId(null);
-    }
+    return artistImportPath(locale, {
+      provider: artist.provider,
+      providerArtistId: artist.provider_artist_id,
+      name: artist.name,
+    });
   }
-
-  const isImporting = importingArtistId !== null;
 
   return (
     <div className="min-h-screen">
@@ -365,13 +350,12 @@ export default function EventsPage() {
               placeholder={tEvents('unifiedPlaceholder')}
               aria-label={tEvents('searchLabel')}
               className="flex-1"
-              disabled={isImporting}
               data-testid="event-search-input"
             />
 
             <Button
               type="submit"
-              disabled={searchLoading || isImporting}
+              disabled={searchLoading}
               className="shrink-0"
               data-testid="event-search-submit"
             >
@@ -415,25 +399,19 @@ export default function EventsPage() {
             </h2>
 
             <div
-              className={[
-                'grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3',
-                isImporting ? 'pointer-events-none opacity-60' : '',
-              ].join(' ')}
+              className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
               data-testid="artist-search-results"
             >
               {artists.map((artist) => (
                 <ArtistCard
                   key={`${artist.provider}-${artist.provider_artist_id}`}
                   artist={artist}
-                  basePath={`/${locale}`}
-                  onClick={() => selectArtist(artist)}
+                  href={artistHref(artist)}
                 />
               ))}
             </div>
           </section>
         )}
-
-        {isImporting && <LoadingState message={t('importing')} />}
 
         {/*
           Boot: while the arrival read - the address's query or the browse

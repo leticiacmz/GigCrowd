@@ -14,11 +14,13 @@ import type { Locale } from '@/app/i18n';
  * middle of a poster; the other dressed an unchecked id up as a confirmed one.
  *
  * So the rule is one line: a link claims an artist exists here, and that claim
- * is only made once the artist's own Songkick page has confirmed it. Everything
- * else renders as the name it is - and, when the page hands in an `onOpen`
- * handler, as a control that *requests* that confirmation: pressing it starts
- * the on-demand import, which validates the identity server-side against the
- * artist's own page. The control asserts nothing; the import is the check.
+ * is only made once the artist's own Songkick page has confirmed it. An entry
+ * with an announced Songkick id but no page here is a control that *requests*
+ * that confirmation: it links to the artist's import address, which runs the
+ * on-demand import behind the app's loading state and hands over to the
+ * artist's page the moment it exists. The control asserts nothing; the import
+ * is the check - and the press never waits on it, because the import runs on
+ * the address the press landed on, not on the page it left.
  *
  * A card is names only. There are no photographs and no avatars here: a lineup
  * used to render faces looked up from artist documents, and that lookup existed
@@ -63,23 +65,41 @@ export function lineupHref(
   return `/${locale}/artists/${performer.artist_slug}`;
 }
 
+/**
+ * The address that imports this entry's announced artist.
+ *
+ * The id is the one the lineup announced and the name is a hint; the import
+ * validates both against the artist's own Songkick page. Built here rather
+ * than in a shared module because this component's contract is that it
+ * fetches nothing: an address is data, and following it is the reader's
+ * decision, made on the address itself.
+ */
+export function lineupImportHref(
+  performer: LineupPerformer,
+  locale: Locale,
+): string | null {
+  const id = performer.songkick_id?.trim();
+
+  if (!id) {
+    return null;
+  }
+
+  return (
+    `/${locale}/artists/import/songkick/${encodeURIComponent(id)}` +
+    `?name=${encodeURIComponent(performer.name)}`
+  );
+}
+
 export default function LineupPerformerCard({
   performer,
   locale,
   variant = 'poster',
   testId = 'festival-lineup-entry',
-  onOpen,
 }: {
   performer: LineupPerformer;
   locale: Locale;
   variant?: 'poster' | 'row';
   testId?: string;
-  /**
-   * Starts the on-demand import for an entry with a Songkick id but no
-   * page here. Entries without an id keep rendering as a plain name: with
-   * no id there is nothing safe to identify the artist by.
-   */
-  onOpen?: (performer: LineupPerformer) => void;
 }) {
   const t = useTranslations('festivals');
 
@@ -98,13 +118,14 @@ export default function LineupPerformerCard({
     not a failure, and not something to announce with an error-shaped message
     in the middle of a festival lineup.
 
-    When a handler is available and the entry states a Songkick id, the name
-    becomes a control that asks for that proof - pressing it imports the
-    artist on demand, under the same identity rules every other import has.
+    An entry that announced a Songkick id links to the import address for that
+    id: pressing it asks for that same proof under the same identity rules,
+    on a page that shows the wait instead of holding the press. An entry
+    without an id stays a name - there is nothing safe to identify the
+    artist by.
   */
   if (!href) {
-    const canOpen =
-      Boolean(onOpen) && Boolean(performer.songkick_id);
+    const importHref = lineupImportHref(performer, locale);
 
     const text = (
       <span
@@ -122,7 +143,7 @@ export default function LineupPerformerCard({
       ? 'flex items-center gap-3 rounded-xl border border-border bg-background/20 p-4'
       : 'rounded-xl border border-border bg-background/20 p-2';
 
-    if (!canOpen) {
+    if (!importHref) {
       return (
         <div
           className={className}
@@ -135,9 +156,8 @@ export default function LineupPerformerCard({
     }
 
     return (
-      <button
-        type="button"
-        onClick={() => onOpen?.(performer)}
+      <Link
+        href={importHref}
         className={`${className} w-full text-left transition-colors hover:border-accent hover:bg-card-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent`}
         data-testid={testId}
         data-lineup-linked="false"
@@ -156,7 +176,7 @@ export default function LineupPerformerCard({
         >
           {t('openArtist')}
         </span>
-      </button>
+      </Link>
     );
   }
 

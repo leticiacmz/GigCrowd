@@ -49,6 +49,22 @@ test('rendering a lineup entry imports nothing that could fetch', () => {
   assert.ok(!card.includes('fetch('));
 });
 
+test('an identified entry with no page here links to its import address', () => {
+  const card = read('components/festival/LineupPerformerCard.tsx');
+
+  // The announced id is the identity the import validates; the card builds
+  // the address locally (it must not import the artist module), in the same
+  // shape the rest of the app builds.
+  assert.ok(card.includes('songkick_id'));
+  assert.ok(card.includes('artists/import/songkick/'));
+  assert.ok(card.includes('?name='));
+
+  // An entry the import will act on is still marked unlinked - nothing here
+  // claims the artist exists yet - and an entry with no id stays a name.
+  assert.ok(card.includes('data-lineup-linked="false"'));
+  assert.ok(card.includes('data-lineup-action="import"'));
+});
+
 test('the artist loading state uses the existing brand icon', () => {
   const component = read('components/ui/ArtistSyncLoading.tsx');
 

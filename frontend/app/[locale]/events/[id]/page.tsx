@@ -9,14 +9,12 @@ import {
 
 import {
   useParams,
-  useRouter,
 } from 'next/navigation';
 
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import {
-  artistAPI,
   eventAPI,
   showLogAPI,
 } from '../../../lib/api';
@@ -39,11 +37,9 @@ import {
 import { festivalSeriesId } from '../../../lib/festivalIdentity';
 import { festivalSeriesHref } from '../../../lib/festivalSeries';
 import { createRequestGuard } from '../../../lib/requestGuard';
-import { createArtistOpener } from '../../../lib/artistSync';
 
 import Button from '../../../../components/ui/Button';
 import Card from '../../../../components/ui/Card';
-import ArtistSyncLoading from '../../../../components/ui/ArtistSyncLoading';
 import LoadingState from '../../../../components/LoadingState';
 import ReviewCard from '../../../../components/ReviewCard';
 import ReviewDialog from '../../../../components/ReviewDialog';
@@ -185,7 +181,6 @@ function resolveSchedulingState(
 }
 
 export default function EventDetailPage() {
-  const router = useRouter();
   const params = useParams();
   const eventId = params.id as string;
   const locale = resolveLocale(params.locale as string);
@@ -199,20 +194,6 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<EventTab>('information');
-  /*
-    Pressing a lineup name that has no page here yet starts the on-demand
-    import. These two states are the reader's view of that one operation:
-    what is running, and - when it failed - who it was about, so a retry
-    can repeat the very same request rather than ask to be pressed again.
-  */
-  const [openingArtist, setOpeningArtist] = useState<{
-    phase: 'searching' | 'importing';
-    performer: LineupArtist;
-  } | null>(null);
-  const [openFailure, setOpenFailure] = useState<{
-    reason: 'failed' | 'unidentifiable';
-    performer: LineupArtist;
-  } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
 
@@ -573,69 +554,6 @@ export default function EventDetailPage() {
         }
       : null;
 
-  /*
-    One operation per press: the opener deduplicates by Songkick id while a
-    call is in flight, so a second click - or any re-render that calls this
-    again - shares the running import instead of starting another one. The
-    identity is the lineup's Songkick id; the entry's own `slug` field is
-    Songkick's namespace and is deliberately never looked up here (that is
-    what the dead handler this replaced used to do).
-  */
-  const artistOpener = useMemo(
-    () =>
-      createArtistOpener({
-        getArtist: (slug) => artistAPI.getArtist(slug),
-        importArtist: (songkickId, provider, data) =>
-          artistAPI.importArtist(songkickId, provider, data),
-        navigate: (slug) => router.push(`/${locale}/artists/${slug}`),
-      }),
-    [router, locale],
-  );
-
-  function handleLineupArtistOpen(performer: LineupArtist) {
-    // One overlay, one operation: a press while the previous is still
-    // running belongs to the artist already being opened.
-    if (openingArtist) {
-      return;
-    }
-
-    setOpenFailure(null);
-    setOpeningArtist({ phase: 'searching', performer });
-
-    artistOpener
-      .open(
-        {
-          // The GigCrowd slug, when the entry resolved to one. This
-          // control only renders for entries that did not, so it is null.
-          slug: performer.artist_slug ?? null,
-          songkickId: performer.songkick_id,
-          name: performer.name,
-          url: performer.url,
-        },
-        (phase) =>
-          setOpeningArtist((current) =>
-            current
-              ? {
-                  ...current,
-                  phase:
-                    phase === 'import' ? 'importing' : 'searching',
-                }
-              : current,
-          ),
-      )
-      .then(() => setOpeningArtist(null))
-      .catch((error) => {
-        setOpeningArtist(null);
-        setOpenFailure({
-          reason:
-            (error as { reason?: string })?.reason === 'unidentifiable'
-              ? 'unidentifiable'
-              : 'failed',
-          performer,
-        });
-      });
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -663,48 +581,6 @@ export default function EventDetailPage() {
 
   return (
     <div className="min-h-screen">
-      {/*
-        Pressed a lineup name with no page here yet? This overlay is the whole
-        time between the press and that artist's page - the lookup, and on a
-        first open the gigography import behind it. It is intentional, themed
-        and centred rather than a black gap, and a failure lands in the same
-        panel with a retry instead of leaving the page silently stuck.
-      */}
-      {(openingArtist || openFailure) && (
-        <div
-          className="
-            fixed
-            inset-0
-            z-50
-            flex
-            items-center
-            justify-center
-            bg-background/80
-            backdrop-blur-sm
-            px-4
-          "
-          data-testid="artist-open-overlay"
-        >
-          <div className="rounded-2xl border border-border bg-card-bg p-8 shadow-xl">
-            <ArtistSyncLoading
-              phase={openingArtist?.phase ?? 'searching'}
-              artistName={
-                (openingArtist ?? openFailure)?.performer.name
-              }
-              failure={openFailure?.reason ?? null}
-              onRetry={
-                openFailure
-                  ? () => handleLineupArtistOpen(openFailure.performer)
-                  : undefined
-              }
-              onClose={
-                openFailure ? () => setOpenFailure(null) : undefined
-              }
-            />
-          </div>
-        </div>
-      )}
-
       <main className="max-w-6xl mx-auto px-4 py-8">
         <Link
           href={`/${locale}/events`}
@@ -1218,7 +1094,6 @@ export default function EventDetailPage() {
                       locale={locale}
                       variant="row"
                       testId="event-lineup-entry"
-                      onOpen={handleLineupArtistOpen}
                     />
                   ))}
                 </div>
